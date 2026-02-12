@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -33,6 +33,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - DB-backed RBAC integration tests and dedicated CI Postgres job
 - End-to-end callback integration tests for complaint/risk moderation flows
 - Queue message edit and timeline consistency regression coverage for moderation callbacks
+- Timeline event sequence guards for callback flows (`create -> moderation action -> resolve`)
 
 ## Sprint 0 Checklist
 
@@ -175,6 +176,13 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Timeline consistency checks for complaint/fraud lifecycle after moderation callbacks
 - [x] Regression guard for repeated callback clicks (idempotent behavior)
 - [x] `BAN_USER` callback logs linked to auction timeline (`auction_id` in moderation log)
+
+## Sprint 20 Checklist (Timeline Sequence Guards)
+
+- [x] Integration helper to assert ordered timeline subsequences in callback scenarios
+- [x] Sequence checks for complaint freeze and fraud ban callback paths
+- [x] Sequence checks for repeated callback idempotency path
+- [x] Manual QA expected order synced with callback event ordering
 
 ## Quick Start
 
@@ -331,7 +339,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 20)
+## Next (Sprint 21)
 
-- Add stricter sequence assertions for timeline events in callback scenarios (create -> moderation action -> resolve)
+- Add deterministic timeline tie-breaking when events share the same timestamp
+- Add regression tests for same-timestamp ordering in complaint and fraud flows
 - Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR

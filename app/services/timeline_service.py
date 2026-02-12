@@ -29,6 +29,20 @@ def _label_user(users_by_id: dict[int, User], user_id: int | None) -> str:
     return str(user.tg_user_id)
 
 
+def _timeline_order_rank(item: AuctionTimelineItem) -> int:
+    if item.title in {"Аукцион создан", "Аукцион опубликован"}:
+        return 10
+    if item.title in {"Ставка принята", "Ставка снята"}:
+        return 20
+    if item.title in {"Жалоба создана", "Фрод-сигнал создан"}:
+        return 30
+    if item.source == "moderation":
+        return 40
+    if item.title in {"Жалоба обработана", "Фрод-сигнал обработан"}:
+        return 50
+    return 60
+
+
 async def build_auction_timeline(
     session: AsyncSession,
     auction_id: uuid.UUID,
@@ -188,5 +202,13 @@ async def build_auction_timeline(
             )
         )
 
-    timeline.sort(key=lambda item: item.happened_at)
+    timeline.sort(
+        key=lambda item: (
+            item.happened_at,
+            _timeline_order_rank(item),
+            item.source,
+            item.title,
+            item.details,
+        )
+    )
     return auction, timeline
