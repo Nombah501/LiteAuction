@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +14,8 @@ from app.db.enums import AppealSourceType, ModerationAction
 from app.db.models import Appeal, User
 from app.db.session import SessionFactory
 from app.services.appeal_service import escalate_overdue_appeals, resolve_appeal_auction_id
+from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.moderation_service import log_moderation_action
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -91,26 +88,6 @@ async def _resolve_escalation_actor_user_id(session: AsyncSession) -> int:
         return existing_actor.id
 
 
-async def _notify_moderators(bot: Bot, text: str) -> None:
-    moderation_chat_id = settings.parsed_moderation_chat_id()
-    moderation_thread_id = settings.parsed_moderation_thread_id()
-    if moderation_chat_id is not None:
-        try:
-            kwargs: dict[str, object] = {}
-            if moderation_thread_id is not None:
-                kwargs["message_thread_id"] = moderation_thread_id
-            await bot.send_message(moderation_chat_id, text, **kwargs)
-            return
-        except (TelegramBadRequest, TelegramForbiddenError) as exc:
-            logger.warning("Failed to notify moderation chat about escalated appeal: %s", exc)
-
-    for admin_tg_id in settings.parsed_admin_user_ids():
-        try:
-            await bot.send_message(admin_tg_id, text)
-        except TelegramForbiddenError:
-            continue
-
-
 async def process_overdue_appeal_escalations(bot: Bot) -> int:
     if not settings.appeal_escalation_enabled:
         return 0
@@ -175,6 +152,10 @@ async def process_overdue_appeal_escalations(bot: Bot) -> int:
         )
 
     for item in escalated_items:
-        await _notify_moderators(bot, _render_escalation_text(item))
+        await send_section_message(
+            bot,
+            section=ModerationTopicSection.APPEALS,
+            text=_render_escalation_text(item),
+        )
 
     return len(escalated_items)

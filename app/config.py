@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     admin_operator_user_ids: str = ""
     moderation_chat_id: str = ""
     moderation_thread_id: str = ""
+    moderation_topic_complaints_id: str = ""
+    moderation_topic_suggestions_id: str = ""
+    moderation_topic_bugs_id: str = ""
+    moderation_topic_guarantors_id: str = ""
+    moderation_topic_appeals_id: str = ""
+    moderation_topic_auctions_active_id: str = ""
+    moderation_topic_auctions_frozen_id: str = ""
+    moderation_topic_auctions_closed_id: str = ""
     admin_panel_token: str = ""
     ui_emoji_create_auction_id: str = ""
     ui_emoji_publish_id: str = ""
@@ -91,6 +99,31 @@ class Settings(BaseSettings):
         if not value:
             return None
         return int(value)
+
+    def parsed_moderation_topic_ids(self) -> dict[str, int]:
+        raw_map = {
+            "complaints": self.moderation_topic_complaints_id,
+            "suggestions": self.moderation_topic_suggestions_id,
+            "bugs": self.moderation_topic_bugs_id,
+            "guarantors": self.moderation_topic_guarantors_id,
+            "appeals": self.moderation_topic_appeals_id,
+            "auctions_active": self.moderation_topic_auctions_active_id,
+            "auctions_frozen": self.moderation_topic_auctions_frozen_id,
+            "auctions_closed": self.moderation_topic_auctions_closed_id,
+        }
+        parsed: dict[str, int] = {}
+        for section, value in raw_map.items():
+            normalized = value.strip()
+            if not normalized:
+                continue
+            parsed[section] = int(normalized)
+        return parsed
+
+    def parsed_moderation_topic_id(self, section: str) -> int | None:
+        normalized = section.strip().lower()
+        if not normalized:
+            return None
+        return self.parsed_moderation_topic_ids().get(normalized)
 
 
 @lru_cache(1)

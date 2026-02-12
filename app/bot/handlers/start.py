@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
-from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 
 from app.bot.keyboards.auction import start_private_keyboard
-from app.config import settings
 from app.db.session import SessionFactory
 from app.services.appeal_service import create_appeal_from_ref
+from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.user_service import upsert_user
 
 router = Router(name="start")
@@ -52,27 +51,7 @@ async def _notify_moderators_about_appeal(
         f"Юзернейм: {username}"
     )
 
-    moderation_chat_id = settings.parsed_moderation_chat_id()
-    moderation_thread_id = settings.parsed_moderation_thread_id()
-    if moderation_chat_id is not None:
-        try:
-            if moderation_thread_id is not None:
-                await bot.send_message(
-                    chat_id=moderation_chat_id,
-                    text=text,
-                    message_thread_id=moderation_thread_id,
-                )
-            else:
-                await bot.send_message(chat_id=moderation_chat_id, text=text)
-            return
-        except TelegramForbiddenError:
-            pass
-
-    for admin_tg_id in settings.parsed_admin_user_ids():
-        try:
-            await bot.send_message(chat_id=admin_tg_id, text=text)
-        except TelegramForbiddenError:
-            continue
+    await send_section_message(bot, section=ModerationTopicSection.APPEALS, text=text)
 
 
 @router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
