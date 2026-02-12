@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     fraud_historical_spike_score: int = 20
     fraud_historical_start_ratio_low: float = 0.5
     fraud_historical_start_ratio_high: float = 2.0
+    appeal_sla_open_hours: int = 24
+    appeal_sla_in_review_hours: int = 12
+    appeal_escalation_enabled: bool = True
+    appeal_escalation_interval_seconds: int = 60
+    appeal_escalation_batch_size: int = 50
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

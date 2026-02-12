@@ -13,6 +13,7 @@ from app.config import settings
 from app.db.session import dispose_database, ping_database
 from app.infra.redis_client import close_redis, ping_redis
 from app.logging_setup import configure_logging
+from app.services.appeal_escalation_watcher import run_appeal_escalation_watcher
 from app.services.auction_watcher import cancel_watcher, run_auction_watcher
 
 logger = logging.getLogger(__name__)
@@ -47,11 +48,13 @@ async def run() -> None:
     await startup_checks()
     await configure_bot_commands(bot)
     watcher_task: asyncio.Task[None] | None = asyncio.create_task(run_auction_watcher(bot))
+    escalation_task: asyncio.Task[None] | None = asyncio.create_task(run_appeal_escalation_watcher(bot))
 
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         await cancel_watcher(watcher_task)
+        await cancel_watcher(escalation_task)
         await bot.session.close()
         await close_redis()
         await dispose_database()

@@ -112,6 +112,13 @@ def _parse_appeal_source_filter(raw: str) -> AppealSourceType | None:
     raise HTTPException(status_code=400, detail="Invalid appeals source filter")
 
 
+def _parse_appeal_overdue_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "only", "none"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid appeals overdue filter")
+
+
 def _appeal_source_label(source_type: AppealSourceType, source_id: int | None) -> str:
     if source_type == AppealSourceType.COMPLAINT:
         return f"Жалоба #{source_id}" if source_id is not None else "Жалоба"
@@ -132,6 +139,16 @@ def _appeal_status_label(status: AppealStatus | str) -> str:
     if normalized == AppealStatus.REJECTED.value:
         return "Отклонена"
     return raw
+
+
+def _appeal_is_overdue(appeal: Appeal, *, now: datetime | None = None) -> bool:
+    status = AppealStatus(appeal.status)
+    if status not in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
+        return False
+    if appeal.sla_deadline_at is None:
+        return False
+    current_time = now or datetime.now(UTC)
+    return appeal.sla_deadline_at <= current_time
 
 
 def _violator_status_label(status: str) -> str:
@@ -1514,6 +1531,7 @@ async def appeals(
     request: Request,
     status: str = "open",
     source: str = "all",
+    overdue: str = "all",
     page: int = 0,
     q: str = "",
 ) -> Response:
@@ -1527,6 +1545,8 @@ async def appeals(
     query_value = q.strip()
     status_value = status.strip().lower()
     source_value = source.strip().lower()
+    overdue_value = _parse_appeal_overdue_filter(overdue)
+    now = datetime.now(UTC)
 
     status_filter = _parse_appeal_status_filter(status_value)
     source_filter = _parse_appeal_source_filter(source_value)
@@ -1542,6 +1562,21 @@ async def appeals(
         stmt = stmt.where(Appeal.status == status_filter)
     if source_filter is not None:
         stmt = stmt.where(Appeal.source_type == source_filter)
+
+    if overdue_value == "only":
+        stmt = stmt.where(
+            Appeal.status.in_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]),
+            Appeal.sla_deadline_at.is_not(None),
+            Appeal.sla_deadline_at <= now,
+        )
+    elif overdue_value == "none":
+        stmt = stmt.where(
+            or_(
+                Appeal.status.notin_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]),
+                Appeal.sla_deadline_at.is_(None),
+                Appeal.sla_deadline_at > now,
+            )
+        )
 
     if query_value:
         if query_value.isdigit():
@@ -1573,7 +1608,9 @@ async def appeals(
     has_next = len(rows) > page_size
     rows = rows[:page_size]
 
-    return_to = f"/appeals?status={status_value}&source={source_value}&page={page}&q={query_value}"
+    return_to = (
+        f"/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&page={page}&q={query_value}"
+    )
     csrf_input = _csrf_hidden_input(request, auth)
     table_rows = ""
 
@@ -1586,6 +1623,7 @@ async def appeals(
 
         actions = "-"
         appeal_status = AppealStatus(appeal.status)
+        is_overdue = _appeal_is_overdue(appeal, now=now)
         if appeal_status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
             action_forms: list[str] = []
             if appeal_status == AppealStatus.OPEN:
@@ -1622,25 +1660,27 @@ async def appeals(
             f"<td>{escape(appeal.appeal_ref)}</td>"
             f"<td>{escape(source_label)}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{appellant.id}'))}'>{escape(appellant_label)}</a></td>"
-            f"<td>{escape(_appeal_status_label(appeal_status))}</td>"
+            f"<td>{escape(_appeal_status_label(appeal_status))}{' ⏰' if is_overdue else ''}</td>"
             f"<td>{escape((appeal.resolution_note or '-')[:160])}</td>"
             f"<td>{escape(resolver_label)}</td>"
             f"<td>{escape(_fmt_ts(appeal.created_at))}</td>"
+            f"<td>{escape(_fmt_ts(appeal.sla_deadline_at))}</td>"
+            f"<td>{escape(_fmt_ts(appeal.escalated_at))}</td>"
             f"<td>{escape(_fmt_ts(appeal.resolved_at))}</td>"
             f"<td>{actions}</td>"
             "</tr>"
         )
 
     if not table_rows:
-        table_rows = "<tr><td colspan='10'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='12'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
         if has_next
         else ""
     )
@@ -1653,21 +1693,26 @@ async def appeals(
         f"<form method='get' action='{escape(_path_with_auth(request, '/appeals'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input type='hidden' name='source' value='{escape(source_value)}'>"
+        f"<input type='hidden' name='overdue' value='{escape(overdue_value)}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='референс / tg id / username' style='width:300px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
         f"<p>Статус: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&q={query_value}'))}'>Открытые</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&q={query_value}'))}'>На рассмотрении</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&q={query_value}'))}'>Удовлетворенные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&q={query_value}'))}'>Отклоненные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&q={query_value}'))}'>Все</a></p>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&overdue={overdue_value}&q={query_value}'))}'>Открытые</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&overdue={overdue_value}&q={query_value}'))}'>На рассмотрении</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&overdue={overdue_value}&q={query_value}'))}'>Удовлетворенные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&overdue={overdue_value}&q={query_value}'))}'>Отклоненные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&overdue={overdue_value}&q={query_value}'))}'>Все</a></p>"
         f"<p>Источник: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&q={query_value}'))}'>Жалобы</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&q={query_value}'))}'>Фрод</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&q={query_value}'))}'>Ручные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&q={query_value}'))}'>Все</a></p>"
-        "<table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>Закрыто</th><th>Действия</th></tr></thead>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&overdue={overdue_value}&q={query_value}'))}'>Жалобы</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&overdue={overdue_value}&q={query_value}'))}'>Фрод</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&overdue={overdue_value}&q={query_value}'))}'>Ручные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&overdue={overdue_value}&q={query_value}'))}'>Все</a></p>"
+        f"<p>SLA: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=all&q={query_value}'))}'>Все</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=only&q={query_value}'))}'>Просроченные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=none&q={query_value}'))}'>Непросроченные</a></p>"
+        "<table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
