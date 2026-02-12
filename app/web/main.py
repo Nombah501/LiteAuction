@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import secrets
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import escape
 import logging
 from urllib.parse import urlencode, urlsplit
@@ -113,6 +113,17 @@ def _appeal_source_label(source_type: AppealSourceType, source_id: int | None) -
     if source_type == AppealSourceType.RISK:
         return f"risk #{source_id}" if source_id is not None else "risk"
     return "manual"
+
+
+def _parse_ymd_filter(raw: str, *, field_name: str) -> datetime | None:
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name} date format") from exc
+    return parsed.replace(tzinfo=UTC)
 
 
 def _token_from_request(request: Request) -> str | None:
@@ -1293,7 +1304,15 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
 
 
 @app.get("/violators", response_class=HTMLResponse)
-async def violators(request: Request, status: str = "active", page: int = 0, q: str = "") -> Response:
+async def violators(
+    request: Request,
+    status: str = "active",
+    page: int = 0,
+    q: str = "",
+    by: str = "",
+    created_from: str = "",
+    created_to: str = "",
+) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
         return response
@@ -1302,9 +1321,18 @@ async def violators(request: Request, status: str = "active", page: int = 0, q: 
     page_size = 30
     offset = page * page_size
     query_value = q.strip()
+    moderator_value = by.strip()
+    created_from_value = created_from.strip()
+    created_to_value = created_to.strip()
     status_value = status.strip().lower()
     if status_value not in {"active", "inactive", "all"}:
         raise HTTPException(status_code=400, detail="Invalid violators status filter")
+
+    created_from_dt = _parse_ymd_filter(created_from_value, field_name="created_from")
+    created_to_dt = _parse_ymd_filter(created_to_value, field_name="created_to")
+    created_to_exclusive = created_to_dt + timedelta(days=1) if created_to_dt is not None else None
+    if created_from_dt is not None and created_to_exclusive is not None and created_from_dt >= created_to_exclusive:
+        raise HTTPException(status_code=400, detail="Invalid violators date range")
 
     actor_user = aliased(User)
     stmt = (
@@ -1317,6 +1345,11 @@ async def violators(request: Request, status: str = "active", page: int = 0, q: 
         stmt = stmt.where(BlacklistEntry.is_active.is_(True))
     elif status_value == "inactive":
         stmt = stmt.where(BlacklistEntry.is_active.is_(False))
+
+    if created_from_dt is not None:
+        stmt = stmt.where(BlacklistEntry.created_at >= created_from_dt)
+    if created_to_exclusive is not None:
+        stmt = stmt.where(BlacklistEntry.created_at < created_to_exclusive)
 
     if query_value:
         if query_value.isdigit():
@@ -1335,6 +1368,17 @@ async def violators(request: Request, status: str = "active", page: int = 0, q: 
                 )
             )
 
+    if moderator_value:
+        if moderator_value.isdigit():
+            stmt = stmt.where(
+                or_(
+                    actor_user.tg_user_id == int(moderator_value),
+                    actor_user.username.ilike(f"%{moderator_value}%"),
+                )
+            )
+        else:
+            stmt = stmt.where(actor_user.username.ilike(f"%{moderator_value}%"))
+
     stmt = (
         stmt.order_by(BlacklistEntry.created_at.desc())
         .offset(offset)
@@ -1347,12 +1391,39 @@ async def violators(request: Request, status: str = "active", page: int = 0, q: 
     has_next = len(rows) > page_size
     rows = rows[:page_size]
 
+    base_query = {
+        "status": status_value,
+        "q": query_value,
+        "by": moderator_value,
+        "created_from": created_from_value,
+        "created_to": created_to_value,
+    }
+
+    def _violators_path(*, target_page: int) -> str:
+        return f"/violators?{urlencode({**base_query, 'page': str(target_page)})}"
+
+    csrf_input = _csrf_hidden_input(request, auth)
+    return_to = _violators_path(target_page=page)
+
     table_rows = ""
     for entry, target_user, actor in rows:
         actor_label = "-"
         if actor is not None:
             actor_label = f"@{actor.username}" if actor.username else str(actor.tg_user_id)
         target_label = f"@{target_user.username}" if target_user.username else "-"
+
+        actions = "-"
+        if entry.is_active:
+            actions = (
+                f"<form method='post' action='{escape(_path_with_auth(request, '/actions/user/unban'))}'>"
+                f"<input type='hidden' name='target_tg_user_id' value='{target_user.tg_user_id}'>"
+                f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
+                f"{csrf_input}"
+                "<input name='reason' placeholder='Причина разбана' style='width:180px' required>"
+                "<button type='submit'>Unban</button>"
+                "</form>"
+            )
+
         table_rows += (
             "<tr>"
             f"<td>{entry.id}</td>"
@@ -1363,22 +1434,26 @@ async def violators(request: Request, status: str = "active", page: int = 0, q: 
             f"<td>{escape(actor_label)}</td>"
             f"<td>{escape(_fmt_ts(entry.created_at))}</td>"
             f"<td>{escape(_fmt_ts(entry.expires_at))}</td>"
+            f"<td>{actions}</td>"
             "</tr>"
         )
 
     if not table_rows:
-        table_rows = "<tr><td colspan='8'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='9'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/violators?status={status_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _violators_path(target_page=page - 1)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/violators?status={status_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _violators_path(target_page=page + 1)))}'>Вперед →</a>"
         if has_next
         else ""
     )
+    active_status_path = f"/violators?{urlencode({**base_query, 'status': 'active', 'page': '0'})}"
+    inactive_status_path = f"/violators?{urlencode({**base_query, 'status': 'inactive', 'page': '0'})}"
+    all_status_path = f"/violators?{urlencode({**base_query, 'status': 'all', 'page': '0'})}"
 
     body = (
         "<h1>Нарушители</h1>"
@@ -1388,13 +1463,16 @@ async def violators(request: Request, status: str = "active", page: int = 0, q: 
         f"<form method='get' action='{escape(_path_with_auth(request, '/violators'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='tg id / username / reason' style='width:280px'>"
+        f"<input name='by' value='{escape(moderator_value)}' placeholder='модератор tg id / username' style='width:220px'>"
+        f"<input name='created_from' value='{escape(created_from_value)}' placeholder='from YYYY-MM-DD' style='width:150px'>"
+        f"<input name='created_to' value='{escape(created_to_value)}' placeholder='to YYYY-MM-DD' style='width:150px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
         f"<p>Фильтр: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/violators?status=active&q={query_value}'))}'>active</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/violators?status=inactive&q={query_value}'))}'>inactive</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/violators?status=all&q={query_value}'))}'>all</a></p>"
-        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Status</th><th>Reason</th><th>By</th><th>Created</th><th>Expires</th></tr></thead>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, active_status_path))}'>active</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, inactive_status_path))}'>inactive</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, all_status_path))}'>all</a></p>"
+        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Status</th><th>Reason</th><th>By</th><th>Created</th><th>Expires</th><th>Actions</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
