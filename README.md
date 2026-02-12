@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -34,6 +34,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - End-to-end callback integration tests for complaint/risk moderation flows
 - Queue message edit and timeline consistency regression coverage for moderation callbacks
 - Timeline event sequence guards for callback flows (`create -> moderation action -> resolve`)
+- Stable per-entity timeline ordering on equal timestamps (`created_at` + primary-key tie-breakers)
 
 ## Sprint 0 Checklist
 
@@ -183,6 +184,17 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Sequence checks for complaint freeze and fraud ban callback paths
 - [x] Sequence checks for repeated callback idempotency path
 - [x] Manual QA expected order synced with callback event ordering
+
+## Sprint 21 Checklist (Same-Timestamp Ordering)
+
+- [x] Deterministic tie-break rules for timeline events sharing the same timestamp
+- [x] Integration regressions for complaint/fraud ordering with same `happened_at`
+
+## Sprint 22 Checklist (Per-Entity Stable Order)
+
+- [x] Added primary-key tie-breakers to timeline source queries (`created_at`, then `id`)
+- [x] Removed fragile string-based final tie-breakers from timeline sorting
+- [x] Added regressions for multiple complaints/signals with identical timestamps to enforce numeric id ordering
 
 ## Quick Start
 
@@ -339,8 +351,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 21)
+## Next (Sprint 23)
 
-- Add deterministic timeline tie-breaking when events share the same timestamp
-- Add regression tests for same-timestamp ordering in complaint and fraud flows
+- Add timeline pagination/limit support in admin view for high-volume auctions
+- Add regression tests for page boundaries while preserving chronological/stable ordering
 - Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR

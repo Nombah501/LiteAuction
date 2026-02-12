@@ -52,21 +52,31 @@ async def build_auction_timeline(
         return None, []
 
     bids = (
-        await session.execute(select(Bid).where(Bid.auction_id == auction_id).order_by(Bid.created_at.asc()))
+        await session.execute(
+            select(Bid)
+            .where(Bid.auction_id == auction_id)
+            .order_by(Bid.created_at.asc(), Bid.id.asc())
+        )
     ).scalars().all()
     complaints = (
         await session.execute(
-            select(Complaint).where(Complaint.auction_id == auction_id).order_by(Complaint.created_at.asc())
+            select(Complaint)
+            .where(Complaint.auction_id == auction_id)
+            .order_by(Complaint.created_at.asc(), Complaint.id.asc())
         )
     ).scalars().all()
     signals = (
         await session.execute(
-            select(FraudSignal).where(FraudSignal.auction_id == auction_id).order_by(FraudSignal.created_at.asc())
+            select(FraudSignal)
+            .where(FraudSignal.auction_id == auction_id)
+            .order_by(FraudSignal.created_at.asc(), FraudSignal.id.asc())
         )
     ).scalars().all()
     mod_logs = (
         await session.execute(
-            select(ModerationLog).where(ModerationLog.auction_id == auction_id).order_by(ModerationLog.created_at.asc())
+            select(ModerationLog)
+            .where(ModerationLog.auction_id == auction_id)
+            .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
         )
     ).scalars().all()
 
@@ -206,9 +216,6 @@ async def build_auction_timeline(
         key=lambda item: (
             item.happened_at,
             _timeline_order_rank(item),
-            item.source,
-            item.title,
-            item.details,
         )
     )
     return auction, timeline
