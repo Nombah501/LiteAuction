@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27 + Sprint 28**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27 + Sprint 28 + Sprint 29**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -41,6 +41,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Bug triage foundation: policy, backlog template, and GitHub bug issue form
 - Bugfix wave 1 improvements for timeline navigation context and pagination safety
 - Bugfix wave 2 improvements for callback retry safety and denied-scope back navigation
+- Visual foundation refresh for admin web layout, controls, and responsive readability
 
 ## Sprint 0 Checklist
 
@@ -240,6 +241,13 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Fixed denied-scope web pages to preserve safe return navigation context
 - [x] Added unit and integration regressions for scope-denied back links and callback retry side effects
 
+## Sprint 29 Checklist (Visual Foundation)
+
+- [x] Refreshed global admin web style system with CSS variables and consistent spacing/typography
+- [x] Improved readability of tables/cards/forms/buttons without changing backend behavior
+- [x] Added responsive layout handling for mobile viewports in core admin pages
+- [x] Updated timeline source quick-links to chip-style controls for clearer filtering affordance
+
 ## Quick Start
 
 1. Copy env template:
@@ -395,8 +403,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 29)
+## Next (Sprint 30)
 
-- Start visual foundation pass for admin web (layout consistency, controls readability, state styling)
-- Keep behavior unchanged while improving usability on desktop and mobile
+- Apply final visual polish pass (empty/error states, contrast tuning, focus/keyboard affordances)
+- Prepare release-readiness checklist with consolidated Manual QA evidence
 - Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR
