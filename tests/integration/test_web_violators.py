@@ -4,13 +4,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import HTMLResponse
 from starlette.requests import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import BlacklistEntry, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import violators
+from app.web.main import action_unban_user, violators
 
 
 def _make_request(path: str) -> Request:
@@ -179,6 +180,74 @@ async def test_violators_page_filters_by_moderator_and_date(monkeypatch, integra
 
 
 @pytest.mark.asyncio
+async def test_violators_pagination_keeps_new_filters_in_links(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    now = datetime.now(UTC)
+    created_from = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    created_to = now.strftime("%Y-%m-%d")
+
+    async with session_factory() as session:
+        async with session.begin():
+            actor = User(tg_user_id=99410, username="mod_pager")
+            session.add(actor)
+            await session.flush()
+
+            targets: list[User] = []
+            for idx in range(31):
+                target = User(tg_user_id=99500 + idx, username=f"violator_{idx}")
+                session.add(target)
+                targets.append(target)
+            await session.flush()
+
+            for idx, target in enumerate(targets):
+                session.add(
+                    BlacklistEntry(
+                        user_id=target.id,
+                        reason=f"violation #{idx}",
+                        created_by_user_id=actor.id,
+                        is_active=True,
+                        created_at=now - timedelta(minutes=idx),
+                    )
+                )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+
+    request = _make_request("/violators")
+    response_page_0 = await violators(
+        request,
+        status="active",
+        page=0,
+        q="",
+        by="mod_pager",
+        created_from=created_from,
+        created_to=created_to,
+    )
+    body_page_0 = bytes(response_page_0.body).decode("utf-8")
+    assert response_page_0.status_code == 200
+    assert (
+        f"/violators?status=active&amp;q=&amp;by=mod_pager&amp;"
+        f"created_from={created_from}&amp;created_to={created_to}&amp;page=1"
+    ) in body_page_0
+
+    response_page_1 = await violators(
+        request,
+        status="active",
+        page=1,
+        q="",
+        by="mod_pager",
+        created_from=created_from,
+        created_to=created_to,
+    )
+    body_page_1 = bytes(response_page_1.body).decode("utf-8")
+    assert response_page_1.status_code == 200
+    assert (
+        f"/violators?status=active&amp;q=&amp;by=mod_pager&amp;"
+        f"created_from={created_from}&amp;created_to={created_to}&amp;page=0"
+    ) in body_page_1
+
+
+@pytest.mark.asyncio
 async def test_violators_page_shows_unban_action_for_active_entries(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -232,3 +301,36 @@ async def test_violators_page_rejects_invalid_date_filter(monkeypatch) -> None:
         await violators(request, status="active", page=0, q="", created_from="2026-99-99")
 
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_violators_page_requires_user_ban_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
+    )
+    request = _make_request("/violators")
+
+    response = await violators(request, status="active", page=0, q="")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_action_unban_user_requires_user_ban_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
+    )
+    request = _make_request("/actions/user/unban")
+
+    response = await action_unban_user(
+        request,
+        target_tg_user_id=777001,
+        reason="manual rollback",
+        return_to="/violators?status=active",
+        csrf_token="ok",
+        confirmed="1",
+    )
+
+    assert response.status_code == 403

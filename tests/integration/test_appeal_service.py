@@ -8,6 +8,7 @@ from app.db.enums import AppealSourceType, AppealStatus
 from app.db.models import Appeal, User
 from app.services.appeal_service import (
     create_appeal_from_ref,
+    mark_appeal_in_review,
     parse_appeal_ref,
     reject_appeal,
     resolve_appeal,
@@ -115,3 +116,50 @@ async def test_finalize_appeal_transitions(integration_engine) -> None:
     assert repeat_result.ok is False
     assert repeat_result.appeal is not None
     assert repeat_result.appeal.status == AppealStatus.RESOLVED
+
+
+@pytest.mark.asyncio
+async def test_mark_appeal_in_review_allows_followup_finalize(integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=88401, username="appellant_review")
+            reviewer = User(tg_user_id=88402, username="reviewer")
+            resolver = User(tg_user_id=88403, username="resolver")
+            session.add_all([appellant, reviewer, resolver])
+            await session.flush()
+
+            appeal = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_review_step",
+            )
+
+            review_result = await mark_appeal_in_review(
+                session,
+                appeal_id=appeal.id,
+                reviewer_user_id=reviewer.id,
+                note="Взята в работу",
+            )
+
+            assert review_result.ok is True
+            assert review_result.appeal is not None
+            assert review_result.appeal.status == AppealStatus.IN_REVIEW
+            assert review_result.appeal.resolver_user_id == reviewer.id
+            assert review_result.appeal.resolution_note == "Взята в работу"
+            assert review_result.appeal.resolved_at is None
+
+            resolve_result = await resolve_appeal(
+                session,
+                appeal_id=appeal.id,
+                resolver_user_id=resolver.id,
+                note="Проверено",
+            )
+
+    assert resolve_result.ok is True
+    assert resolve_result.appeal is not None
+    assert resolve_result.appeal.status == AppealStatus.RESOLVED
+    assert resolve_result.appeal.resolver_user_id == resolver.id
+    assert resolve_result.appeal.resolution_note == "Проверено"
+    assert resolve_result.appeal.resolved_at is not None

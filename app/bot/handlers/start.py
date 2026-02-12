@@ -46,10 +46,10 @@ async def _notify_moderators_about_appeal(
     username = f"@{message.from_user.username}" if message.from_user.username else "-"
     text = (
         "Новая апелляция\n"
-        f"Appeal ID: {appeal_id}\n"
+        f"ID апелляции: {appeal_id}\n"
         f"Референс: {appeal_ref}\n"
         f"TG user id: {message.from_user.id}\n"
-        f"Username: {username}"
+        f"Юзернейм: {username}"
     )
 
     moderation_chat_id = settings.parsed_moderation_chat_id()

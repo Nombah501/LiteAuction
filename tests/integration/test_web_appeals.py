@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
+from fastapi.responses import HTMLResponse
 import pytest
 from starlette.requests import Request
 from sqlalchemy import select
@@ -10,7 +11,7 @@ from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, Moderati
 from app.db.models import Appeal, Auction, FraudSignal, ModerationLog, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import action_reject_appeal, action_resolve_appeal, appeals
+from app.web.main import action_reject_appeal, action_resolve_appeal, action_review_appeal, appeals
 
 
 def _make_request(path: str, *, method: str = "GET") -> Request:
@@ -103,6 +104,111 @@ async def test_appeals_page_rejects_invalid_status(monkeypatch) -> None:
         await appeals(request, status="broken", source="all", page=0, q="")
 
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_appeals_page_requires_user_ban_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
+    )
+    request = _make_request("/appeals")
+
+    response = await appeals(request, status="open", source="all", page=0, q="")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_action_resolve_appeal_requires_user_ban_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
+    )
+
+    request = _make_request("/actions/appeal/resolve", method="POST")
+    response = await action_resolve_appeal(
+        request,
+        appeal_id=42,
+        reason="checked",
+        return_to="/appeals?status=open&source=all",
+        csrf_token="ok",
+        confirmed="1",
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_action_review_appeal_requires_user_ban_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
+    )
+
+    request = _make_request("/actions/appeal/review", method="POST")
+    response = await action_review_appeal(
+        request,
+        appeal_id=42,
+        reason="picked",
+        return_to="/appeals?status=open&source=all",
+        csrf_token="ok",
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_action_review_appeal_updates_status(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=99271, username="review_appellant")
+            actor = User(tg_user_id=99272, username="review_actor")
+            session.add_all([appellant, actor])
+            await session.flush()
+
+            appeal = Appeal(
+                appeal_ref="manual_review_901",
+                source_type=AppealSourceType.MANUAL,
+                source_id=None,
+                appellant_user_id=appellant.id,
+                status=AppealStatus.OPEN,
+            )
+            session.add(appeal)
+            await session.flush()
+            appeal_id = appeal.id
+            actor_user_id = actor.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+
+    async def _resolve_actor(_auth):
+        return actor_user_id
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+
+    request = _make_request("/actions/appeal/review", method="POST")
+    response = await action_review_appeal(
+        request,
+        appeal_id=appeal_id,
+        reason="picked",
+        return_to="/appeals?status=open&source=all",
+        csrf_token="ok",
+    )
+
+    assert response.status_code == 303
+
+    async with session_factory() as session:
+        appeal_row = await session.scalar(select(Appeal).where(Appeal.id == appeal_id))
+
+    assert appeal_row is not None
+    assert appeal_row.status == AppealStatus.IN_REVIEW
+    assert appeal_row.resolution_note == "[web-review] picked"
+    assert appeal_row.resolver_user_id == actor_user_id
+    assert appeal_row.resolved_at is None
 
 
 @pytest.mark.asyncio

@@ -121,6 +121,39 @@ def _can_finalize(status: AppealStatus) -> bool:
     return status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}
 
 
+def _can_start_review(status: AppealStatus) -> bool:
+    return status == AppealStatus.OPEN
+
+
+async def mark_appeal_in_review(
+    session: AsyncSession,
+    *,
+    appeal_id: int,
+    reviewer_user_id: int,
+    note: str,
+) -> AppealResolveResult:
+    appeal = await load_appeal(session, appeal_id, for_update=True)
+    if appeal is None:
+        return AppealResolveResult(False, "Апелляция не найдена")
+
+    current_status = AppealStatus(appeal.status)
+    if current_status == AppealStatus.IN_REVIEW:
+        return AppealResolveResult(True, "Апелляция уже в работе", appeal=appeal)
+    if not _can_start_review(current_status):
+        return AppealResolveResult(False, "Апелляция уже закрыта", appeal=appeal)
+
+    now = datetime.now(UTC)
+    appeal.status = AppealStatus.IN_REVIEW
+    appeal.resolver_user_id = reviewer_user_id
+
+    review_note = note.strip()
+    if review_note:
+        appeal.resolution_note = review_note
+
+    appeal.updated_at = now
+    return AppealResolveResult(True, "Апелляция взята в работу", appeal=appeal)
+
+
 async def finalize_appeal(
     session: AsyncSession,
     *,
