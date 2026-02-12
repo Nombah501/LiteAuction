@@ -30,6 +30,7 @@ from app.services.fraud_service import (
     render_fraud_signal_text,
     set_fraud_signal_queue_message,
 )
+from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.user_service import upsert_user
 
 router = Router(name="bid_actions")
@@ -114,29 +115,12 @@ async def _notify_moderators_about_complaint(
     text: str,
 ) -> tuple[int, int] | None:
     keyboard = complaint_actions_keyboard(complaint_id)
-
-    moderation_chat_id = settings.parsed_moderation_chat_id()
-    moderation_thread_id = settings.parsed_moderation_thread_id()
-    if moderation_chat_id is not None:
-        try:
-            kwargs: dict[str, int] = {}
-            if moderation_thread_id is not None:
-                kwargs["message_thread_id"] = moderation_thread_id
-            msg = await bot.send_message(moderation_chat_id, text, reply_markup=keyboard, **kwargs)
-            return msg.chat.id, msg.message_id
-        except TelegramForbiddenError:
-            pass
-
-    first_message: tuple[int, int] | None = None
-    for admin_tg_id in settings.parsed_admin_user_ids():
-        try:
-            msg = await bot.send_message(admin_tg_id, text, reply_markup=keyboard)
-            if first_message is None:
-                first_message = (msg.chat.id, msg.message_id)
-        except TelegramForbiddenError:
-            continue
-
-    return first_message
+    return await send_section_message(
+        bot,
+        section=ModerationTopicSection.COMPLAINTS,
+        text=text,
+        reply_markup=keyboard,
+    )
 
 
 async def _notify_moderators_about_fraud(
@@ -146,29 +130,12 @@ async def _notify_moderators_about_fraud(
     text: str,
 ) -> tuple[int, int] | None:
     keyboard = fraud_actions_keyboard(signal_id)
-
-    moderation_chat_id = settings.parsed_moderation_chat_id()
-    moderation_thread_id = settings.parsed_moderation_thread_id()
-    if moderation_chat_id is not None:
-        try:
-            kwargs: dict[str, int] = {}
-            if moderation_thread_id is not None:
-                kwargs["message_thread_id"] = moderation_thread_id
-            msg = await bot.send_message(moderation_chat_id, text, reply_markup=keyboard, **kwargs)
-            return msg.chat.id, msg.message_id
-        except TelegramForbiddenError:
-            pass
-
-    first_message: tuple[int, int] | None = None
-    for admin_tg_id in settings.parsed_admin_user_ids():
-        try:
-            msg = await bot.send_message(admin_tg_id, text, reply_markup=keyboard)
-            if first_message is None:
-                first_message = (msg.chat.id, msg.message_id)
-        except TelegramForbiddenError:
-            continue
-
-    return first_message
+    return await send_section_message(
+        bot,
+        section=ModerationTopicSection.BUGS,
+        text=text,
+        reply_markup=keyboard,
+    )
 
 
 async def _maybe_send_fraud_alert(bot: Bot, signal_id: int) -> None:
