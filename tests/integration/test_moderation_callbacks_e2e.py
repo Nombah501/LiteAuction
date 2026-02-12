@@ -245,6 +245,7 @@ async def test_modrisk_ban_updates_db_refresh_and_notifies(monkeypatch, integrat
     actor_tg_user_id = 72001
     monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
     monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+    monkeypatch.setattr(settings, "bot_username", "liteauction_bot")
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
@@ -453,6 +454,7 @@ async def test_modrisk_ban_repeat_click_is_idempotent(monkeypatch, integration_e
     actor_tg_user_id = 74001
     monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
     monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+    monkeypatch.setattr(settings, "bot_username", "liteauction_bot")
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
