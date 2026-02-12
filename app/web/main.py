@@ -345,16 +345,26 @@ def _parse_non_negative_int(raw: str | None) -> int | None:
     return int(raw)
 
 
+def _is_safe_local_path(path: str | None) -> bool:
+    if not path:
+        return False
+    if not path.startswith("/"):
+        return False
+    if path.startswith("//"):
+        return False
+    return True
+
+
 def _safe_back_to_from_request(request: Request, fallback: str = "/") -> str:
     direct = request.query_params.get("return_to")
-    if direct and direct.startswith("/"):
+    if direct is not None and _is_safe_local_path(direct):
         return direct
 
     referer = request.headers.get("referer") or ""
     if referer:
         parsed = urlsplit(referer)
         referer_path = parsed.path or ""
-        if referer_path.startswith("/"):
+        if _is_safe_local_path(referer_path):
             referer_query = f"?{parsed.query}" if parsed.query else ""
             return f"{referer_path}{referer_query}"
 
@@ -816,11 +826,9 @@ async def auction_timeline(
 
 
 def _safe_return_to(return_to: str | None, fallback: str) -> str:
-    if not return_to:
-        return fallback
-    if not return_to.startswith("/"):
-        return fallback
-    return return_to
+    if return_to is not None and _is_safe_local_path(return_to):
+        return return_to
+    return fallback
 
 
 def _action_error_page(request: Request, message: str, *, back_to: str) -> HTMLResponse:

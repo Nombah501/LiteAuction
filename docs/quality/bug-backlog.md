@@ -1,6 +1,6 @@
 # Bug Backlog
 
-Updated: 2026-02-12
+Updated: 2026-02-13
 
 ## Priority Queue (Sprint 27-28 candidates)
 
@@ -11,6 +11,7 @@ Updated: 2026-02-12
 | BUG-003 | P1 | moderation/timeline | Callback retry paths must not create duplicate timeline side effects | reproducible | assigned | 28 | done |
 | BUG-004 | P2 | web/rbac | Denied scope pages should preserve return navigation context consistently | reproducible | assigned | 28 | done |
 | BUG-005 | P2 | web/ui | Timeline empty-state and filter-label rendering should be consistent for invalid or blank input | reproducible | assigned | 27 | done |
+| BUG-006 | P1 | web/security | Reject protocol-relative return paths in `return_to` and denied-page back links | reproducible | assigned | post-sprint | done |
 
 ## Completed in Sprint 27
 
@@ -22,6 +23,10 @@ Updated: 2026-02-12
 
 - `BUG-003`: added idempotency regression coverage for repeated `modrisk:ban` callbacks (no duplicate logs/blacklist/timeline side effects).
 - `BUG-004`: denied-scope pages now preserve safe return navigation using `return_to`/`Referer` context.
+
+## Completed Post-sprint
+
+- `BUG-006`: protocol-relative paths (for example `//host/path`) are now rejected in `return_to` and denied-page back links.
 
 ## Reproduction Notes
 
