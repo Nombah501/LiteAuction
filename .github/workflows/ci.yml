@@ -99,3 +99,7 @@ jobs:
 
       - name: Run DB integration tests
         run: python -m pytest -q tests/integration
+
+      - name: Re-run DB integration tests (anti-flaky)
+        if: github.event_name == 'pull_request'
+        run: python -m pytest -q tests/integration
