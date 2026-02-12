@@ -80,16 +80,20 @@ async def test_timeline_first_page_uses_limit_and_next_link(monkeypatch) -> None
     monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
     monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
 
-    async def fake_build(_session, _auction_id):
+    async def fake_build(_session, _auction_id, *, page, limit, sources):
+        assert page == 0
+        assert limit == 2
+        assert sources is None
         auction = SimpleNamespace(id=auction_id, status=AuctionStatus.ACTIVE, seller_user_id=123)
-        return auction, _timeline_items()
+        items = _timeline_items()
+        return auction, items[:2], len(items)
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline", fake_build)
+    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(request, str(auction_id), page=0, limit=2)
 
     assert response.status_code == 200
-    body = response.body.decode("utf-8")
+    body = bytes(response.body).decode("utf-8")
     assert "Event-1" in body
     assert "Event-2" in body
     assert "Event-3" not in body
@@ -106,16 +110,20 @@ async def test_timeline_middle_page_keeps_order_and_both_links(monkeypatch) -> N
     monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
     monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
 
-    async def fake_build(_session, _auction_id):
+    async def fake_build(_session, _auction_id, *, page, limit, sources):
+        assert page == 1
+        assert limit == 2
+        assert sources is None
         auction = SimpleNamespace(id=auction_id, status=AuctionStatus.ACTIVE, seller_user_id=123)
-        return auction, _timeline_items()
+        items = _timeline_items()
+        return auction, items[2:4], len(items)
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline", fake_build)
+    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(request, str(auction_id), page=1, limit=2)
 
     assert response.status_code == 200
-    body = response.body.decode("utf-8")
+    body = bytes(response.body).decode("utf-8")
     assert "Event-2" not in body
     assert "Event-3" in body
     assert "Event-4" in body
@@ -134,16 +142,20 @@ async def test_timeline_last_page_has_no_next_link(monkeypatch) -> None:
     monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
     monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
 
-    async def fake_build(_session, _auction_id):
+    async def fake_build(_session, _auction_id, *, page, limit, sources):
+        assert page == 2
+        assert limit == 2
+        assert sources is None
         auction = SimpleNamespace(id=auction_id, status=AuctionStatus.ACTIVE, seller_user_id=123)
-        return auction, _timeline_items()
+        items = _timeline_items()
+        return auction, items[4:5], len(items)
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline", fake_build)
+    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(request, str(auction_id), page=2, limit=2)
 
     assert response.status_code == 200
-    body = response.body.decode("utf-8")
+    body = bytes(response.body).decode("utf-8")
     assert "Event-5" in body
     assert "Event-4" not in body
     assert "page=1&amp;limit=2" in body
@@ -166,3 +178,54 @@ async def test_timeline_rejects_invalid_pagination_values(monkeypatch) -> None:
 
     with pytest.raises(HTTPException):
         await auction_timeline(request, str(uuid.uuid4()), page=0, limit=501)
+
+
+@pytest.mark.asyncio
+async def test_timeline_source_filter_forwarded_and_preserved(monkeypatch) -> None:
+    request = _make_request("/timeline/auction/test")
+    auction_id = uuid.uuid4()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+
+    async def fake_build(_session, _auction_id, *, page, limit, sources):
+        captured["sources"] = sources
+        auction = SimpleNamespace(id=auction_id, status=AuctionStatus.ACTIVE, seller_user_id=123)
+        items = _timeline_items()
+        return auction, items[:1], 120
+
+    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+
+    response = await auction_timeline(
+        request,
+        str(auction_id),
+        page=0,
+        limit=50,
+        source="moderation,complaint",
+    )
+
+    assert response.status_code == 200
+    assert captured["sources"] == ["moderation", "complaint"]
+    body = bytes(response.body).decode("utf-8")
+    assert "Фильтр source:</b> moderation,complaint" in body
+    assert "source=moderation%2Ccomplaint" in body
+
+
+@pytest.mark.asyncio
+async def test_timeline_invalid_source_filter_returns_400(monkeypatch) -> None:
+    request = _make_request("/timeline/auction/test")
+
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+
+    async def fake_build(_session, _auction_id, *, page, limit, sources):
+        raise ValueError("Unknown timeline source filter: bad")
+
+    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+
+    with pytest.raises(HTTPException) as exc:
+        await auction_timeline(request, str(uuid.uuid4()), page=0, limit=50, source="bad")
+
+    assert exc.value.status_code == 400
+    assert "Unknown timeline source filter" in str(exc.value.detail)

@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -37,6 +37,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Stable per-entity timeline ordering on equal timestamps (`created_at` + primary-key tie-breakers)
 - Web timeline pagination with configurable `page`/`limit` and navigation links
 - CI anti-flaky integration re-run and PR quality checklist template
+- DB-aware timeline page assembly and source filters (`auction`, `bid`, `complaint`, `fraud`, `moderation`)
 
 ## Sprint 0 Checklist
 
@@ -211,6 +212,12 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Added CI anti-flaky re-run for integration DB suite on pull requests
 - [x] Standardized reviewer focus section in PR metadata
 
+## Sprint 25 Checklist (Timeline Source Filters)
+
+- [x] Added source filter support to timeline endpoint (`source=auction,bid,...`)
+- [x] Moved timeline pagination closer to DB layer via per-source bounded fetch (`(page+1)*limit`)
+- [x] Added regression tests for source filtering and page boundaries in web/controller and integration layers
+
 ## Quick Start
 
 1. Copy env template:
@@ -366,8 +373,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 25)
+## Next (Sprint 26)
 
-- Move timeline pagination closer to DB layer to avoid loading full event history for very large auctions
-- Add filters by source (`auction`, `bid`, `complaint`, `fraud`, `moderation`) in timeline view
+- Add a quick source-filter UI control (checkboxes/chips) instead of query-string-only workflow
+- Add dedicated API endpoint for timeline JSON (for future richer admin UI)
 - Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR
