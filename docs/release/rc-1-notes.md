@@ -44,7 +44,12 @@ Branch: `main`
 - [x] Code quality gates and anti-flaky rerun are green.
 - [x] Appeals workflow, SLA escalation, and audit trail validated.
 - [x] Manual RC matrix finalized.
-- [ ] Product/owner final communication and rollout window confirmation.
+- [x] Product/owner final communication and rollout window confirmation.
+
+Rollout window confirmation:
+
+- Product/owner communication: confirmed
+- Planned rollout window: 2026-02-13 (post-merge window)
 
 ## Rollback Guidance
 
