@@ -20,9 +20,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.config import settings
-from app.db.enums import AuctionStatus, UserRole
-from app.db.models import Auction, Bid, BlacklistEntry, Complaint, FraudSignal, User, UserRoleAssignment
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, UserRole
+from app.db.models import Appeal, Auction, Bid, BlacklistEntry, Complaint, FraudSignal, User, UserRoleAssignment
 from app.db.session import SessionFactory
+from app.services.appeal_service import reject_appeal, resolve_appeal
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import list_complaints
 from app.services.fraud_service import list_fraud_signals
@@ -75,6 +76,42 @@ def _pct(numerator: int, denominator: int) -> str:
     if denominator <= 0:
         return "0.0%"
     return f"{(numerator / denominator) * 100:.1f}%"
+
+
+def _parse_appeal_status_filter(raw: str) -> AppealStatus | None:
+    value = raw.strip().lower()
+    if value == "all":
+        return None
+    if value == "open":
+        return AppealStatus.OPEN
+    if value == "in_review":
+        return AppealStatus.IN_REVIEW
+    if value == "resolved":
+        return AppealStatus.RESOLVED
+    if value == "rejected":
+        return AppealStatus.REJECTED
+    raise HTTPException(status_code=400, detail="Invalid appeals status filter")
+
+
+def _parse_appeal_source_filter(raw: str) -> AppealSourceType | None:
+    value = raw.strip().lower()
+    if value == "all":
+        return None
+    if value == "complaint":
+        return AppealSourceType.COMPLAINT
+    if value == "risk":
+        return AppealSourceType.RISK
+    if value == "manual":
+        return AppealSourceType.MANUAL
+    raise HTTPException(status_code=400, detail="Invalid appeals source filter")
+
+
+def _appeal_source_label(source_type: AppealSourceType, source_id: int | None) -> str:
+    if source_type == AppealSourceType.COMPLAINT:
+        return f"complaint #{source_id}" if source_id is not None else "complaint"
+    if source_type == AppealSourceType.RISK:
+        return f"risk #{source_id}" if source_id is not None else "risk"
+    return "manual"
 
 
 def _token_from_request(request: Request) -> str | None:
@@ -530,6 +567,7 @@ async def dashboard(request: Request) -> Response:
         f"<li><a href='{escape(_path_with_auth(request, '/signals?status=OPEN'))}'>Открытые фрод-сигналы</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=ACTIVE'))}'>Активные аукционы</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=FROZEN'))}'>Замороженные аукционы</a></li>"
+        f"<li><a href='{escape(_path_with_auth(request, '/appeals?status=open&source=all'))}'>Апелляции</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>Нарушители</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/manage/users'))}'>Управление пользователями</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/logout'))}'>Выйти</a></li>"
@@ -1362,6 +1400,157 @@ async def violators(request: Request, status: str = "active", page: int = 0, q: 
     return HTMLResponse(_render_page("Violators", body))
 
 
+@app.get("/appeals", response_class=HTMLResponse)
+async def appeals(
+    request: Request,
+    status: str = "open",
+    source: str = "all",
+    page: int = 0,
+    q: str = "",
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    page = max(page, 0)
+    page_size = 30
+    offset = page * page_size
+    query_value = q.strip()
+    status_value = status.strip().lower()
+    source_value = source.strip().lower()
+
+    status_filter = _parse_appeal_status_filter(status_value)
+    source_filter = _parse_appeal_source_filter(source_value)
+
+    resolver_user = aliased(User)
+    stmt = (
+        select(Appeal, User, resolver_user)
+        .join(User, User.id == Appeal.appellant_user_id)
+        .outerjoin(resolver_user, resolver_user.id == Appeal.resolver_user_id)
+    )
+
+    if status_filter is not None:
+        stmt = stmt.where(Appeal.status == status_filter)
+    if source_filter is not None:
+        stmt = stmt.where(Appeal.source_type == source_filter)
+
+    if query_value:
+        if query_value.isdigit():
+            q_int = int(query_value)
+            stmt = stmt.where(
+                or_(
+                    Appeal.appeal_ref.ilike(f"%{query_value}%"),
+                    Appeal.resolution_note.ilike(f"%{query_value}%"),
+                    User.username.ilike(f"%{query_value}%"),
+                    User.tg_user_id == q_int,
+                    Appeal.id == q_int,
+                    Appeal.source_id == q_int,
+                )
+            )
+        else:
+            stmt = stmt.where(
+                or_(
+                    Appeal.appeal_ref.ilike(f"%{query_value}%"),
+                    Appeal.resolution_note.ilike(f"%{query_value}%"),
+                    User.username.ilike(f"%{query_value}%"),
+                )
+            )
+
+    stmt = stmt.order_by(Appeal.created_at.desc(), Appeal.id.desc()).offset(offset).limit(page_size + 1)
+
+    async with SessionFactory() as session:
+        rows = (await session.execute(stmt)).all()
+
+    has_next = len(rows) > page_size
+    rows = rows[:page_size]
+
+    return_to = f"/appeals?status={status_value}&source={source_value}&page={page}&q={query_value}"
+    csrf_input = _csrf_hidden_input(request, auth)
+    table_rows = ""
+
+    for appeal, appellant, resolver in rows:
+        source_label = _appeal_source_label(AppealSourceType(appeal.source_type), appeal.source_id)
+        appellant_label = f"@{appellant.username}" if appellant.username else str(appellant.tg_user_id)
+        resolver_label = "-"
+        if resolver is not None:
+            resolver_label = f"@{resolver.username}" if resolver.username else str(resolver.tg_user_id)
+
+        actions = "-"
+        appeal_status = AppealStatus(appeal.status)
+        if appeal_status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
+            actions = (
+                f"<form method='post' action='{escape(_path_with_auth(request, '/actions/appeal/resolve'))}' style='display:inline-block;margin-right:6px'>"
+                f"<input type='hidden' name='appeal_id' value='{appeal.id}'>"
+                f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
+                f"{csrf_input}"
+                "<input name='reason' placeholder='reason' style='width:130px' required>"
+                "<button type='submit'>Resolve</button></form>"
+                f"<form method='post' action='{escape(_path_with_auth(request, '/actions/appeal/reject'))}' style='display:inline-block'>"
+                f"<input type='hidden' name='appeal_id' value='{appeal.id}'>"
+                f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
+                f"{csrf_input}"
+                "<input name='reason' placeholder='reason' style='width:130px' required>"
+                "<button type='submit'>Reject</button></form>"
+            )
+
+        table_rows += (
+            "<tr>"
+            f"<td>{appeal.id}</td>"
+            f"<td>{escape(appeal.appeal_ref)}</td>"
+            f"<td>{escape(source_label)}</td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{appellant.id}'))}'>{escape(appellant_label)}</a></td>"
+            f"<td>{escape(str(appeal.status))}</td>"
+            f"<td>{escape((appeal.resolution_note or '-')[:160])}</td>"
+            f"<td>{escape(resolver_label)}</td>"
+            f"<td>{escape(_fmt_ts(appeal.created_at))}</td>"
+            f"<td>{escape(_fmt_ts(appeal.resolved_at))}</td>"
+            f"<td>{actions}</td>"
+            "</tr>"
+        )
+
+    if not table_rows:
+        table_rows = "<tr><td colspan='10'><span class='empty-state'>Нет записей</span></td></tr>"
+
+    prev_link = (
+        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
+        if page > 0
+        else ""
+    )
+    next_link = (
+        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        if has_next
+        else ""
+    )
+
+    body = (
+        "<h1>Апелляции</h1>"
+        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
+        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
+        f"<a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>К нарушителям</a></p>"
+        f"<form method='get' action='{escape(_path_with_auth(request, '/appeals'))}'>"
+        f"<input type='hidden' name='status' value='{escape(status_value)}'>"
+        f"<input type='hidden' name='source' value='{escape(source_value)}'>"
+        f"<input name='q' value='{escape(query_value)}' placeholder='appeal ref / tg id / username' style='width:300px'>"
+        "<button type='submit'>Поиск</button>"
+        "</form>"
+        f"<p>Status: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&q={query_value}'))}'>open</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&q={query_value}'))}'>in_review</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&q={query_value}'))}'>resolved</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&q={query_value}'))}'>rejected</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&q={query_value}'))}'>all</a></p>"
+        f"<p>Source: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&q={query_value}'))}'>complaint</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&q={query_value}'))}'>risk</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&q={query_value}'))}'>manual</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&q={query_value}'))}'>all</a></p>"
+        "<table><thead><tr><th>ID</th><th>Ref</th><th>Source</th><th>Appellant</th><th>Status</th><th>Note</th><th>Resolver</th><th>Created</th><th>Resolved</th><th>Actions</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table>"
+        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+    )
+    return HTMLResponse(_render_page("Appeals", body))
+
+
 @app.post("/actions/auction/freeze")
 async def action_freeze_auction(
     request: Request,
@@ -1551,6 +1740,108 @@ async def action_remove_bid(
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)
     await _refresh_auction_posts_from_web(result.auction_id)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/appeal/resolve")
+async def action_resolve_appeal(
+    request: Request,
+    appeal_id: int = Form(...),
+    reason: str = Form(...),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+    confirmed: str | None = Form(None),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/appeals?status=open&source=all")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    reason = reason.strip()
+    if not reason:
+        return _action_error_page(request, "Reason is required", back_to=target)
+
+    if not _is_confirmed(confirmed):
+        return _render_confirmation_page(
+            request,
+            auth,
+            title="Подтверждение решения апелляции",
+            message=f"Вы действительно хотите удовлетворить апелляцию #{appeal_id}?",
+            action_path="/actions/appeal/resolve",
+            fields={
+                "appeal_id": str(appeal_id),
+                "reason": reason,
+                "return_to": target,
+            },
+            back_to=target,
+        )
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    async with SessionFactory() as session:
+        async with session.begin():
+            result = await resolve_appeal(
+                session,
+                appeal_id=appeal_id,
+                resolver_user_id=actor_user_id,
+                note=f"[web] {reason}",
+            )
+
+    if not result.ok:
+        return _action_error_page(request, result.message, back_to=target)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/appeal/reject")
+async def action_reject_appeal(
+    request: Request,
+    appeal_id: int = Form(...),
+    reason: str = Form(...),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+    confirmed: str | None = Form(None),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/appeals?status=open&source=all")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    reason = reason.strip()
+    if not reason:
+        return _action_error_page(request, "Reason is required", back_to=target)
+
+    if not _is_confirmed(confirmed):
+        return _render_confirmation_page(
+            request,
+            auth,
+            title="Подтверждение отклонения апелляции",
+            message=f"Вы действительно хотите отклонить апелляцию #{appeal_id}?",
+            action_path="/actions/appeal/reject",
+            fields={
+                "appeal_id": str(appeal_id),
+                "reason": reason,
+                "return_to": target,
+            },
+            back_to=target,
+        )
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    async with SessionFactory() as session:
+        async with session.begin():
+            result = await reject_appeal(
+                session,
+                appeal_id=appeal_id,
+                resolver_user_id=actor_user_id,
+                note=f"[web] {reason}",
+            )
+
+    if not result.ok:
+        return _action_error_page(request, result.message, back_to=target)
     return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
 
 
