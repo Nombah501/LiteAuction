@@ -209,7 +209,7 @@ async def _top_bid(session: AsyncSession, auction_id: uuid.UUID) -> Bid | None:
     )
 
 
-async def _log_action(
+async def log_moderation_action(
     session: AsyncSession,
     *,
     actor_user_id: int,
@@ -230,6 +230,29 @@ async def _log_action(
             reason=reason,
             payload=payload,
         )
+    )
+
+
+async def _log_action(
+    session: AsyncSession,
+    *,
+    actor_user_id: int,
+    action: ModerationAction,
+    reason: str,
+    target_user_id: int | None = None,
+    auction_id: uuid.UUID | None = None,
+    bid_id: uuid.UUID | None = None,
+    payload: dict | None = None,
+) -> None:
+    await log_moderation_action(
+        session,
+        actor_user_id=actor_user_id,
+        action=action,
+        reason=reason,
+        target_user_id=target_user_id,
+        auction_id=auction_id,
+        bid_id=bid_id,
+        payload=payload,
     )
 
 
@@ -507,4 +530,4 @@ async def list_moderation_logs(
     stmt = select(ModerationLog).order_by(ModerationLog.created_at.desc()).limit(limit)
     if auction_id is not None:
         stmt = stmt.where(ModerationLog.auction_id == auction_id)
-    return (await session.execute(stmt)).scalars().all()
+    return list((await session.execute(stmt)).scalars().all())

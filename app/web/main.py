@@ -20,10 +20,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, UserRole
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, UserRole
 from app.db.models import Appeal, Auction, Bid, BlacklistEntry, Complaint, FraudSignal, User, UserRoleAssignment
 from app.db.session import SessionFactory
-from app.services.appeal_service import reject_appeal, resolve_appeal
+from app.services.appeal_service import reject_appeal, resolve_appeal, resolve_appeal_auction_id
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import list_complaints
 from app.services.fraud_service import list_fraud_signals
@@ -41,6 +41,7 @@ from app.services.moderation_service import (
     freeze_auction,
     grant_moderator_role,
     is_moderator_tg_user,
+    log_moderation_action,
     list_user_roles,
     list_recent_bids,
     remove_bid,
@@ -1788,6 +1789,22 @@ async def action_resolve_appeal(
                 resolver_user_id=actor_user_id,
                 note=f"[web] {reason}",
             )
+            if result.ok and result.appeal is not None:
+                related_auction_id = await resolve_appeal_auction_id(session, result.appeal)
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor_user_id,
+                    action=ModerationAction.RESOLVE_APPEAL,
+                    reason=result.appeal.resolution_note or f"[web] {reason}",
+                    target_user_id=result.appeal.appellant_user_id,
+                    auction_id=related_auction_id,
+                    payload={
+                        "appeal_id": result.appeal.id,
+                        "appeal_ref": result.appeal.appeal_ref,
+                        "source_type": result.appeal.source_type,
+                        "source_id": result.appeal.source_id,
+                    },
+                )
 
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)
@@ -1839,6 +1856,22 @@ async def action_reject_appeal(
                 resolver_user_id=actor_user_id,
                 note=f"[web] {reason}",
             )
+            if result.ok and result.appeal is not None:
+                related_auction_id = await resolve_appeal_auction_id(session, result.appeal)
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor_user_id,
+                    action=ModerationAction.REJECT_APPEAL,
+                    reason=result.appeal.resolution_note or f"[web] {reason}",
+                    target_user_id=result.appeal.appellant_user_id,
+                    auction_id=related_auction_id,
+                    payload={
+                        "appeal_id": result.appeal.id,
+                        "appeal_ref": result.appeal.appeal_ref,
+                        "source_type": result.appeal.source_type,
+                        "source_id": result.appeal.source_id,
+                    },
+                )
 
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)

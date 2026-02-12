@@ -13,10 +13,15 @@ How to fill quickly:
 
 | Case | Result | Notes |
 |---|---|---|
-| MQ-01 Complaint freeze updates queue and timeline | PASS | cannot unfreeze from modpanel, only can from web |
+| MQ-01 Complaint freeze updates queue and timeline | PASS | freeze via callback updates queue + timeline, evidence=<file> |
 | MQ-02 ban_top denied without `user:ban` scope | PASS | role=operator(no user:ban), complaint_id=<id>, evidence=<file> |
 | MQ-03 Fraud signal ban updates queue and timeline | PASS | signal_id=<id>, action=modrisk:ban, evidence=<file> |
 | MQ-04 Repeated callback click is idempotent | PASS | first=applied, second=already processed, evidence=<file> |
+| MQ-05 Frozen auction can be unfreezed from modpanel | PASS | action=modui:unfreeze, auction_id=<uuid>, evidence=<file> |
+| AP-01 Appeal intake persists appeal id | PASS | `/start appeal_<ref>` returns appeal id and alerts moderators, evidence=<file> |
+| AP-02 Modpanel appeal resolve/reject updates status | PASS | action=modui:appeal_resolve/reject, status changed, evidence=<file> |
+| AP-03 Web appeals list filters and actions work | PASS | `/appeals` status/source/q + resolve/reject forms, evidence=<file> |
+| AP-04 Appeal decision writes moderation audit trail | PASS | action=RESOLVE_APPEAL/REJECT_APPEAL with payload, evidence=<file> |
 | TL-01 Complaint timeline consistency | PASS | sequence=create->action->resolve, auction_id=<uuid>, evidence=<file> |
 | TL-02 Fraud timeline consistency | PASS | sequence=create->action->resolve, auction_id=<uuid>, evidence=<file> |
 
@@ -34,9 +39,11 @@ How to fill quickly:
 ## Evidence
 
 - Queue before/after screenshots:
+- Appeals queue/list screenshots:
 - Timeline desktop screenshots:
 - Timeline mobile screenshots:
 - Denied/CSRF/error screenshots:
+- Audit log snippets (`RESOLVE_APPEAL`/`REJECT_APPEAL`):
 - Other notes/artifacts:
 
 ## Final Verdict
