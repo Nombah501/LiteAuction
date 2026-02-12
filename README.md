@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -35,6 +35,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Queue message edit and timeline consistency regression coverage for moderation callbacks
 - Timeline event sequence guards for callback flows (`create -> moderation action -> resolve`)
 - Stable per-entity timeline ordering on equal timestamps (`created_at` + primary-key tie-breakers)
+- Web timeline pagination with configurable `page`/`limit` and navigation links
 
 ## Sprint 0 Checklist
 
@@ -196,6 +197,13 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Removed fragile string-based final tie-breakers from timeline sorting
 - [x] Added regressions for multiple complaints/signals with identical timestamps to enforce numeric id ordering
 
+## Sprint 23 Checklist (Timeline Pagination)
+
+- [x] Added `page` and `limit` query parameters to auction timeline admin endpoint
+- [x] Added timeline page navigation links and visible page coverage counters
+- [x] Added validation for pagination bounds (`page >= 0`, `1 <= limit <= 500`)
+- [x] Added regression tests for page boundaries and event ordering preservation
+
 ## Quick Start
 
 1. Copy env template:
@@ -351,8 +359,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 23)
+## Next (Sprint 24)
 
-- Add timeline pagination/limit support in admin view for high-volume auctions
-- Add regression tests for page boundaries while preserving chronological/stable ordering
+- Move timeline pagination closer to DB layer to avoid loading full event history for very large auctions
+- Add filters by source (`auction`, `bid`, `complaint`, `fraud`, `moderation`) in timeline view
 - Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR
