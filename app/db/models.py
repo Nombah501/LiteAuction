@@ -22,7 +22,15 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
-from app.db.enums import AppealStatus, AppealSourceType, AuctionStatus, ModerationAction, UserRole
+from app.db.enums import (
+    AppealStatus,
+    AppealSourceType,
+    AuctionStatus,
+    FeedbackStatus,
+    FeedbackType,
+    ModerationAction,
+    UserRole,
+)
 
 
 class User(Base, TimestampMixin):
@@ -257,6 +265,38 @@ class Appeal(Base, TimestampMixin):
     sla_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     escalation_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+
+
+class FeedbackItem(Base, TimestampMixin):
+    __tablename__ = "feedback_items"
+    __table_args__ = (
+        Index("ix_feedback_items_type_status_created_at", "type", "status", "created_at"),
+        Index("ix_feedback_items_submitter_status", "submitter_user_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    type: Mapped[FeedbackType] = mapped_column(Enum(FeedbackType, name="feedback_type"), nullable=False)
+    status: Mapped[FeedbackStatus] = mapped_column(
+        Enum(FeedbackStatus, name="feedback_status"),
+        nullable=False,
+        default=FeedbackStatus.NEW,
+        server_default=text("'NEW'"),
+    )
+    submitter_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    moderator_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reward_points: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    queue_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    github_issue_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class FraudSignal(Base):

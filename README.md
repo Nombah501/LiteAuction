@@ -43,6 +43,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Bugfix wave 2 improvements for callback retry safety and denied-scope back navigation
 - Visual foundation refresh for admin web layout, controls, and responsive readability
 - Final visual polish and release-readiness checklist with consolidated QA evidence template
+- Section-based moderation topic routing and user feedback intake commands (`/bug`, `/suggest`)
 
 ## Sprint 0 Checklist
 
@@ -354,6 +355,13 @@ Use it as a reply to a message that contains premium/custom emoji.
 /modstats
 ```
 
+- Send user feedback from private chat:
+
+```text
+/bug <описание>
+/suggest <предложение>
+```
+
 - Include moderation queue destination in env (recommended):
 
 ```text
@@ -374,6 +382,10 @@ ADMIN_OPERATOR_USER_IDS=324897201,123456789
 SOFT_GATE_REQUIRE_PRIVATE_START=true
 SOFT_GATE_MODE=grace
 SOFT_GATE_HINT_INTERVAL_HOURS=24
+FEEDBACK_INTAKE_MIN_LENGTH=10
+FEEDBACK_INTAKE_COOLDOWN_SECONDS=90
+FEEDBACK_BUG_REWARD_POINTS=30
+FEEDBACK_SUGGESTION_REWARD_POINTS=20
 ```
 
 Topic-specific IDs are optional; when unset the bot falls back to `MODERATION_THREAD_ID`.

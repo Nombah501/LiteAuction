@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup
 
 from app.bot.keyboards.auction import styled_button
+from app.db.enums import FeedbackStatus
 
 
 def complaint_actions_keyboard(
@@ -249,3 +250,36 @@ def moderation_appeal_back_keyboard(*, page: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[styled_button(text="Назад", callback_data=f"modui:appeals:{page}")]]
     )
+
+
+def feedback_actions_keyboard(*, feedback_id: int, status: FeedbackStatus) -> InlineKeyboardMarkup | None:
+    if status in {FeedbackStatus.APPROVED, FeedbackStatus.REJECTED}:
+        return None
+
+    rows = []
+    if status == FeedbackStatus.NEW:
+        rows.append(
+            [
+                styled_button(
+                    text="В работу",
+                    callback_data=f"modfb:take:{feedback_id}",
+                    style="primary",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            styled_button(
+                text="Одобрить",
+                callback_data=f"modfb:approve:{feedback_id}",
+                style="success",
+            ),
+            styled_button(
+                text="Отклонить",
+                callback_data=f"modfb:reject:{feedback_id}",
+                style="danger",
+            ),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
