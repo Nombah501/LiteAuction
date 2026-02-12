@@ -7,8 +7,9 @@ Create Date: 2026-02-13 08:30:00
 
 from typing import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "0010_add_feedback_items"
@@ -22,18 +23,33 @@ def upgrade() -> None:
     op.execute("ALTER TYPE moderation_action ADD VALUE IF NOT EXISTS 'APPROVE_FEEDBACK'")
     op.execute("ALTER TYPE moderation_action ADD VALUE IF NOT EXISTS 'REJECT_FEEDBACK'")
 
-    feedback_type = sa.Enum("BUG", "SUGGESTION", name="feedback_type")
-    feedback_status = sa.Enum("NEW", "IN_REVIEW", "APPROVED", "REJECTED", name="feedback_status")
+    feedback_type = postgresql.ENUM("BUG", "SUGGESTION", name="feedback_type")
+    feedback_status = postgresql.ENUM("NEW", "IN_REVIEW", "APPROVED", "REJECTED", name="feedback_status")
     feedback_type.create(op.get_bind(), checkfirst=True)
     feedback_status.create(op.get_bind(), checkfirst=True)
+
+    feedback_type_column = postgresql.ENUM(
+        "BUG",
+        "SUGGESTION",
+        name="feedback_type",
+        create_type=False,
+    )
+    feedback_status_column = postgresql.ENUM(
+        "NEW",
+        "IN_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        name="feedback_status",
+        create_type=False,
+    )
 
     op.create_table(
         "feedback_items",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("type", sa.Enum(name="feedback_type", create_type=False), nullable=False),
+        sa.Column("type", feedback_type_column, nullable=False),
         sa.Column(
             "status",
-            sa.Enum(name="feedback_status", create_type=False),
+            feedback_status_column,
             nullable=False,
             server_default=sa.text("'NEW'"),
         ),
