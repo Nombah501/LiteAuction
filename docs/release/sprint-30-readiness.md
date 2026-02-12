@@ -40,5 +40,5 @@ If release verification fails:
 ## Sign-off
 
 - Engineering: [x]
-- Product/Owner: [ ]
+- Product/Owner: [x]
 - Manual QA reviewer: [x]
