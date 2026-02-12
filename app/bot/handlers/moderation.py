@@ -111,6 +111,26 @@ def _scope_title(scope: str) -> str:
     return scope
 
 
+def _complaint_action_required_scope(action: str) -> str | None:
+    if action == "freeze":
+        return SCOPE_AUCTION_MANAGE
+    if action in {"dismiss", "rm_top"}:
+        return SCOPE_BID_MANAGE
+    if action == "ban_top":
+        return SCOPE_USER_BAN
+    return None
+
+
+def _risk_action_required_scope(action: str) -> str | None:
+    if action == "freeze":
+        return SCOPE_AUCTION_MANAGE
+    if action == "ban":
+        return SCOPE_USER_BAN
+    if action == "ignore":
+        return SCOPE_BID_MANAGE
+    return None
+
+
 async def _require_scope_message(message: Message, scope: str) -> bool:
     if message.from_user is None:
         return False
@@ -852,18 +872,12 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Некорректный complaint_id", show_alert=True)
         return
 
-    required_scope: str | None = None
-    if action == "freeze":
-        required_scope = SCOPE_AUCTION_MANAGE
-    elif action in {"dismiss", "rm_top"}:
-        required_scope = SCOPE_BID_MANAGE
-    elif action == "ban_top":
-        required_scope = SCOPE_USER_BAN
-    else:
+    required_scope = _complaint_action_required_scope(action)
+    if required_scope is None:
         await callback.answer("Неизвестное действие", show_alert=True)
         return
 
-    if required_scope is not None and not await _require_scope_callback(callback, required_scope):
+    if not await _require_scope_callback(callback, required_scope):
         return
 
     complaint_id = int(complaint_id_raw)
@@ -1014,18 +1028,12 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Некорректный signal_id", show_alert=True)
         return
 
-    required_scope: str | None = None
-    if action == "freeze":
-        required_scope = SCOPE_AUCTION_MANAGE
-    elif action == "ban":
-        required_scope = SCOPE_USER_BAN
-    elif action == "ignore":
-        required_scope = SCOPE_BID_MANAGE
-    else:
+    required_scope = _risk_action_required_scope(action)
+    if required_scope is None:
         await callback.answer("Неизвестное действие", show_alert=True)
         return
 
-    if required_scope is not None and not await _require_scope_callback(callback, required_scope):
+    if not await _require_scope_callback(callback, required_scope):
         return
 
     signal_id = int(signal_id_raw)
