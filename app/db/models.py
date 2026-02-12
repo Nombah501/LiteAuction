@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
@@ -21,7 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
-from app.db.enums import AuctionStatus, ModerationAction, UserRole
+from app.db.enums import AppealStatus, AppealSourceType, AuctionStatus, ModerationAction, UserRole
 
 
 class User(Base, TimestampMixin):
@@ -207,6 +208,50 @@ class Complaint(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False, index=True
     )
+
+
+class Appeal(Base, TimestampMixin):
+    __tablename__ = "appeals"
+    __table_args__ = (
+        UniqueConstraint("appellant_user_id", "appeal_ref", name="uq_appeals_appellant_user_id_appeal_ref"),
+        CheckConstraint(
+            "status IN ('OPEN', 'IN_REVIEW', 'RESOLVED', 'REJECTED')",
+            name="appeals_status_values",
+        ),
+        CheckConstraint(
+            "source_type IN ('complaint', 'risk', 'manual')",
+            name="appeals_source_type_values",
+        ),
+        CheckConstraint(
+            "((source_type = 'manual' AND source_id IS NULL) "
+            "OR (source_type IN ('complaint', 'risk') AND source_id IS NOT NULL))",
+            name="appeals_source_consistency",
+        ),
+        Index("ix_appeals_status_created_at", "status", "created_at"),
+        Index("ix_appeals_source_type_source_id", "source_type", "source_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    appeal_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_type: Mapped[AppealSourceType] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    appellant_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[AppealStatus] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=text("'OPEN'"),
+        index=True,
+    )
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolver_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class FraudSignal(Base):
