@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -39,6 +39,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - CI anti-flaky integration re-run and PR quality checklist template
 - DB-aware timeline page assembly and source filters (`auction`, `bid`, `complaint`, `fraud`, `moderation`)
 - Bug triage foundation: policy, backlog template, and GitHub bug issue form
+- Bugfix wave 1 improvements for timeline navigation context and pagination safety
 
 ## Sprint 0 Checklist
 
@@ -225,6 +226,13 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Added prioritized bug backlog template for Sprint 27 candidate fixes
 - [x] Added GitHub bug report issue template with required reproduction fields
 
+## Sprint 27 Checklist (Bugfix Wave 1)
+
+- [x] Fixed timeline context retention across timeline/manage navigation (`page`, `limit`, `source`)
+- [x] Fixed timeline page builder to cap fetch volume and return early for out-of-range pages
+- [x] Normalized and deduplicated source filter input; blank source now consistently maps to `all`
+- [x] Added regression tests for navigation context and pagination boundary behavior
+
 ## Quick Start
 
 1. Copy env template:
@@ -380,8 +388,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 27)
+## Next (Sprint 28)
 
-- Start Bugfix Wave 1 using `docs/quality/bug-backlog.md` priority order
-- Focus on timeline/moderation reproducible P1 fixes and regression coverage
+- Continue Bugfix Wave 2 for remaining prioritized defects in `docs/quality/bug-backlog.md`
+- Focus on moderation retry/idempotency and denied-scope navigation edge cases
 - Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR
