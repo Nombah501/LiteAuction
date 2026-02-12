@@ -619,10 +619,20 @@ async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> R
 
 
 @app.get("/timeline/auction/{auction_id}", response_class=HTMLResponse)
-async def auction_timeline(request: Request, auction_id: str) -> Response:
+async def auction_timeline(
+    request: Request,
+    auction_id: str,
+    page: int = 0,
+    limit: int = 100,
+) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
+
+    if page < 0:
+        raise HTTPException(status_code=400, detail="Invalid timeline page")
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="Invalid timeline limit")
 
     try:
         auction_uuid = uuid.UUID(auction_id)
@@ -635,6 +645,14 @@ async def auction_timeline(request: Request, auction_id: str) -> Response:
     if auction is None:
         raise HTTPException(status_code=404, detail="Auction not found")
 
+    offset = page * limit
+    page_items = timeline[offset : offset + limit]
+    total_items = len(timeline)
+    start_item = offset + 1 if page_items else 0
+    end_item = offset + len(page_items)
+    has_prev = page > 0
+    has_next = end_item < total_items
+
     rows = "".join(
         "<tr>"
         f"<td>{escape(_fmt_ts(item.happened_at))}</td>"
@@ -642,10 +660,22 @@ async def auction_timeline(request: Request, auction_id: str) -> Response:
         f"<td>{escape(item.title)}</td>"
         f"<td><pre>{escape(item.details)}</pre></td>"
         "</tr>"
-        for item in timeline
+        for item in page_items
     )
     if not rows:
-        rows = "<tr><td colspan='4'>События отсутствуют</td></tr>"
+        rows = "<tr><td colspan='4'>События отсутствуют на этой странице</td></tr>"
+
+    timeline_base = f"/timeline/auction/{auction.id}"
+    prev_link = (
+        f"<a href='{escape(_path_with_auth(request, f'{timeline_base}?page={page-1}&limit={limit}'))}'>← Назад</a>"
+        if has_prev
+        else ""
+    )
+    next_link = (
+        f"<a href='{escape(_path_with_auth(request, f'{timeline_base}?page={page+1}&limit={limit}'))}'>Вперед →</a>"
+        if has_next
+        else ""
+    )
 
     body = (
         f"<h1>Таймлайн аукциона {escape(str(auction.id))}</h1>"
@@ -654,8 +684,10 @@ async def auction_timeline(request: Request, auction_id: str) -> Response:
         f"<a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
         f"<a href='{escape(_path_with_auth(request, f'/manage/auction/{auction.id}'))}'>Управление</a></p>"
         f"<p><b>Статус:</b> {escape(str(auction.status))} | <b>Seller UID:</b> {auction.seller_user_id}</p>"
+        f"<p><b>Показано:</b> {start_item}-{end_item} из {total_items} | <b>Лимит:</b> {limit}</p>"
         "<table><thead><tr><th>Time</th><th>Source</th><th>Event</th><th>Details</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
+        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
     return HTMLResponse(_render_page("Auction Timeline", body))
 
