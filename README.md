@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -28,6 +28,9 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Configurable soft-gate for bids/reports (`strict`/`grace`/`off`) with private `/start`
 - Soft-gate conversion and onboarding funnel KPIs in web dashboard
 - Regression tests and GitHub Actions CI for RBAC/CSRF/confirm-flow
+- Integration regression tests for callback scope mapping and web post-refresh actions
+- Role-management workflow tests (web + bot) and permission-downgrade edge-case coverage
+- DB-backed RBAC integration tests and dedicated CI Postgres job
 
 ## Sprint 0 Checklist
 
@@ -140,6 +143,24 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Regression tests for CSRF protection and confirm-step behavior
 - [x] GitHub Actions CI workflow to run test suite on push/PR
 
+## Sprint 15 Checklist (Integration Regression)
+
+- [x] Callback action -> required-scope mapping extracted to testable helpers
+- [x] Regression tests for complaint/fraud callback scope mapping
+- [x] Regression tests for web moderation actions refreshing auction posts
+
+## Sprint 16 Checklist (Role Flow Regression)
+
+- [x] Bot `/role` workflow tests (list/grant/validation branches)
+- [x] Web role-management action tests (grant/revoke success/failure paths)
+- [x] Permission-downgrade edge-case test for cookie auth after allowlist change
+
+## Sprint 17 Checklist (DB Integration)
+
+- [x] DB-backed integration tests for dynamic `user_roles` scope resolution
+- [x] Grant/revoke propagation tests with real Postgres session
+- [x] Dedicated GitHub Actions Postgres job for integration tests
+
 ## Quick Start
 
 1. Copy env template:
@@ -194,6 +215,14 @@ python -m venv .venv
 
 ```bash
 .venv/bin/python -m ruff check app tests
+```
+
+- Run DB integration tests (use a dedicated test database):
+
+```bash
+RUN_INTEGRATION_TESTS=1 \
+TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_test \
+.venv/bin/python -m pytest -q tests/integration
 ```
 
 - Open moderation command list in bot private chat:
@@ -287,6 +316,6 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 15)
+## Next (Sprint 18)
 
-- Add integration tests for moderator callbacks and auction post refresh consistency
+- Add end-to-end callback integration test harness (complaint/risk action -> DB state + post refresh hooks)
