@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -31,6 +31,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Integration regression tests for callback scope mapping and web post-refresh actions
 - Role-management workflow tests (web + bot) and permission-downgrade edge-case coverage
 - DB-backed RBAC integration tests and dedicated CI Postgres job
+- End-to-end callback integration tests for complaint/risk moderation flows
 
 ## Sprint 0 Checklist
 
@@ -160,6 +161,12 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] DB-backed integration tests for dynamic `user_roles` scope resolution
 - [x] Grant/revoke propagation tests with real Postgres session
 - [x] Dedicated GitHub Actions Postgres job for integration tests
+
+## Sprint 18 Checklist (Callback E2E Integration)
+
+- [x] Shared integration test fixtures moved to `tests/integration/conftest.py`
+- [x] E2E tests for `modrep` callback flow (`freeze` + scope-denied path)
+- [x] E2E tests for `modrisk` callback flow (`ban` -> DB updates + refresh + notify)
 
 ## Quick Start
 
@@ -316,6 +323,6 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 18)
+## Next (Sprint 19)
 
-- Add end-to-end callback integration test harness (complaint/risk action -> DB state + post refresh hooks)
+- Add scenario tests for complaint/risk queue message edits and moderation timeline consistency
