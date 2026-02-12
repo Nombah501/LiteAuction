@@ -1,0 +1,481 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramForbiddenError
+from aiogram.types import CallbackQuery
+
+from app.bot.keyboards.moderation import complaint_actions_keyboard, fraud_actions_keyboard
+from app.config import settings
+from app.db.session import SessionFactory
+from app.services.anti_fool_service import (
+    acquire_bid_cooldown,
+    acquire_complaint_cooldown,
+    arm_or_confirm_action,
+)
+from app.services.auction_service import (
+    process_bid_action,
+    refresh_auction_posts,
+)
+from app.services.complaint_service import (
+    create_complaint,
+    load_complaint_view,
+    render_complaint_text,
+    set_complaint_queue_message,
+)
+from app.services.fraud_service import (
+    load_fraud_signal_view,
+    render_fraud_signal_text,
+    set_fraud_signal_queue_message,
+)
+from app.services.user_service import upsert_user
+
+router = Router(name="bid_actions")
+
+
+def _soft_gate_alert_text() -> str:
+    username = settings.bot_username.strip()
+    if username:
+        return f"Сначала откройте @{username} в личке и нажмите /start. Можно через кнопку 'Открыть бота' внизу поста."
+    return "Сначала откройте бота в личке и нажмите /start"
+
+
+def _soft_gate_hint_text(action_done_text: str) -> str:
+    username = settings.bot_username.strip()
+    if username:
+        return f"{action_done_text}. Для уведомлений откройте @{username} в личке и нажмите /start"
+    return f"{action_done_text}. Для уведомлений откройте бота в личке и нажмите /start"
+
+
+def _soft_gate_decision(*, private_started: bool) -> tuple[bool, bool]:
+    if private_started or not settings.soft_gate_require_private_start:
+        return False, False
+
+    mode = settings.soft_gate_mode.strip().lower()
+    if mode == "off":
+        return False, False
+    if mode == "strict":
+        return True, False
+    return False, True
+
+
+def _should_emit_soft_gate_hint(last_sent_at: datetime | None) -> tuple[bool, datetime]:
+    now_utc = datetime.now(timezone.utc)
+    interval_hours = max(settings.soft_gate_hint_interval_hours, 1)
+    if last_sent_at is None:
+        return True, now_utc
+    if now_utc - last_sent_at >= timedelta(hours=interval_hours):
+        return True, now_utc
+    return False, now_utc
+
+
+def _parse_bid_payload(data: str) -> tuple[uuid.UUID, int] | None:
+    parts = data.split(":")
+    if len(parts) != 3:
+        return None
+    _, auction_raw, multiplier_raw = parts
+    try:
+        auction_id = uuid.UUID(auction_raw)
+    except ValueError:
+        return None
+    if multiplier_raw not in {"1", "3", "5"}:
+        return None
+    return auction_id, int(multiplier_raw)
+
+
+def _parse_buy_payload(data: str) -> uuid.UUID | None:
+    parts = data.split(":")
+    if len(parts) != 2:
+        return None
+    _, auction_raw = parts
+    try:
+        return uuid.UUID(auction_raw)
+    except ValueError:
+        return None
+
+
+def _parse_report_payload(data: str) -> uuid.UUID | None:
+    parts = data.split(":")
+    if len(parts) != 2:
+        return None
+    _, auction_raw = parts
+    try:
+        return uuid.UUID(auction_raw)
+    except ValueError:
+        return None
+
+
+async def _notify_moderators_about_complaint(
+    bot: Bot,
+    *,
+    complaint_id: int,
+    text: str,
+) -> tuple[int, int] | None:
+    keyboard = complaint_actions_keyboard(complaint_id)
+
+    moderation_chat_id = settings.parsed_moderation_chat_id()
+    moderation_thread_id = settings.parsed_moderation_thread_id()
+    if moderation_chat_id is not None:
+        try:
+            kwargs: dict[str, int] = {}
+            if moderation_thread_id is not None:
+                kwargs["message_thread_id"] = moderation_thread_id
+            msg = await bot.send_message(moderation_chat_id, text, reply_markup=keyboard, **kwargs)
+            return msg.chat.id, msg.message_id
+        except TelegramForbiddenError:
+            pass
+
+    first_message: tuple[int, int] | None = None
+    for admin_tg_id in settings.parsed_admin_user_ids():
+        try:
+            msg = await bot.send_message(admin_tg_id, text, reply_markup=keyboard)
+            if first_message is None:
+                first_message = (msg.chat.id, msg.message_id)
+        except TelegramForbiddenError:
+            continue
+
+    return first_message
+
+
+async def _notify_moderators_about_fraud(
+    bot: Bot,
+    *,
+    signal_id: int,
+    text: str,
+) -> tuple[int, int] | None:
+    keyboard = fraud_actions_keyboard(signal_id)
+
+    moderation_chat_id = settings.parsed_moderation_chat_id()
+    moderation_thread_id = settings.parsed_moderation_thread_id()
+    if moderation_chat_id is not None:
+        try:
+            kwargs: dict[str, int] = {}
+            if moderation_thread_id is not None:
+                kwargs["message_thread_id"] = moderation_thread_id
+            msg = await bot.send_message(moderation_chat_id, text, reply_markup=keyboard, **kwargs)
+            return msg.chat.id, msg.message_id
+        except TelegramForbiddenError:
+            pass
+
+    first_message: tuple[int, int] | None = None
+    for admin_tg_id in settings.parsed_admin_user_ids():
+        try:
+            msg = await bot.send_message(admin_tg_id, text, reply_markup=keyboard)
+            if first_message is None:
+                first_message = (msg.chat.id, msg.message_id)
+        except TelegramForbiddenError:
+            continue
+
+    return first_message
+
+
+async def _maybe_send_fraud_alert(bot: Bot, signal_id: int) -> None:
+    async with SessionFactory() as session:
+        async with session.begin():
+            view = await load_fraud_signal_view(session, signal_id)
+            if view is None:
+                return
+            text = render_fraud_signal_text(view)
+
+    queue_message = await _notify_moderators_about_fraud(bot, signal_id=signal_id, text=text)
+    if queue_message is None:
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            await set_fraud_signal_queue_message(
+                session,
+                signal_id=signal_id,
+                chat_id=queue_message[0],
+                message_id=queue_message[1],
+            )
+
+
+async def _notify_outbid(bot: Bot, outbid_user_tg_id: int | None, actor_tg_id: int) -> None:
+    if outbid_user_tg_id is None or outbid_user_tg_id == actor_tg_id:
+        return
+    try:
+        await bot.send_message(outbid_user_tg_id, "Вашу ставку перебили. Откройте аукцион и сделайте новую.")
+    except TelegramForbiddenError:
+        pass
+
+
+async def _notify_auction_finish(
+    bot: Bot,
+    *,
+    winner_tg_id: int | None,
+    seller_tg_id: int | None,
+    auction_id: uuid.UUID,
+) -> None:
+    short_id = str(auction_id)[:8]
+    if seller_tg_id is not None:
+        try:
+            await bot.send_message(seller_tg_id, f"Аукцион #{short_id} завершен (выкуп).")
+        except TelegramForbiddenError:
+            pass
+    if winner_tg_id is not None:
+        try:
+            await bot.send_message(winner_tg_id, f"Вы выиграли аукцион #{short_id} через выкуп.")
+        except TelegramForbiddenError:
+            pass
+
+
+@router.callback_query(F.data.startswith("bid:"))
+async def handle_bid_action(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+
+    payload = _parse_bid_payload(callback.data)
+    if payload is None:
+        await callback.answer("Некорректная ставка", show_alert=True)
+        return
+
+    auction_id, multiplier = payload
+
+    if multiplier in {3, 5}:
+        needs_confirm = await arm_or_confirm_action(
+            auction_id,
+            callback.from_user.id,
+            action=f"x{multiplier}",
+        )
+        if needs_confirm:
+            await callback.answer(
+                f"Подтвердите ставку +x{multiplier}: нажмите кнопку еще раз в течение {settings.confirmation_ttl_seconds} сек.",
+                show_alert=True,
+            )
+            return
+
+    if not await acquire_bid_cooldown(auction_id, callback.from_user.id):
+        await callback.answer(
+            f"Слишком часто. Подождите {settings.bid_cooldown_seconds} сек.",
+            show_alert=True,
+        )
+        return
+
+    blocked_by_soft_gate = False
+    soft_gate_hint = False
+    show_soft_gate_hint = False
+    result = None
+    async with SessionFactory() as session:
+        async with session.begin():
+            bidder = await upsert_user(session, callback.from_user)
+            blocked_by_soft_gate, soft_gate_hint = _soft_gate_decision(
+                private_started=bidder.private_started_at is not None
+            )
+            if not blocked_by_soft_gate:
+                result = await process_bid_action(
+                    session,
+                    auction_id=auction_id,
+                    bidder_user_id=bidder.id,
+                    multiplier=multiplier,
+                    is_buyout=False,
+                )
+                if soft_gate_hint and result.success:
+                    show_soft_gate_hint, hint_ts = _should_emit_soft_gate_hint(bidder.soft_gate_hint_sent_at)
+                    if show_soft_gate_hint:
+                        bidder.soft_gate_hint_sent_at = hint_ts
+
+    if blocked_by_soft_gate:
+        await callback.answer(_soft_gate_alert_text(), show_alert=True)
+        return
+    if result is None:
+        await callback.answer("Не удалось обработать ставку", show_alert=True)
+        return
+
+    if result.success and show_soft_gate_hint:
+        await callback.answer(_soft_gate_hint_text("Ставка принята"), show_alert=True)
+    else:
+        await callback.answer(result.alert_text, show_alert=not result.success)
+
+    if result.should_refresh:
+        await refresh_auction_posts(bot, auction_id)
+
+    await _notify_outbid(bot, result.outbid_tg_user_id, callback.from_user.id)
+
+    if result.fraud_signal_id is not None:
+        await _maybe_send_fraud_alert(bot, result.fraud_signal_id)
+
+
+@router.callback_query(F.data.startswith("buy:"))
+async def handle_buyout_action(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+
+    auction_id = _parse_buy_payload(callback.data)
+    if auction_id is None:
+        await callback.answer("Некорректный выкуп", show_alert=True)
+        return
+
+    needs_confirm = await arm_or_confirm_action(
+        auction_id,
+        callback.from_user.id,
+        action="buyout",
+    )
+    if needs_confirm:
+        await callback.answer(
+            f"Подтвердите выкуп: нажмите кнопку еще раз в течение {settings.confirmation_ttl_seconds} сек.",
+            show_alert=True,
+        )
+        return
+
+    if not await acquire_bid_cooldown(auction_id, callback.from_user.id):
+        await callback.answer(
+            f"Слишком часто. Подождите {settings.bid_cooldown_seconds} сек.",
+            show_alert=True,
+        )
+        return
+
+    blocked_by_soft_gate = False
+    soft_gate_hint = False
+    show_soft_gate_hint = False
+    result = None
+    async with SessionFactory() as session:
+        async with session.begin():
+            bidder = await upsert_user(session, callback.from_user)
+            blocked_by_soft_gate, soft_gate_hint = _soft_gate_decision(
+                private_started=bidder.private_started_at is not None
+            )
+            if not blocked_by_soft_gate:
+                result = await process_bid_action(
+                    session,
+                    auction_id=auction_id,
+                    bidder_user_id=bidder.id,
+                    multiplier=1,
+                    is_buyout=True,
+                )
+                if soft_gate_hint and result.success:
+                    show_soft_gate_hint, hint_ts = _should_emit_soft_gate_hint(bidder.soft_gate_hint_sent_at)
+                    if show_soft_gate_hint:
+                        bidder.soft_gate_hint_sent_at = hint_ts
+
+    if blocked_by_soft_gate:
+        await callback.answer(_soft_gate_alert_text(), show_alert=True)
+        return
+    if result is None:
+        await callback.answer("Не удалось обработать выкуп", show_alert=True)
+        return
+
+    if result.success and show_soft_gate_hint:
+        await callback.answer(_soft_gate_hint_text("Выкуп принят"), show_alert=True)
+    else:
+        await callback.answer(result.alert_text, show_alert=not result.success)
+
+    if result.should_refresh:
+        await refresh_auction_posts(bot, auction_id)
+
+    await _notify_outbid(bot, result.outbid_tg_user_id, callback.from_user.id)
+
+    if result.fraud_signal_id is not None:
+        await _maybe_send_fraud_alert(bot, result.fraud_signal_id)
+
+    if result.auction_finished:
+        await _notify_auction_finish(
+            bot,
+            winner_tg_id=result.winner_tg_user_id,
+            seller_tg_id=result.seller_tg_user_id,
+            auction_id=auction_id,
+        )
+
+
+@router.callback_query(F.data.startswith("report:"))
+async def handle_report_action(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+
+    auction_id = _parse_report_payload(callback.data)
+    if auction_id is None:
+        await callback.answer("Некорректная жалоба", show_alert=True)
+        return
+
+    needs_confirm = await arm_or_confirm_action(
+        auction_id,
+        callback.from_user.id,
+        action="report",
+    )
+    if needs_confirm:
+        await callback.answer(
+            f"Подтвердите жалобу: нажмите кнопку еще раз в течение {settings.confirmation_ttl_seconds} сек.",
+            show_alert=True,
+        )
+        return
+
+    if not await acquire_complaint_cooldown(auction_id, callback.from_user.id):
+        await callback.answer(
+            f"Слишком часто. Повторить можно через {settings.complaint_cooldown_seconds} сек.",
+            show_alert=True,
+        )
+        return
+
+    complaint_id: int | None = None
+    complaint_text: str | None = None
+    blocked_by_soft_gate = False
+    soft_gate_hint = False
+    show_soft_gate_hint = False
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            reporter = await upsert_user(session, callback.from_user)
+            blocked_by_soft_gate, soft_gate_hint = _soft_gate_decision(
+                private_started=reporter.private_started_at is not None
+            )
+            if not blocked_by_soft_gate:
+                created = await create_complaint(
+                    session,
+                    auction_id=auction_id,
+                    reporter_user_id=reporter.id,
+                    reason="Жалоба из аукционного поста",
+                )
+                if not created.ok or created.complaint is None:
+                    await callback.answer(created.message, show_alert=True)
+                    return
+
+                view = await load_complaint_view(session, created.complaint.id)
+                if view is None:
+                    await callback.answer("Не удалось сформировать жалобу", show_alert=True)
+                    return
+
+                complaint_id = created.complaint.id
+                complaint_text = render_complaint_text(view)
+                if soft_gate_hint:
+                    show_soft_gate_hint, hint_ts = _should_emit_soft_gate_hint(
+                        reporter.soft_gate_hint_sent_at
+                    )
+                    if show_soft_gate_hint:
+                        reporter.soft_gate_hint_sent_at = hint_ts
+
+    if blocked_by_soft_gate:
+        await callback.answer(_soft_gate_alert_text(), show_alert=True)
+        return
+
+    if complaint_id is None or complaint_text is None:
+        await callback.answer("Не удалось отправить жалобу", show_alert=True)
+        return
+
+    queue_message = await _notify_moderators_about_complaint(
+        bot,
+        complaint_id=complaint_id,
+        text=complaint_text,
+    )
+
+    if queue_message is not None:
+        async with SessionFactory() as session:
+            async with session.begin():
+                await set_complaint_queue_message(
+                    session,
+                    complaint_id=complaint_id,
+                    chat_id=queue_message[0],
+                    message_id=queue_message[1],
+                )
+
+    await refresh_auction_posts(bot, auction_id)
+    if queue_message is None:
+        success_text = "Жалоба создана, но очередь модерации не настроена"
+    else:
+        success_text = "Жалоба отправлена модераторам"
+
+    if show_soft_gate_hint:
+        success_text = _soft_gate_hint_text(success_text)
+
+    await callback.answer(success_text, show_alert=True)

@@ -1,0 +1,1 @@
+"""LiteAuction bot package."""

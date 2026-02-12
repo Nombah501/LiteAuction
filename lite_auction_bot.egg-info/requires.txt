@@ -1,0 +1,15 @@
+aiogram<4.0.0,>=3.23.0
+SQLAlchemy<3.0.0,>=2.0.38
+asyncpg<1.0.0,>=0.30.0
+redis<6.0.0,>=5.2.1
+alembic<2.0.0,>=1.14.1
+pydantic-settings<3.0.0,>=2.8.1
+python-dotenv<2.0.0,>=1.0.1
+fastapi<1.0.0,>=0.116.0
+uvicorn[standard]<1.0.0,>=0.35.0
+python-multipart<1.0.0,>=0.0.20
+
+[dev]
+ruff<1.0.0,>=0.9.6
+pytest<9.0.0,>=8.3.4
+pytest-asyncio<1.0.0,>=0.25.3

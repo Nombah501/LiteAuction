@@ -1,0 +1,18 @@
+from aiogram import Router
+
+from .bid_actions import router as bid_actions_router
+from .create_auction import router as create_auction_router
+from .emoji_tools import router as emoji_tools_router
+from .inline_auction import router as inline_auction_router
+from .moderation import router as moderation_router
+from .start import router as start_router
+
+router = Router(name="root")
+router.include_router(start_router)
+router.include_router(emoji_tools_router)
+router.include_router(create_auction_router)
+router.include_router(bid_actions_router)
+router.include_router(inline_auction_router)
+router.include_router(moderation_router)
+
+__all__ = ["router"]
