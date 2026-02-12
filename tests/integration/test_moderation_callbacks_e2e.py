@@ -7,8 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.handlers.moderation import mod_report_action, mod_risk_action
-from app.db.enums import AuctionStatus
-from app.db.models import Auction, BlacklistEntry, Complaint, FraudSignal, User
+from app.db.enums import AuctionStatus, ModerationAction
+from app.db.models import Auction, BlacklistEntry, Complaint, FraudSignal, ModerationLog, User
+from app.services.timeline_service import build_auction_timeline
 
 
 class _DummyFromUser:
@@ -20,10 +21,10 @@ class _DummyFromUser:
 
 
 class _DummyCallback:
-    def __init__(self, *, data: str, from_user_id: int) -> None:
+    def __init__(self, *, data: str, from_user_id: int, message=None) -> None:
         self.data = data
         self.from_user = _DummyFromUser(from_user_id)
-        self.message = None
+        self.message = message
         self.answers: list[tuple[str | None, bool]] = []
 
     async def answer(self, text: str | None = None, *, show_alert: bool = False) -> None:
@@ -36,6 +37,14 @@ class _DummyBot:
 
     async def send_message(self, chat_id: int, text: str) -> None:
         self.sent_messages.append((chat_id, text))
+
+
+class _DummyMessage:
+    def __init__(self) -> None:
+        self.edits: list[tuple[str, object | None]] = []
+
+    async def edit_text(self, text: str, reply_markup=None) -> None:
+        self.edits.append((text, reply_markup))
 
 
 @pytest.mark.asyncio
@@ -87,7 +96,12 @@ async def test_modrep_freeze_updates_db_and_refresh(monkeypatch, integration_eng
             complaint_id = complaint.id
             auction_id = auction.id
 
-    callback = _DummyCallback(data=f"modrep:freeze:{complaint_id}", from_user_id=actor_tg_user_id)
+    queue_message = _DummyMessage()
+    callback = _DummyCallback(
+        data=f"modrep:freeze:{complaint_id}",
+        from_user_id=actor_tg_user_id,
+        message=queue_message,
+    )
     bot = _DummyBot()
 
     await mod_report_action(callback, bot)
@@ -103,6 +117,23 @@ async def test_modrep_freeze_updates_db_and_refresh(monkeypatch, integration_eng
     assert auction_row.status == AuctionStatus.FROZEN
     assert refresh_calls == [auction_id]
     assert callback.answers[-1][0] == "Аукцион заморожен"
+    assert len(queue_message.edits) == 1
+    updated_text, updated_reply_markup = queue_message.edits[-1]
+    assert "Жалоба #" in updated_text
+    assert "Статус: RESOLVED" in updated_text
+    assert updated_reply_markup is not None
+
+    async with session_factory() as session:
+        _, timeline = await build_auction_timeline(session, auction_id)
+
+    titles = [item.title for item in timeline]
+    assert "Жалоба создана" in titles
+    assert "Жалоба обработана" in titles
+    assert "Мод-действие: FREEZE_AUCTION" in titles
+    assert [item.happened_at for item in timeline] == sorted(item.happened_at for item in timeline)
+    complaint_resolved_item = next(item for item in timeline if item.title == "Жалоба обработана")
+    assert "status=RESOLVED" in complaint_resolved_item.details
+    assert "note=Заморозка аукциона" in complaint_resolved_item.details
 
 
 @pytest.mark.asyncio
@@ -156,8 +187,14 @@ async def test_modrep_ban_top_denied_for_operator_without_scope(monkeypatch, int
             await session.flush()
             complaint_id = complaint.id
             suspect_user_id = suspect.id
+            auction_id = auction.id
 
-    callback = _DummyCallback(data=f"modrep:ban_top:{complaint_id}", from_user_id=operator_tg_user_id)
+    queue_message = _DummyMessage()
+    callback = _DummyCallback(
+        data=f"modrep:ban_top:{complaint_id}",
+        from_user_id=operator_tg_user_id,
+        message=queue_message,
+    )
     bot = _DummyBot()
 
     await mod_report_action(callback, bot)
@@ -173,6 +210,15 @@ async def test_modrep_ban_top_denied_for_operator_without_scope(monkeypatch, int
     assert callback.answers
     assert callback.answers[-1][1] is True
     assert "Недостаточно прав" in (callback.answers[-1][0] or "")
+    assert queue_message.edits == []
+
+    async with session_factory() as session:
+        _, timeline = await build_auction_timeline(session, auction_id)
+
+    timeline_titles = [item.title for item in timeline]
+    assert "Жалоба создана" in timeline_titles
+    assert "Жалоба обработана" not in timeline_titles
+    assert "Мод-действие: BAN_USER" not in timeline_titles
 
 
 @pytest.mark.asyncio
@@ -228,7 +274,12 @@ async def test_modrisk_ban_updates_db_refresh_and_notifies(monkeypatch, integrat
             suspect_tg_user_id = suspect.tg_user_id
             suspect_user_id = suspect.id
 
-    callback = _DummyCallback(data=f"modrisk:ban:{signal_id}", from_user_id=actor_tg_user_id)
+    queue_message = _DummyMessage()
+    callback = _DummyCallback(
+        data=f"modrisk:ban:{signal_id}",
+        from_user_id=actor_tg_user_id,
+        message=queue_message,
+    )
     bot = _DummyBot()
 
     await mod_risk_action(callback, bot)
@@ -247,3 +298,112 @@ async def test_modrisk_ban_updates_db_refresh_and_notifies(monkeypatch, integrat
         (suspect_tg_user_id, f"Ваш аккаунт заблокирован модератором по фрод-сигналу #{signal_id}")
     ]
     assert callback.answers[-1][0] == "Пользователь заблокирован"
+    assert len(queue_message.edits) == 1
+    updated_text, updated_reply_markup = queue_message.edits[-1]
+    assert "Фрод-сигнал #" in updated_text
+    assert "Статус: CONFIRMED" in updated_text
+    assert "Решение: Пользователь заблокирован" in updated_text
+    assert updated_reply_markup is not None
+
+    async with session_factory() as session:
+        _, timeline = await build_auction_timeline(session, auction_id)
+
+    timeline_titles = [item.title for item in timeline]
+    assert "Фрод-сигнал создан" in timeline_titles
+    assert "Фрод-сигнал обработан" in timeline_titles
+    assert "Мод-действие: BAN_USER" in timeline_titles
+    assert [item.happened_at for item in timeline] == sorted(item.happened_at for item in timeline)
+    signal_resolved_item = next(item for item in timeline if item.title == "Фрод-сигнал обработан")
+    assert "status=CONFIRMED" in signal_resolved_item.details
+    assert "note=Пользователь заблокирован" in signal_resolved_item.details
+
+
+@pytest.mark.asyncio
+async def test_modrep_freeze_repeat_click_is_idempotent(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    actor_tg_user_id = 73001
+    monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    refresh_calls: list[uuid.UUID] = []
+
+    async def fake_refresh(_bot, auction_id: uuid.UUID) -> None:
+        refresh_calls.append(auction_id)
+
+    monkeypatch.setattr("app.bot.handlers.moderation.refresh_auction_posts", fake_refresh)
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=73101, username="seller")
+            reporter = User(tg_user_id=73102, username="reporter")
+            session.add_all([seller, reporter])
+            await session.flush()
+
+            auction = Auction(
+                seller_user_id=seller.id,
+                description="lot",
+                photo_file_id="photo",
+                start_price=10,
+                buyout_price=None,
+                min_step=1,
+                duration_hours=24,
+                status=AuctionStatus.ACTIVE,
+            )
+            session.add(auction)
+            await session.flush()
+
+            complaint = Complaint(
+                auction_id=auction.id,
+                reporter_user_id=reporter.id,
+                reason="fraud suspicion",
+                status="OPEN",
+            )
+            session.add(complaint)
+            await session.flush()
+            complaint_id = complaint.id
+            auction_id = auction.id
+
+    first_message = _DummyMessage()
+    first_callback = _DummyCallback(
+        data=f"modrep:freeze:{complaint_id}",
+        from_user_id=actor_tg_user_id,
+        message=first_message,
+    )
+    bot = _DummyBot()
+    await mod_report_action(first_callback, bot)
+
+    second_message = _DummyMessage()
+    second_callback = _DummyCallback(
+        data=f"modrep:freeze:{complaint_id}",
+        from_user_id=actor_tg_user_id,
+        message=second_message,
+    )
+    await mod_report_action(second_callback, bot)
+
+    assert refresh_calls == [auction_id]
+    assert second_callback.answers
+    assert second_callback.answers[-1][1] is True
+    assert "Жалоба уже обработана" in (second_callback.answers[-1][0] or "")
+    assert second_message.edits == []
+
+    async with session_factory() as session:
+        complaint_row = await session.scalar(select(Complaint).where(Complaint.id == complaint_id))
+        freeze_logs = (
+            await session.execute(
+                select(ModerationLog).where(
+                    ModerationLog.auction_id == auction_id,
+                    ModerationLog.action == ModerationAction.FREEZE_AUCTION,
+                )
+            )
+        ).scalars().all()
+        _, timeline = await build_auction_timeline(session, auction_id)
+
+    assert complaint_row is not None
+    assert complaint_row.status == "RESOLVED"
+    assert len(freeze_logs) == 1
+    assert sum(1 for item in timeline if item.title == "Жалоба обработана") == 1
+    assert sum(1 for item in timeline if item.title == "Мод-действие: FREEZE_AUCTION") == 1

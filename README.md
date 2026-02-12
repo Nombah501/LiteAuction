@@ -326,3 +326,4 @@ FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ## Next (Sprint 19)
 
 - Add scenario tests for complaint/risk queue message edits and moderation timeline consistency
+- Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR

@@ -966,6 +966,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
                     actor_user_id=actor.id,
                     target_tg_user_id=view.target_user.tg_user_id,
                     reason=f"Жалоба #{complaint_id}: фрод-ставка",
+                    auction_id=view.auction.id,
                 )
                 if not ban_result.ok:
                     await callback.answer(ban_result.message, show_alert=True)
@@ -1092,6 +1093,7 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
                     actor_user_id=actor.id,
                     target_tg_user_id=view.user.tg_user_id,
                     reason=f"Фрод-сигнал #{signal_id}",
+                    auction_id=view.auction.id,
                 )
                 if not ban_result.ok:
                     await callback.answer(ban_result.message, show_alert=True)

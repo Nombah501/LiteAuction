@@ -405,6 +405,7 @@ async def ban_user(
     actor_user_id: int,
     target_tg_user_id: int,
     reason: str,
+    auction_id: uuid.UUID | None = None,
 ) -> ModerationResult:
     target_user = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id))
     if target_user is None:
@@ -440,6 +441,7 @@ async def ban_user(
         action=ModerationAction.BAN_USER,
         reason=reason,
         target_user_id=target_user.id,
+        auction_id=auction_id,
     )
     return ModerationResult(True, "Пользователь заблокирован", target_tg_user_id=target_tg_user_id)
 
