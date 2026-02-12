@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from html import escape
 import logging
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
@@ -302,6 +302,22 @@ def _parse_non_negative_int(raw: str | None) -> int | None:
     return int(raw)
 
 
+def _safe_back_to_from_request(request: Request, fallback: str = "/") -> str:
+    direct = request.query_params.get("return_to")
+    if direct and direct.startswith("/"):
+        return direct
+
+    referer = request.headers.get("referer") or ""
+    if referer:
+        parsed = urlsplit(referer)
+        referer_path = parsed.path or ""
+        if referer_path.startswith("/"):
+            referer_query = f"?{parsed.query}" if parsed.query else ""
+            return f"{referer_path}{referer_query}"
+
+    return fallback
+
+
 def _require_scope_permission(request: Request, scope: str) -> tuple[Response | None, AdminAuthContext]:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -310,9 +326,11 @@ def _require_scope_permission(request: Request, scope: str) -> tuple[Response | 
         return None, auth
 
     scope_title = _scope_title(scope)
+    back_to = _safe_back_to_from_request(request)
     body = (
         "<h1>Недостаточно прав</h1>"
         f"<p>Для этого действия нужна роль с правом: <b>{escape(scope_title)}</b>.</p>"
+        f"<p><a href='{escape(_path_with_auth(request, back_to))}'>Назад</a></p>"
         f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
     )
     return HTMLResponse(_render_page("Forbidden", body), status_code=403), auth

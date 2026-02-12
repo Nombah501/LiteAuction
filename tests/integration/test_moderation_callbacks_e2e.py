@@ -440,3 +440,118 @@ async def test_modrep_freeze_repeat_click_is_idempotent(monkeypatch, integration
             "Жалоба обработана",
         ],
     )
+
+
+@pytest.mark.asyncio
+async def test_modrisk_ban_repeat_click_is_idempotent(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    actor_tg_user_id = 74001
+    monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    refresh_calls: list[uuid.UUID] = []
+
+    async def fake_refresh(_bot, auction_id: uuid.UUID) -> None:
+        refresh_calls.append(auction_id)
+
+    monkeypatch.setattr("app.bot.handlers.moderation.refresh_auction_posts", fake_refresh)
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=74101, username="seller")
+            suspect = User(tg_user_id=74102, username="suspect")
+            session.add_all([seller, suspect])
+            await session.flush()
+
+            auction = Auction(
+                seller_user_id=seller.id,
+                description="lot",
+                photo_file_id="photo",
+                start_price=10,
+                buyout_price=None,
+                min_step=1,
+                duration_hours=24,
+                status=AuctionStatus.ACTIVE,
+            )
+            session.add(auction)
+            await session.flush()
+
+            signal = FraudSignal(
+                auction_id=auction.id,
+                user_id=suspect.id,
+                bid_id=None,
+                score=85,
+                reasons={"rules": [{"code": "TEST", "detail": "risk", "score": 85}]},
+                status="OPEN",
+            )
+            session.add(signal)
+            await session.flush()
+            signal_id = signal.id
+            auction_id = auction.id
+            suspect_user_id = suspect.id
+            suspect_tg_user_id = suspect.tg_user_id
+
+    first_message = _DummyMessage()
+    first_callback = _DummyCallback(
+        data=f"modrisk:ban:{signal_id}",
+        from_user_id=actor_tg_user_id,
+        message=first_message,
+    )
+    bot = _DummyBot()
+    await mod_risk_action(first_callback, bot)
+
+    second_message = _DummyMessage()
+    second_callback = _DummyCallback(
+        data=f"modrisk:ban:{signal_id}",
+        from_user_id=actor_tg_user_id,
+        message=second_message,
+    )
+    await mod_risk_action(second_callback, bot)
+
+    assert refresh_calls == [auction_id]
+    assert bot.sent_messages == [
+        (suspect_tg_user_id, f"Ваш аккаунт заблокирован модератором по фрод-сигналу #{signal_id}")
+    ]
+    assert second_callback.answers
+    assert second_callback.answers[-1][1] is True
+    assert "Сигнал уже обработан" in (second_callback.answers[-1][0] or "")
+    assert second_message.edits == []
+
+    async with session_factory() as session:
+        signal_row = await session.scalar(select(FraudSignal).where(FraudSignal.id == signal_id))
+        ban_logs = (
+            await session.execute(
+                select(ModerationLog).where(
+                    ModerationLog.auction_id == auction_id,
+                    ModerationLog.action == ModerationAction.BAN_USER,
+                )
+            )
+        ).scalars().all()
+        active_blacklist_entries = (
+            await session.execute(
+                select(BlacklistEntry).where(
+                    BlacklistEntry.user_id == suspect_user_id,
+                    BlacklistEntry.is_active.is_(True),
+                )
+            )
+        ).scalars().all()
+        _, timeline = await build_auction_timeline(session, auction_id)
+
+    assert signal_row is not None
+    assert signal_row.status == "CONFIRMED"
+    assert len(ban_logs) == 1
+    assert len(active_blacklist_entries) == 1
+    assert sum(1 for item in timeline if item.title == "Фрод-сигнал обработан") == 1
+    assert sum(1 for item in timeline if item.title == "Мод-действие: BAN_USER") == 1
+    _assert_timeline_sequence(
+        timeline,
+        [
+            "Фрод-сигнал создан",
+            "Мод-действие: BAN_USER",
+            "Фрод-сигнал обработан",
+        ],
+    )

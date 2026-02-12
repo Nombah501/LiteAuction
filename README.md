@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27 + Sprint 28**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -40,6 +40,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - DB-aware timeline page assembly and source filters (`auction`, `bid`, `complaint`, `fraud`, `moderation`)
 - Bug triage foundation: policy, backlog template, and GitHub bug issue form
 - Bugfix wave 1 improvements for timeline navigation context and pagination safety
+- Bugfix wave 2 improvements for callback retry safety and denied-scope back navigation
 
 ## Sprint 0 Checklist
 
@@ -233,6 +234,12 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Normalized and deduplicated source filter input; blank source now consistently maps to `all`
 - [x] Added regression tests for navigation context and pagination boundary behavior
 
+## Sprint 28 Checklist (Bugfix Wave 2)
+
+- [x] Added idempotency regression for repeated `modrisk:ban` callback actions
+- [x] Fixed denied-scope web pages to preserve safe return navigation context
+- [x] Added unit and integration regressions for scope-denied back links and callback retry side effects
+
 ## Quick Start
 
 1. Copy env template:
@@ -388,8 +395,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 28)
+## Next (Sprint 29)
 
-- Continue Bugfix Wave 2 for remaining prioritized defects in `docs/quality/bug-backlog.md`
-- Focus on moderation retry/idempotency and denied-scope navigation edge cases
+- Start visual foundation pass for admin web (layout consistency, controls readability, state styling)
+- Keep behavior unchanged while improving usability on desktop and mobile
 - Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR

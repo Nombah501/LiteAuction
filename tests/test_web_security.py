@@ -22,10 +22,13 @@ def _make_request(
     method: str = "GET",
     query: str = "",
     cookie: str | None = None,
+    referer: str | None = None,
 ) -> Request:
     headers: list[tuple[bytes, bytes]] = []
     if cookie is not None:
         headers.append((b"cookie", cookie.encode("utf-8")))
+    if referer is not None:
+        headers.append((b"referer", referer.encode("utf-8")))
 
     scope = {
         "type": "http",
@@ -71,6 +74,49 @@ def test_operator_scope_restrictions(monkeypatch):
     assert allowed_response is None
 
 
+def test_scope_denied_preserves_referer_back_link(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_user_ids", "1001,2002")
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "2002")
+    monkeypatch.setattr(settings, "admin_web_session_secret", "unit-test-secret")
+
+    cookie_value = build_admin_session_cookie(2002)
+    request = _make_request(
+        path="/actions/user/ban",
+        method="POST",
+        cookie=f"la_admin_session={cookie_value}",
+        referer="http://testserver/manage/auction/abc?timeline_page=2&timeline_limit=25",
+    )
+
+    denied_response, _ = _require_scope_permission(request, SCOPE_USER_BAN)
+    assert denied_response is not None
+    assert denied_response.status_code == 403
+    body = bytes(denied_response.body).decode("utf-8")
+    assert "/manage/auction/abc?timeline_page=2&amp;timeline_limit=25" in body
+
+
+def test_scope_denied_uses_safe_return_to_query(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_user_ids", "1001,2002")
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "2002")
+    monkeypatch.setattr(settings, "admin_web_session_secret", "unit-test-secret")
+
+    cookie_value = build_admin_session_cookie(2002)
+    request = _make_request(
+        path="/actions/user/ban",
+        method="POST",
+        query="return_to=/manage/users?page=3",
+        cookie=f"la_admin_session={cookie_value}",
+    )
+
+    denied_response, _ = _require_scope_permission(request, SCOPE_USER_BAN)
+    assert denied_response is not None
+    body = bytes(denied_response.body).decode("utf-8")
+    assert "/manage/users?page=3" in body
+
+
 def test_csrf_token_validation_by_subject(monkeypatch):
     from app.config import settings
 
@@ -110,7 +156,7 @@ async def test_end_action_returns_confirmation_page(monkeypatch):
     )
 
     assert response.status_code == 200
-    body = response.body.decode("utf-8")
+    body = bytes(response.body).decode("utf-8")
     assert "Подтверждение завершения аукциона" in body
     assert "name='confirmed' value='1'" in body
 
@@ -134,4 +180,4 @@ async def test_ban_action_rejects_invalid_csrf(monkeypatch):
     )
 
     assert response.status_code == 403
-    assert "CSRF check failed" in response.body.decode("utf-8")
+    assert "CSRF check failed" in bytes(response.body).decode("utf-8")
