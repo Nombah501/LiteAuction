@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import os
 import random
 
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.base import Base
 from app.db.enums import UserRole
 from app.db.models import User, UserRoleAssignment
 from app.services.moderation_service import (
@@ -15,57 +12,11 @@ from app.services.moderation_service import (
     has_moderation_scope,
     revoke_moderator_role,
 )
-from app.services.rbac_service import (
-    ALL_MANAGE_SCOPES,
-    OPERATOR_SCOPES,
-    SCOPE_AUCTION_MANAGE,
-    SCOPE_USER_BAN,
-    VIEWER_SCOPES,
-    resolve_tg_user_scopes,
-)
-
-if os.getenv("RUN_INTEGRATION_TESTS") != "1":
-    pytest.skip("Integration tests are disabled (set RUN_INTEGRATION_TESTS=1)", allow_module_level=True)
+from app.services.rbac_service import ALL_MANAGE_SCOPES, OPERATOR_SCOPES, SCOPE_AUCTION_MANAGE, SCOPE_USER_BAN, VIEWER_SCOPES, resolve_tg_user_scopes
 
 
 def _test_tg_user_id() -> int:
     return random.randint(10_000_000, 999_999_999)
-
-
-@pytest_asyncio.fixture
-async def integration_engine():
-    db_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if not db_url:
-        pytest.skip("No TEST_DATABASE_URL or DATABASE_URL set")
-
-    engine = create_async_engine(db_url, future=True)
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-            await conn.run_sync(Base.metadata.create_all)
-    except Exception as exc:  # pragma: no cover
-        await engine.dispose()
-        pytest.skip(f"Integration database is unavailable: {exc}")
-
-    yield engine
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
-
-
-@pytest_asyncio.fixture
-async def db_session(integration_engine) -> AsyncSession:
-    session_factory = async_sessionmaker(
-        bind=integration_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with session_factory() as session:
-        try:
-            yield session
-        finally:
-            await session.rollback()
 
 
 @pytest.mark.asyncio
