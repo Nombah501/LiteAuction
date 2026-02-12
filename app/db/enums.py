@@ -30,6 +30,9 @@ class ModerationAction(StrEnum):
     RESOLVE_APPEAL = "RESOLVE_APPEAL"
     REJECT_APPEAL = "REJECT_APPEAL"
     ESCALATE_APPEAL = "ESCALATE_APPEAL"
+    TAKE_FEEDBACK = "TAKE_FEEDBACK"
+    APPROVE_FEEDBACK = "APPROVE_FEEDBACK"
+    REJECT_FEEDBACK = "REJECT_FEEDBACK"
 
 
 class AppealSourceType(StrEnum):
@@ -42,4 +45,16 @@ class AppealStatus(StrEnum):
     OPEN = "OPEN"
     IN_REVIEW = "IN_REVIEW"
     RESOLVED = "RESOLVED"
+    REJECTED = "REJECTED"
+
+
+class FeedbackType(StrEnum):
+    BUG = "BUG"
+    SUGGESTION = "SUGGESTION"
+
+
+class FeedbackStatus(StrEnum):
+    NEW = "NEW"
+    IN_REVIEW = "IN_REVIEW"
+    APPROVED = "APPROVED"
     REJECTED = "REJECTED"

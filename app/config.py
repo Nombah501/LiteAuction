@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     appeal_escalation_interval_seconds: int = 60
     appeal_escalation_batch_size: int = 50
     appeal_escalation_actor_tg_user_id: int = -1
+    feedback_intake_min_length: int = 10
+    feedback_intake_cooldown_seconds: int = 90
+    feedback_bug_reward_points: int = 30
+    feedback_suggestion_reward_points: int = 20
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
