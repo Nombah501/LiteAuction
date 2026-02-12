@@ -9,6 +9,7 @@ from app.web.auth import build_admin_session_cookie, get_admin_auth_context
 from app.web.main import (
     _build_csrf_token,
     _require_scope_permission,
+    _safe_return_to,
     _validate_csrf_token,
     action_ban_user,
     action_end_auction,
@@ -115,6 +116,55 @@ def test_scope_denied_uses_safe_return_to_query(monkeypatch):
     assert denied_response is not None
     body = bytes(denied_response.body).decode("utf-8")
     assert "/manage/users?page=3" in body
+
+
+def test_scope_denied_rejects_protocol_relative_return_to(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_user_ids", "1001,2002")
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "2002")
+    monkeypatch.setattr(settings, "admin_web_session_secret", "unit-test-secret")
+
+    cookie_value = build_admin_session_cookie(2002)
+    request = _make_request(
+        path="/actions/user/ban",
+        method="POST",
+        query="return_to=//evil.example/steal",
+        cookie=f"la_admin_session={cookie_value}",
+    )
+
+    denied_response, _ = _require_scope_permission(request, SCOPE_USER_BAN)
+    assert denied_response is not None
+    body = bytes(denied_response.body).decode("utf-8")
+    assert "//evil.example/steal" not in body
+    assert "href='/'" in body
+
+
+def test_scope_denied_rejects_protocol_relative_referer_path(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_user_ids", "1001,2002")
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "2002")
+    monkeypatch.setattr(settings, "admin_web_session_secret", "unit-test-secret")
+
+    cookie_value = build_admin_session_cookie(2002)
+    request = _make_request(
+        path="/actions/user/ban",
+        method="POST",
+        cookie=f"la_admin_session={cookie_value}",
+        referer="http://testserver//evil.example/steal?x=1",
+    )
+
+    denied_response, _ = _require_scope_permission(request, SCOPE_USER_BAN)
+    assert denied_response is not None
+    body = bytes(denied_response.body).decode("utf-8")
+    assert "//evil.example/steal" not in body
+    assert "href='/'" in body
+
+
+def test_safe_return_to_rejects_protocol_relative_paths() -> None:
+    assert _safe_return_to("//evil.example/steal", "/manage/users") == "/manage/users"
+    assert _safe_return_to("/manage/users?page=2", "/") == "/manage/users?page=2"
 
 
 def test_csrf_token_validation_by_subject(monkeypatch):
