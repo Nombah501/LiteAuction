@@ -6,10 +6,10 @@ Finalize release readiness after bugfix waves and visual foundation updates.
 
 ## Hard Gates
 
-- [ ] `python -m ruff check app tests`
-- [ ] `python -m pytest -q tests`
-- [ ] `RUN_INTEGRATION_TESTS=1 TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_test python -m pytest -q tests/integration`
-- [ ] Repeat integration run once (anti-flaky)
+- [x] `python -m ruff check app tests`
+- [x] `python -m pytest -q tests`
+- [x] `RUN_INTEGRATION_TESTS=1 TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_test python -m pytest -q tests/integration`
+- [x] Repeat integration run once (anti-flaky)
 
 ## Manual QA Evidence
 
@@ -26,6 +26,8 @@ Attach evidence to PR:
 - Screenshots for timeline (desktop + mobile)
 - Screenshot for denied/CSRF/error pages
 - Short pass/fail matrix for MQ/TL and visual checks
+
+Manual QA execution status: pending (requires interactive Telegram and admin web walkthrough)
 
 ## Rollback Plan
 

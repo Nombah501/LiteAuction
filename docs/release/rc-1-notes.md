@@ -1,6 +1,7 @@
 # Release Candidate 1 Notes
 
 Date: 2026-02-12
+Last automated re-check: 2026-02-12
 Branch: `post-sprint-rc-readiness`
 
 ## Scope Included
@@ -11,6 +12,13 @@ Branch: `post-sprint-rc-readiness`
 - Post-sprint: safe return-path hardening (`BUG-006`).
 
 ## Automated Verification (completed)
+
+- `python -m ruff check app tests` -> PASS
+- `python -m pytest -q tests` -> PASS (`29 passed, 1 skipped`)
+- Integration run #1 -> PASS (`15 passed`)
+- Integration run #2 (anti-flaky) -> PASS (`15 passed`)
+
+Latest rerun snapshot (post-sprint):
 
 - `python -m ruff check app tests` -> PASS
 - `python -m pytest -q tests` -> PASS (`29 passed, 1 skipped`)
