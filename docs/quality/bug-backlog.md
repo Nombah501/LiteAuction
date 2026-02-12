@@ -2,14 +2,14 @@
 
 Updated: 2026-02-12
 
-## Priority Queue (Sprint 27 candidates)
+## Priority Queue (Sprint 27-28 candidates)
 
 | ID | Priority | Area | Title | Repro status | Owner | Target sprint | Status |
 |---|---|---|---|---|---|---|---|
 | BUG-001 | P1 | timeline/web | Timeline source filter should keep state across all navigation entry points | reproducible | assigned | 27 | done |
 | BUG-002 | P1 | timeline/service | Timeline page assembly should not over-fetch rows under high page numbers | reproducible | assigned | 27 | done |
-| BUG-003 | P1 | moderation/timeline | Callback retry paths must not create duplicate timeline side effects | reproducible | unassigned | 27 | triaged |
-| BUG-004 | P2 | web/rbac | Denied scope pages should preserve return navigation context consistently | reproducible | unassigned | 27 | triaged |
+| BUG-003 | P1 | moderation/timeline | Callback retry paths must not create duplicate timeline side effects | reproducible | assigned | 28 | done |
+| BUG-004 | P2 | web/rbac | Denied scope pages should preserve return navigation context consistently | reproducible | assigned | 28 | done |
 | BUG-005 | P2 | web/ui | Timeline empty-state and filter-label rendering should be consistent for invalid or blank input | reproducible | assigned | 27 | done |
 
 ## Completed in Sprint 27
@@ -17,6 +17,11 @@ Updated: 2026-02-12
 - `BUG-001`: timeline-to-manage-to-timeline navigation now preserves page/limit/source context.
 - `BUG-002`: timeline page builder now returns early when page offset is outside total range and caps per-source fetch by total items.
 - `BUG-005`: source filter input is normalized/deduplicated; blank filter is treated as `all` consistently.
+
+## Completed in Sprint 28
+
+- `BUG-003`: added idempotency regression coverage for repeated `modrisk:ban` callbacks (no duplicate logs/blacklist/timeline side effects).
+- `BUG-004`: denied-scope pages now preserve safe return navigation using `return_to`/`Referer` context.
 
 ## Reproduction Notes
 
