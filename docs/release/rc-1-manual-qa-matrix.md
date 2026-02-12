@@ -1,6 +1,6 @@
 # RC-1 Manual QA Matrix
 
-Date: 2026-02-12
+Date: 2026-02-13
 Tester: Nombah501
 
 How to fill quickly:
@@ -22,6 +22,9 @@ How to fill quickly:
 | AP-02 Modpanel appeal resolve/reject updates status | PASS | action=modui:appeal_resolve/reject, status changed, evidence=<file> |
 | AP-03 Web appeals list filters and actions work | PASS | `/appeals` status/source/q + resolve/reject forms, evidence=<file> |
 | AP-04 Appeal decision writes moderation audit trail | PASS | action=RESOLVE_APPEAL/REJECT_APPEAL with payload, evidence=<file> |
+| AP-05 Appeal `IN_REVIEW` transition works in web + modpanel | PASS | action=modui:appeal_review + web review form, status=IN_REVIEW, evidence=<file> |
+| AP-06 Overdue appeals are escalated once by SLA watcher | PASS | first run=escalated, second run=no-op, evidence=<file> |
+| AP-07 SLA escalation writes moderation audit trail | PASS | action=ESCALATE_APPEAL with payload and system actor, evidence=<file> |
 | TL-01 Complaint timeline consistency | PASS | sequence=create->action->resolve, auction_id=<uuid>, evidence=<file> |
 | TL-02 Fraud timeline consistency | PASS | sequence=create->action->resolve, auction_id=<uuid>, evidence=<file> |
 
@@ -43,7 +46,7 @@ How to fill quickly:
 - Timeline desktop screenshots:
 - Timeline mobile screenshots:
 - Denied/CSRF/error screenshots:
-- Audit log snippets (`RESOLVE_APPEAL`/`REJECT_APPEAL`):
+- Audit log snippets (`RESOLVE_APPEAL`/`REJECT_APPEAL`/`ESCALATE_APPEAL`):
 - Other notes/artifacts:
 
 ## Final Verdict

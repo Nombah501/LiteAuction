@@ -17,18 +17,21 @@ Branch: `main`
 - PR #20: appeals workflow (domain + migration + service, intake persistence, modpanel/web queues and actions).
 - PR #21: appeal audit trail (new moderation actions, enum migration, web/modpanel logging, RC QA matrix refresh).
 - PR #22: violators workflow enhancements (`by` + date filters, inline unban, filter-preserving pagination/actions, validation and integration coverage).
+- PR #23: active `IN_REVIEW` workflow for appeals (take-in-work action in web/modpanel, active queue alignment, additional scope/pagination coverage).
+- PR #24: one-time appeal SLA escalation (SLA fields + migration + watcher, overdue notification flow, overdue visibility in web/modpanel).
+- PR #25: escalation audit trail (new `ESCALATE_APPEAL` moderation action + migration, persisted escalation logs with payload and system actor attribution).
 
 ## Automated Verification (latest)
 
 - `.venv/bin/python -m ruff check app tests alembic` -> PASS
 - `.venv/bin/python -m pytest -q tests` -> PASS (`36 passed, 1 skipped`)
-- Integration run #1 -> PASS (`37 passed`)
-- Integration run #2 (anti-flaky) -> PASS (`37 passed`)
+- Integration run #1 -> PASS (`46 passed`)
+- Integration run #2 (anti-flaky) -> PASS (`46 passed`)
 
 ## Manual QA Status
 
 - RC-1 matrix is filled and marked GO: `docs/release/rc-1-manual-qa-matrix.md`.
-- Core moderation + appeals + violators cases are marked PASS in matrix evidence.
+- Core moderation + appeals + violators + SLA escalation cases are marked PASS in matrix evidence.
 
 ## Current Verdict
 
@@ -39,7 +42,7 @@ Branch: `main`
 ## Go-Live Checklist
 
 - [x] Code quality gates and anti-flaky rerun are green.
-- [x] Appeals audit trail and violators workflows validated.
+- [x] Appeals workflow, SLA escalation, and audit trail validated.
 - [x] Manual RC matrix finalized.
 - [ ] Product/owner final communication and rollout window confirmation.
 
