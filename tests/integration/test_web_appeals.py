@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 import pytest
@@ -107,6 +109,17 @@ async def test_appeals_page_rejects_invalid_status(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_appeals_page_rejects_invalid_overdue_filter(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    request = _make_request("/appeals")
+
+    with pytest.raises(HTTPException) as exc:
+        await appeals(request, status="open", source="all", overdue="broken", page=0, q="")
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_appeals_page_requires_user_ban_scope(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.web.main._require_scope_permission",
@@ -209,6 +222,59 @@ async def test_action_review_appeal_updates_status(monkeypatch, integration_engi
     assert appeal_row.resolution_note == "[web-review] picked"
     assert appeal_row.resolver_user_id == actor_user_id
     assert appeal_row.resolved_at is None
+    assert appeal_row.in_review_started_at is not None
+    assert appeal_row.sla_deadline_at is not None
+
+
+@pytest.mark.asyncio
+async def test_appeals_page_overdue_filter_and_pagination_context(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    now = datetime.now(UTC)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=99281, username="overdue_filter_user")
+            session.add(user)
+            await session.flush()
+
+            for idx in range(31):
+                session.add(
+                    Appeal(
+                        appeal_ref=f"manual_due_{idx}",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=user.id,
+                        status=AppealStatus.OPEN,
+                        sla_deadline_at=now - timedelta(minutes=idx + 1),
+                    )
+                )
+
+            session.add(
+                Appeal(
+                    appeal_ref="manual_not_due",
+                    source_type=AppealSourceType.MANUAL,
+                    source_id=None,
+                    appellant_user_id=user.id,
+                    status=AppealStatus.OPEN,
+                    sla_deadline_at=now + timedelta(hours=1),
+                )
+            )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+
+    request = _make_request("/appeals")
+    response_page_0 = await appeals(request, status="open", source="all", overdue="only", page=0, q="manual_due")
+
+    body_page_0 = bytes(response_page_0.body).decode("utf-8")
+    assert response_page_0.status_code == 200
+    assert "manual_not_due" not in body_page_0
+    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;page=1&amp;q=manual_due" in body_page_0
+
+    response_page_1 = await appeals(request, status="open", source="all", overdue="only", page=1, q="manual_due")
+    body_page_1 = bytes(response_page_1.body).decode("utf-8")
+    assert response_page_1.status_code == 200
+    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;page=0&amp;q=manual_due" in body_page_1
 
 
 @pytest.mark.asyncio

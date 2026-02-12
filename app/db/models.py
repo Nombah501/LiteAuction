@@ -229,6 +229,7 @@ class Appeal(Base, TimestampMixin):
         ),
         Index("ix_appeals_status_created_at", "status", "created_at"),
         Index("ix_appeals_source_type_source_id", "source_type", "source_id"),
+        Index("ix_appeals_escalation_scan", "status", "escalated_at", "sla_deadline_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -252,6 +253,10 @@ class Appeal(Base, TimestampMixin):
         nullable=True,
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    in_review_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sla_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    escalation_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
 
 
 class FraudSignal(Base):

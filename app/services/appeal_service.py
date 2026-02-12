@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus
 from app.db.models import Appeal, Complaint, FraudSignal
 
@@ -17,6 +18,11 @@ class AppealResolveResult:
     ok: bool
     message: str
     appeal: Appeal | None = None
+
+
+@dataclass(slots=True)
+class AppealEscalationResult:
+    escalated: list[Appeal]
 
 
 def parse_appeal_ref(appeal_ref: str) -> tuple[AppealSourceType, int | None]:
@@ -30,6 +36,28 @@ def parse_appeal_ref(appeal_ref: str) -> tuple[AppealSourceType, int | None]:
         if suffix.isdigit():
             return AppealSourceType.RISK, int(suffix)
     return AppealSourceType.MANUAL, None
+
+
+def _open_sla_delta() -> timedelta:
+    hours = max(settings.appeal_sla_open_hours, 1)
+    return timedelta(hours=hours)
+
+
+def _in_review_sla_delta() -> timedelta:
+    hours = max(settings.appeal_sla_in_review_hours, 1)
+    return timedelta(hours=hours)
+
+
+def _compute_open_deadline(base_time: datetime) -> datetime:
+    return base_time + _open_sla_delta()
+
+
+def _compute_in_review_deadline(base_time: datetime) -> datetime:
+    return base_time + _in_review_sla_delta()
+
+
+def _is_active_status(status: AppealStatus) -> bool:
+    return status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}
 
 
 async def create_appeal_from_ref(
@@ -54,6 +82,7 @@ async def create_appeal_from_ref(
         return existing
 
     source_type, source_id = parse_appeal_ref(normalized_ref)
+    now = datetime.now(UTC)
     try:
         async with session.begin_nested():
             appeal = Appeal(
@@ -62,6 +91,9 @@ async def create_appeal_from_ref(
                 source_id=source_id,
                 appellant_user_id=appellant_user_id,
                 status=AppealStatus.OPEN,
+                sla_deadline_at=_compute_open_deadline(now),
+                escalation_level=0,
+                updated_at=now,
             )
             session.add(appeal)
             await session.flush()
@@ -145,6 +177,8 @@ async def mark_appeal_in_review(
     now = datetime.now(UTC)
     appeal.status = AppealStatus.IN_REVIEW
     appeal.resolver_user_id = reviewer_user_id
+    appeal.in_review_started_at = now
+    appeal.sla_deadline_at = _compute_in_review_deadline(now)
 
     review_note = note.strip()
     if review_note:
@@ -176,8 +210,48 @@ async def finalize_appeal(
     appeal.resolver_user_id = resolver_user_id
     appeal.resolution_note = note.strip() or None
     appeal.resolved_at = now
+    appeal.sla_deadline_at = None
     appeal.updated_at = now
     return AppealResolveResult(True, "Апелляция обработана", appeal=appeal)
+
+
+async def escalate_overdue_appeals(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int = 50,
+) -> AppealEscalationResult:
+    current_time = now or datetime.now(UTC)
+    batch_size = max(limit, 1)
+
+    overdue_stmt = (
+        select(Appeal)
+        .where(
+            Appeal.status.in_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]),
+            Appeal.escalated_at.is_(None),
+            Appeal.sla_deadline_at.is_not(None),
+            Appeal.sla_deadline_at <= current_time,
+        )
+        .order_by(Appeal.sla_deadline_at.asc(), Appeal.id.asc())
+        .limit(batch_size)
+        .with_for_update(skip_locked=True)
+    )
+    overdue = list((await session.execute(overdue_stmt)).scalars().all())
+    if not overdue:
+        return AppealEscalationResult(escalated=[])
+
+    for appeal in overdue:
+        status = AppealStatus(appeal.status)
+        if not _is_active_status(status):
+            continue
+        if appeal.escalated_at is not None:
+            continue
+        appeal.escalated_at = current_time
+        appeal.escalation_level = 1
+        appeal.updated_at = current_time
+
+    escalated = [item for item in overdue if item.escalated_at == current_time]
+    return AppealEscalationResult(escalated=escalated)
 
 
 async def resolve_appeal(

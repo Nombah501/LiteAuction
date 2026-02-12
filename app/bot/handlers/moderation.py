@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
@@ -129,14 +130,21 @@ def _render_appeal_text(
     appellant: User | None,
     resolver: User | None,
 ) -> str:
+    now = datetime.now(UTC)
+    is_overdue = _appeal_is_overdue(appeal, now=now)
+
     lines = [
         f"Апелляция #{appeal.id}",
-        f"Статус: {appeal.status}",
+        f"Статус: {appeal.status}{' ⏰' if is_overdue else ''}",
         f"Источник: {_format_appeal_source(appeal)}",
         f"Референс: {appeal.appeal_ref}",
         f"Подал: {_format_user_label(appellant)}",
         f"Создана: {appeal.created_at}",
     ]
+    if appeal.sla_deadline_at is not None:
+        lines.append(f"SLA дедлайн: {appeal.sla_deadline_at}")
+    if appeal.escalated_at is not None:
+        lines.append(f"Эскалирована: {appeal.escalated_at}")
     if appeal.resolution_note:
         lines.append(f"Решение: {appeal.resolution_note}")
     if resolver is not None:
@@ -161,10 +169,16 @@ async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
 
     has_next = len(appeals) > PANEL_PAGE_SIZE
     visible = appeals[:PANEL_PAGE_SIZE]
-    items = [(item.id, f"Апелляция #{item.id} | {item.status} | {item.appeal_ref}") for item in visible]
+    now = datetime.now(UTC)
+    items = []
+    for item in visible:
+        overdue_prefix = "⏰ " if _appeal_is_overdue(item, now=now) else ""
+        items.append((item.id, f"{overdue_prefix}Апелляция #{item.id} | {item.status} | {item.appeal_ref}"))
+
     text_lines = [f"Активные апелляции, стр. {page + 1}"]
     for item in visible:
-        text_lines.append(f"- #{item.id} | status={item.status} | ref={item.appeal_ref}")
+        overdue_suffix = " | overdue" if _appeal_is_overdue(item, now=now) else ""
+        text_lines.append(f"- #{item.id} | status={item.status} | ref={item.appeal_ref}{overdue_suffix}")
     if not visible:
         text_lines.append("- нет записей")
 
@@ -201,6 +215,16 @@ def _parse_uuid(raw: str) -> uuid.UUID | None:
         return uuid.UUID(raw)
     except ValueError:
         return None
+
+
+def _appeal_is_overdue(appeal: Appeal, *, now: datetime | None = None) -> bool:
+    status = AppealStatus(appeal.status)
+    if status not in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
+        return False
+    if appeal.sla_deadline_at is None:
+        return False
+    current_time = now or datetime.now(UTC)
+    return appeal.sla_deadline_at <= current_time
 
 
 def _split_args(text: str) -> tuple[str, str] | None:

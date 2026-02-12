@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 import uuid
 
 import pytest
@@ -783,6 +784,60 @@ async def test_modpanel_appeal_resolve_updates_status_and_notifies(monkeypatch, 
     assert sent_chat_id == appellant_tg_user_id
     assert f"#{appeal_id}" in sent_text
     assert "удовлетворена" in sent_text
+
+
+@pytest.mark.asyncio
+async def test_modpanel_appeals_list_marks_overdue_items(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    actor_tg_user_id = 77090
+    monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=77091, username="appeal_overdue")
+            session.add(appellant)
+            await session.flush()
+
+            session.add_all(
+                [
+                    Appeal(
+                        appeal_ref="manual_due_bot",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=appellant.id,
+                        status=AppealStatus.OPEN,
+                        sla_deadline_at=now - timedelta(minutes=5),
+                    ),
+                    Appeal(
+                        appeal_ref="manual_fresh_bot",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=appellant.id,
+                        status=AppealStatus.OPEN,
+                        sla_deadline_at=now + timedelta(hours=1),
+                    ),
+                ]
+            )
+
+    message = _DummyMessage()
+    callback = _DummyCallback(data="modui:appeals:0", from_user_id=actor_tg_user_id, message=message)
+    bot = _DummyBot()
+
+    await mod_panel_callbacks(callback, bot)
+
+    assert callback.answers
+    assert callback.answers[-1][1] is False
+    assert len(message.edits) == 1
+    text = message.edits[0][0]
+    assert "manual_due_bot" in text
+    assert "overdue" in text
+    assert "manual_fresh_bot" in text
 
 
 @pytest.mark.asyncio
