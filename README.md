@@ -415,4 +415,5 @@ FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 
 - Continue point improvements from bug triage backlog in small scoped PRs
 - Run consolidated manual QA using `docs/manual-qa/sprint-19.md` + `docs/release/sprint-30-readiness.md`
+- Use `docs/release/rc-1-notes.md` as release-candidate baseline notes
 - Prepare release candidate notes and known limitations
