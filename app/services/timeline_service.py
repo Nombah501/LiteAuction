@@ -352,14 +352,17 @@ async def build_auction_timeline_page(
     if total_items == 0:
         return auction, [], 0
 
-    fetch_limit = (page + 1) * limit
+    offset = page * limit
+    if offset >= total_items:
+        return auction, [], total_items
+
+    fetch_limit = min((page + 1) * limit, total_items)
     timeline = await _build_timeline_events(
         session,
         auction,
         included_sources,
         max_per_source=fetch_limit,
     )
-    offset = page * limit
     return auction, timeline[offset : offset + limit], total_items
 
 

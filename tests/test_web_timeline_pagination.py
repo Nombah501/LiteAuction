@@ -202,7 +202,7 @@ async def test_timeline_source_filter_forwarded_and_preserved(monkeypatch) -> No
         str(auction_id),
         page=0,
         limit=50,
-        source="moderation,complaint",
+        source=" moderation, complaint,moderation ",
     )
 
     assert response.status_code == 200
@@ -210,6 +210,39 @@ async def test_timeline_source_filter_forwarded_and_preserved(monkeypatch) -> No
     body = bytes(response.body).decode("utf-8")
     assert "Фильтр source:</b> moderation,complaint" in body
     assert "source=moderation%2Ccomplaint" in body
+    assert "timeline_source=moderation%2Ccomplaint" in body
+
+
+@pytest.mark.asyncio
+async def test_timeline_blank_source_treated_as_all(monkeypatch) -> None:
+    request = _make_request("/timeline/auction/test")
+    auction_id = uuid.uuid4()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+
+    async def fake_build(_session, _auction_id, *, page, limit, sources):
+        captured["sources"] = sources
+        auction = SimpleNamespace(id=auction_id, status=AuctionStatus.ACTIVE, seller_user_id=123)
+        items = _timeline_items()
+        return auction, items[:1], 1
+
+    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+
+    response = await auction_timeline(
+        request,
+        str(auction_id),
+        page=0,
+        limit=25,
+        source=" , , ",
+    )
+
+    assert response.status_code == 200
+    assert captured["sources"] is None
+    body = bytes(response.body).decode("utf-8")
+    assert "Фильтр source:</b> all" in body
+    assert "timeline_source=" not in body
 
 
 @pytest.mark.asyncio

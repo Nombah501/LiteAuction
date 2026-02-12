@@ -278,6 +278,30 @@ def _scope_title(scope: str) -> str:
     return scope
 
 
+def _normalize_timeline_source_query(raw: str | None) -> tuple[list[str] | None, str | None]:
+    if raw is None:
+        return None, None
+
+    values: list[str] = []
+    seen: set[str] = set()
+    for part in raw.split(","):
+        value = part.strip().lower()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+
+    if not values:
+        return None, None
+    return values, ",".join(values)
+
+
+def _parse_non_negative_int(raw: str | None) -> int | None:
+    if raw is None or not raw.isdigit():
+        return None
+    return int(raw)
+
+
 def _require_scope_permission(request: Request, scope: str) -> tuple[Response | None, AdminAuthContext]:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -636,10 +660,7 @@ async def auction_timeline(
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=400, detail="Invalid timeline limit")
 
-    source_filter = (source or "").strip().lower()
-    source_values: list[str] | None = None
-    if source_filter:
-        source_values = [value.strip() for value in source_filter.split(",") if value.strip()]
+    source_values, source_filter = _normalize_timeline_source_query(source)
 
     try:
         auction_uuid = uuid.UUID(auction_id)
@@ -687,6 +708,14 @@ async def auction_timeline(
             query["source"] = source_value
         return f"{timeline_base}?{urlencode(query)}"
 
+    manage_query: dict[str, str] = {
+        "timeline_page": str(page),
+        "timeline_limit": str(limit),
+    }
+    if source_filter:
+        manage_query["timeline_source"] = source_filter
+    manage_path = f"/manage/auction/{auction.id}?{urlencode(manage_query)}"
+
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, _timeline_path(page - 1, source_filter or None)))}'>← Назад</a>"
         if has_prev
@@ -714,7 +743,7 @@ async def auction_timeline(
         f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
         f"<p><a href='{escape(_path_with_auth(request, '/auctions?status=ACTIVE'))}'>К аукционам</a> | "
         f"<a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
-        f"<a href='{escape(_path_with_auth(request, f'/manage/auction/{auction.id}'))}'>Управление</a></p>"
+        f"<a href='{escape(_path_with_auth(request, manage_path))}'>Управление</a></p>"
         f"<p><b>Статус:</b> {escape(str(auction.status))} | <b>Seller UID:</b> {auction.seller_user_id}</p>"
         f"<p><b>Фильтр source:</b> {escape(filter_label)} | {source_links}</p>"
         f"<p><b>Показано:</b> {start_item}-{end_item} из {total_items} | <b>Лимит:</b> {limit}</p>"
@@ -753,6 +782,10 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid auction UUID")
 
+    timeline_page = _parse_non_negative_int(request.query_params.get("timeline_page"))
+    timeline_limit = _parse_non_negative_int(request.query_params.get("timeline_limit"))
+    _, timeline_source = _normalize_timeline_source_query(request.query_params.get("timeline_source"))
+
     async with SessionFactory() as session:
         auction = await session.scalar(select(Auction).where(Auction.id == auction_uuid))
         if auction is None:
@@ -763,6 +796,17 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
 
     can_manage_auction = auth.can(SCOPE_AUCTION_MANAGE)
     can_manage_bids = auth.can(SCOPE_BID_MANAGE)
+
+    timeline_query: dict[str, str] = {}
+    if timeline_page is not None:
+        timeline_query["page"] = str(timeline_page)
+    if timeline_limit is not None and 1 <= timeline_limit <= 500:
+        timeline_query["limit"] = str(timeline_limit)
+    if timeline_source:
+        timeline_query["source"] = timeline_source
+    timeline_path = f"/timeline/auction/{auction.id}"
+    if timeline_query:
+        timeline_path = f"{timeline_path}?{urlencode(timeline_query)}"
 
     controls = "<p><i>Только просмотр (нет прав на управление аукционом).</i></p>"
     if can_manage_auction:
@@ -821,7 +865,7 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
         f"<h1>Управление аукционом {escape(str(auction.id))}</h1>"
         f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
         f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
-        f"<a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>Таймлайн</a></p>"
+        f"<a href='{escape(_path_with_auth(request, timeline_path))}'>Таймлайн</a></p>"
         f"<p><b>Status:</b> {escape(str(auction.status))} | <b>Seller UID:</b> {auction.seller_user_id}</p>"
         f"<div class='card'>{controls}</div>"
         "<h2>Последние ставки</h2>"

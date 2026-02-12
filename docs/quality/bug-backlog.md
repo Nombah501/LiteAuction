@@ -6,11 +6,17 @@ Updated: 2026-02-12
 
 | ID | Priority | Area | Title | Repro status | Owner | Target sprint | Status |
 |---|---|---|---|---|---|---|---|
-| BUG-001 | P1 | timeline/web | Timeline source filter should keep state across all navigation entry points | reproducible | unassigned | 27 | triaged |
-| BUG-002 | P1 | timeline/service | Timeline page assembly should not over-fetch rows under high page numbers | reproducible | unassigned | 27 | triaged |
+| BUG-001 | P1 | timeline/web | Timeline source filter should keep state across all navigation entry points | reproducible | assigned | 27 | done |
+| BUG-002 | P1 | timeline/service | Timeline page assembly should not over-fetch rows under high page numbers | reproducible | assigned | 27 | done |
 | BUG-003 | P1 | moderation/timeline | Callback retry paths must not create duplicate timeline side effects | reproducible | unassigned | 27 | triaged |
 | BUG-004 | P2 | web/rbac | Denied scope pages should preserve return navigation context consistently | reproducible | unassigned | 27 | triaged |
-| BUG-005 | P2 | web/ui | Timeline empty-state and filter-label rendering should be consistent for invalid or blank input | reproducible | unassigned | 27 | triaged |
+| BUG-005 | P2 | web/ui | Timeline empty-state and filter-label rendering should be consistent for invalid or blank input | reproducible | assigned | 27 | done |
+
+## Completed in Sprint 27
+
+- `BUG-001`: timeline-to-manage-to-timeline navigation now preserves page/limit/source context.
+- `BUG-002`: timeline page builder now returns early when page offset is outside total range and caps per-source fetch by total items.
+- `BUG-005`: source filter input is normalized/deduplicated; blank filter is treated as `all` consistently.
 
 ## Reproduction Notes
 
