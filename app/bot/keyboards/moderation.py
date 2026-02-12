@@ -96,6 +96,13 @@ def moderation_panel_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 styled_button(
+                    text="Апелляции",
+                    callback_data="modui:appeals:0",
+                    style="primary",
+                )
+            ],
+            [
+                styled_button(
                     text="Статистика",
                     callback_data="modui:stats",
                     style="success",
@@ -184,4 +191,49 @@ def moderation_frozen_actions_keyboard(*, auction_id: str, page: int) -> InlineK
             ],
             [styled_button(text="Назад", callback_data=f"modui:frozen:{page}")],
         ]
+    )
+
+
+def moderation_appeals_list_keyboard(
+    *,
+    items: list[tuple[int, str]],
+    page: int,
+    has_next: bool,
+) -> InlineKeyboardMarkup:
+    rows = [[styled_button(text=label, callback_data=f"modui:appeal:{appeal_id}:{page}")] for appeal_id, label in items]
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(styled_button(text="<-", callback_data=f"modui:appeals:{page - 1}"))
+    nav_row.append(styled_button(text="Меню", callback_data="modui:home"))
+    if has_next:
+        nav_row.append(styled_button(text="->", callback_data=f"modui:appeals:{page + 1}"))
+    rows.append(nav_row)
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def moderation_appeal_actions_keyboard(*, appeal_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(
+                    text="Удовлетворить",
+                    callback_data=f"modui:appeal_resolve:{appeal_id}:{page}",
+                    style="success",
+                ),
+                styled_button(
+                    text="Отклонить",
+                    callback_data=f"modui:appeal_reject:{appeal_id}:{page}",
+                    style="danger",
+                ),
+            ],
+            [styled_button(text="Назад", callback_data=f"modui:appeals:{page}")],
+        ]
+    )
+
+
+def moderation_appeal_back_keyboard(*, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[styled_button(text="Назад", callback_data=f"modui:appeals:{page}")]]
     )

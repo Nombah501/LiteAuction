@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.handlers.moderation import mod_panel_callbacks, mod_report_action, mod_risk_action
-from app.db.enums import AuctionStatus, ModerationAction
-from app.db.models import Auction, BlacklistEntry, Complaint, FraudSignal, ModerationLog, User
+from app.db.enums import AppealStatus, AppealSourceType, AuctionStatus, ModerationAction
+from app.db.models import Appeal, Auction, BlacklistEntry, Complaint, FraudSignal, ModerationLog, User
 from app.services.timeline_service import build_auction_timeline
 
 
@@ -630,3 +630,91 @@ async def test_modpanel_unfreeze_action_from_frozen_list(monkeypatch, integratio
     sent_chat_id, sent_text, _ = bot.sent_messages[-1]
     assert sent_chat_id == seller_tg_user_id
     assert "разморожен модератором" in sent_text
+
+
+@pytest.mark.asyncio
+async def test_modpanel_appeal_resolve_updates_status_and_notifies(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    actor_tg_user_id = 76001
+    monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=76101, username="appellant")
+            session.add(appellant)
+            await session.flush()
+
+            appeal = Appeal(
+                appeal_ref="risk_17",
+                source_type=AppealSourceType.RISK,
+                source_id=17,
+                appellant_user_id=appellant.id,
+                status=AppealStatus.OPEN,
+            )
+            session.add(appeal)
+            await session.flush()
+            appeal_id = appeal.id
+            appellant_tg_user_id = appellant.tg_user_id
+
+    message = _DummyMessage()
+    callback = _DummyCallback(
+        data=f"modui:appeal_resolve:{appeal_id}:0",
+        from_user_id=actor_tg_user_id,
+        message=message,
+    )
+    bot = _DummyBot()
+
+    await mod_panel_callbacks(callback, bot)
+
+    async with session_factory() as session:
+        appeal_row = await session.scalar(select(Appeal).where(Appeal.id == appeal_id))
+
+    assert appeal_row is not None
+    assert appeal_row.status == AppealStatus.RESOLVED
+    assert appeal_row.resolution_note == "Апелляция удовлетворена"
+    assert appeal_row.resolver_user_id is not None
+    assert appeal_row.resolved_at is not None
+
+    assert callback.answers
+    assert callback.answers[-1][0] == "Апелляция удовлетворена"
+    assert len(message.edits) == 1
+    assert "Открытые апелляции" in message.edits[0][0]
+
+    assert len(bot.sent_messages) == 1
+    sent_chat_id, sent_text, _ = bot.sent_messages[0]
+    assert sent_chat_id == appellant_tg_user_id
+    assert f"#{appeal_id}" in sent_text
+    assert "удовлетворена" in sent_text
+
+
+@pytest.mark.asyncio
+async def test_modpanel_appeals_list_denied_for_operator_without_user_ban_scope(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    owner_tg_user_id = 77001
+    operator_tg_user_id = 77002
+    monkeypatch.setattr(settings, "admin_user_ids", f"{owner_tg_user_id},{operator_tg_user_id}")
+    monkeypatch.setattr(settings, "admin_operator_user_ids", str(operator_tg_user_id))
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    message = _DummyMessage()
+    callback = _DummyCallback(
+        data="modui:appeals:0",
+        from_user_id=operator_tg_user_id,
+        message=message,
+    )
+    bot = _DummyBot()
+
+    await mod_panel_callbacks(callback, bot)
+
+    assert callback.answers
+    assert callback.answers[-1][1] is True
+    assert "Недостаточно прав" in (callback.answers[-1][0] or "")
+    assert message.edits == []

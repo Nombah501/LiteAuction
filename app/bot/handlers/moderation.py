@@ -7,11 +7,14 @@ from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.bot.keyboards.moderation import (
+    moderation_appeal_back_keyboard,
     complaint_actions_keyboard,
     fraud_actions_keyboard,
+    moderation_appeal_actions_keyboard,
+    moderation_appeals_list_keyboard,
     moderation_frozen_actions_keyboard,
     moderation_frozen_list_keyboard,
     moderation_complaints_list_keyboard,
@@ -19,9 +22,10 @@ from app.bot.keyboards.moderation import (
     moderation_signals_list_keyboard,
 )
 from app.config import settings
-from app.db.enums import AuctionStatus
-from app.db.models import Auction
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus
+from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
+from app.services.appeal_service import reject_appeal, resolve_appeal
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import (
     list_complaints,
@@ -94,6 +98,71 @@ def _build_appeal_cta(appeal_ref: str) -> tuple[str, InlineKeyboardMarkup | None
         "Если вы не согласны с решением, нажмите кнопку ниже и отправьте апелляцию.",
         keyboard,
     )
+
+
+def _format_user_label(user: User | None) -> str:
+    if user is None:
+        return "-"
+    if user.username:
+        return f"@{user.username}"
+    return str(user.tg_user_id)
+
+
+def _format_appeal_source(appeal: Appeal) -> str:
+    source_type = AppealSourceType(appeal.source_type)
+    if source_type == AppealSourceType.COMPLAINT and appeal.source_id is not None:
+        return f"Жалоба #{appeal.source_id}"
+    if source_type == AppealSourceType.RISK and appeal.source_id is not None:
+        return f"Фрод-сигнал #{appeal.source_id}"
+    return "Ручная апелляция"
+
+
+def _render_appeal_text(
+    appeal: Appeal,
+    *,
+    appellant: User | None,
+    resolver: User | None,
+) -> str:
+    lines = [
+        f"Апелляция #{appeal.id}",
+        f"Статус: {appeal.status}",
+        f"Источник: {_format_appeal_source(appeal)}",
+        f"Референс: {appeal.appeal_ref}",
+        f"Подал: {_format_user_label(appellant)}",
+        f"Создана: {appeal.created_at}",
+    ]
+    if appeal.resolution_note:
+        lines.append(f"Решение: {appeal.resolution_note}")
+    if resolver is not None:
+        lines.append(f"Модератор: {_format_user_label(resolver)}")
+    if appeal.resolved_at is not None:
+        lines.append(f"Закрыта: {appeal.resolved_at}")
+    return "\n".join(lines)
+
+
+async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
+    offset = page * PANEL_PAGE_SIZE
+    async with SessionFactory() as session:
+        appeals = (
+            await session.execute(
+                select(Appeal)
+                .where(Appeal.status == AppealStatus.OPEN)
+                .order_by(Appeal.created_at.desc(), Appeal.id.desc())
+                .offset(offset)
+                .limit(PANEL_PAGE_SIZE + 1)
+            )
+        ).scalars().all()
+
+    has_next = len(appeals) > PANEL_PAGE_SIZE
+    visible = appeals[:PANEL_PAGE_SIZE]
+    items = [(item.id, f"Апелляция #{item.id} | {item.appeal_ref}") for item in visible]
+    text_lines = [f"Открытые апелляции, стр. {page + 1}"]
+    for item in visible:
+        text_lines.append(f"- #{item.id} | ref={item.appeal_ref}")
+    if not visible:
+        text_lines.append("- нет записей")
+
+    return "\n".join(text_lines), moderation_appeals_list_keyboard(items=items, page=page, has_next=has_next)
 
 
 async def _build_frozen_auctions_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -218,11 +287,15 @@ async def _require_scope_callback(callback: CallbackQuery, scope: str) -> bool:
 async def _render_mod_panel_home_text() -> str:
     async with SessionFactory() as session:
         snapshot = await get_moderation_dashboard_snapshot(session)
+        open_appeals = (
+            await session.scalar(select(func.count(Appeal.id)).where(Appeal.status == AppealStatus.OPEN))
+        ) or 0
 
     return (
         "Мод-панель\n"
         f"- Открытые жалобы: {snapshot.open_complaints}\n"
         f"- Открытые фрод-сигналы: {snapshot.open_signals}\n"
+        f"- Открытые апелляции: {open_appeals}\n"
         f"- Активные аукционы: {snapshot.active_auctions}\n"
         f"- Замороженные аукционы: {snapshot.frozen_auctions}\n\n"
         "Используйте кнопки ниже для просмотра очередей."
@@ -232,6 +305,9 @@ async def _render_mod_panel_home_text() -> str:
 async def _render_mod_stats_text() -> str:
     async with SessionFactory() as session:
         snapshot = await get_moderation_dashboard_snapshot(session)
+        open_appeals = (
+            await session.scalar(select(func.count(Appeal.id)).where(Appeal.status == AppealStatus.OPEN))
+        ) or 0
 
     engaged_with_private = max(
         snapshot.users_with_engagement - snapshot.users_engaged_without_private_start,
@@ -245,6 +321,7 @@ async def _render_mod_stats_text() -> str:
         "Статистика модерации\n"
         f"- Открытые жалобы: {snapshot.open_complaints}\n"
         f"- Открытые фрод-сигналы: {snapshot.open_signals}\n"
+        f"- Открытые апелляции: {open_appeals}\n"
         f"- Активные аукционы: {snapshot.active_auctions}\n"
         f"- Замороженные аукционы: {snapshot.frozen_auctions}\n"
         f"- Ставок за 1 час: {snapshot.bids_last_hour}\n"
@@ -774,6 +851,115 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
             reply_markup=moderation_panel_keyboard(),
         )
         await callback.answer()
+        return
+
+    if section == "appeals":
+        if len(parts) != 3:
+            await callback.answer("Некорректная пагинация", show_alert=True)
+            return
+        page = _parse_page(parts[2])
+        if page is None:
+            await callback.answer("Некорректная страница", show_alert=True)
+            return
+        if not await _require_scope_callback(callback, SCOPE_USER_BAN):
+            return
+
+        text, keyboard = await _build_appeals_page(page)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.answer()
+        return
+
+    if section == "appeal":
+        if len(parts) != 4 or not parts[2].isdigit():
+            await callback.answer("Некорректная апелляция", show_alert=True)
+            return
+        appeal_id = int(parts[2])
+        page = _parse_page(parts[3])
+        if page is None:
+            await callback.answer("Некорректная страница", show_alert=True)
+            return
+        if not await _require_scope_callback(callback, SCOPE_USER_BAN):
+            return
+
+        async with SessionFactory() as session:
+            appeal = await session.scalar(select(Appeal).where(Appeal.id == appeal_id))
+            if appeal is None:
+                await callback.answer("Апелляция не найдена", show_alert=True)
+                return
+            appellant = await session.scalar(select(User).where(User.id == appeal.appellant_user_id))
+            resolver = None
+            if appeal.resolver_user_id is not None:
+                resolver = await session.scalar(select(User).where(User.id == appeal.resolver_user_id))
+
+        status = AppealStatus(appeal.status)
+        keyboard = (
+            moderation_appeal_actions_keyboard(appeal_id=appeal.id, page=page)
+            if status == AppealStatus.OPEN
+            else moderation_appeal_back_keyboard(page=page)
+        )
+        await callback.message.edit_text(
+            _render_appeal_text(appeal, appellant=appellant, resolver=resolver),
+            reply_markup=keyboard,
+        )
+        await callback.answer()
+        return
+
+    if section in {"appeal_resolve", "appeal_reject"}:
+        if len(parts) != 4 or not parts[2].isdigit():
+            await callback.answer("Некорректная апелляция", show_alert=True)
+            return
+        appeal_id = int(parts[2])
+        page = _parse_page(parts[3])
+        if page is None:
+            await callback.answer("Некорректная страница", show_alert=True)
+            return
+        if not await _require_scope_callback(callback, SCOPE_USER_BAN):
+            return
+
+        notify_tg_user_id: int | None = None
+        notify_text: str | None = None
+        action_message = "Апелляция обработана"
+
+        async with SessionFactory() as session:
+            async with session.begin():
+                actor = await upsert_user(session, callback.from_user)
+                if section == "appeal_resolve":
+                    result = await resolve_appeal(
+                        session,
+                        appeal_id=appeal_id,
+                        resolver_user_id=actor.id,
+                        note="Апелляция удовлетворена",
+                    )
+                    action_message = "Апелляция удовлетворена"
+                else:
+                    result = await reject_appeal(
+                        session,
+                        appeal_id=appeal_id,
+                        resolver_user_id=actor.id,
+                        note="Апелляция отклонена",
+                    )
+                    action_message = "Апелляция отклонена"
+
+                if not result.ok or result.appeal is None:
+                    await callback.answer(result.message, show_alert=True)
+                    return
+
+                appellant = await session.scalar(select(User).where(User.id == result.appeal.appellant_user_id))
+                if appellant is not None:
+                    notify_tg_user_id = appellant.tg_user_id
+                    notify_text = (
+                        f"По вашей апелляции #{result.appeal.id} принято решение: {result.appeal.resolution_note or action_message}."
+                    )
+
+        if notify_tg_user_id is not None and notify_text is not None:
+            try:
+                await bot.send_message(notify_tg_user_id, notify_text)
+            except TelegramForbiddenError:
+                pass
+
+        text, keyboard = await _build_appeals_page(page)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.answer(action_message)
         return
 
     if section == "complaints":
