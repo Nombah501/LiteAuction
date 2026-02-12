@@ -28,6 +28,7 @@ from app.db.enums import (
     AuctionStatus,
     FeedbackStatus,
     FeedbackType,
+    IntegrationOutboxStatus,
     ModerationAction,
     UserRole,
 )
@@ -297,6 +298,36 @@ class FeedbackItem(Base, TimestampMixin):
     queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     github_issue_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class IntegrationOutbox(Base, TimestampMixin):
+    __tablename__ = "integration_outbox"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_integration_outbox_dedupe_key"),
+        Index("ix_integration_outbox_status_next_retry_at", "status", "next_retry_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    next_retry_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("TIMEZONE('utc', NOW())"),
+    )
+    status: Mapped[IntegrationOutboxStatus] = mapped_column(
+        Enum(
+            IntegrationOutboxStatus,
+            name="integration_outbox_status",
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=IntegrationOutboxStatus.PENDING,
+        server_default=text("'pending'"),
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class FraudSignal(Base):

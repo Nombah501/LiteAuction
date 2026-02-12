@@ -79,6 +79,16 @@ class Settings(BaseSettings):
     feedback_intake_cooldown_seconds: int = 90
     feedback_bug_reward_points: int = 30
     feedback_suggestion_reward_points: int = 20
+    github_automation_enabled: bool = False
+    github_token: str = ""
+    github_repo_owner: str = "Nombah501"
+    github_repo_name: str = "LiteAuction"
+    outbox_watcher_interval_seconds: int = 20
+    outbox_batch_size: int = 20
+    outbox_max_attempts: int = 5
+    outbox_retry_base_seconds: int = 30
+    outbox_retry_max_seconds: int = 1800
+    feedback_github_actor_tg_user_id: int = -998
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

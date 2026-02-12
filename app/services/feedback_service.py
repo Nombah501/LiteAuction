@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.enums import FeedbackStatus, FeedbackType
 from app.db.models import FeedbackItem, User
+from app.services.outbox_service import enqueue_feedback_issue_event
 
 
 @dataclass(slots=True)
@@ -209,6 +210,7 @@ async def approve_feedback(
     item.resolved_at = now
     item.reward_points = resolve_feedback_reward_points(FeedbackType(item.type))
     item.updated_at = now
+    await enqueue_feedback_issue_event(session, feedback_id=item.id)
     return FeedbackModerationResult(True, "Одобрено", item=item, changed=True)
 
 

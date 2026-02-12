@@ -44,6 +44,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Visual foundation refresh for admin web layout, controls, and responsive readability
 - Final visual polish and release-readiness checklist with consolidated QA evidence template
 - Section-based moderation topic routing and user feedback intake commands (`/bug`, `/suggest`)
+- Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 
 ## Sprint 0 Checklist
 
@@ -386,6 +387,16 @@ FEEDBACK_INTAKE_MIN_LENGTH=10
 FEEDBACK_INTAKE_COOLDOWN_SECONDS=90
 FEEDBACK_BUG_REWARD_POINTS=30
 FEEDBACK_SUGGESTION_REWARD_POINTS=20
+GITHUB_AUTOMATION_ENABLED=true
+GITHUB_TOKEN=ghp_xxx
+GITHUB_REPO_OWNER=Nombah501
+GITHUB_REPO_NAME=LiteAuction
+OUTBOX_WATCHER_INTERVAL_SECONDS=20
+OUTBOX_BATCH_SIZE=20
+OUTBOX_MAX_ATTEMPTS=5
+OUTBOX_RETRY_BASE_SECONDS=30
+OUTBOX_RETRY_MAX_SECONDS=1800
+FEEDBACK_GITHUB_ACTOR_TG_USER_ID=-998
 ```
 
 Topic-specific IDs are optional; when unset the bot falls back to `MODERATION_THREAD_ID`.
