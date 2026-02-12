@@ -3,8 +3,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Auction, Bid, Complaint, FraudSignal, ModerationLog, User
@@ -16,6 +17,23 @@ class AuctionTimelineItem:
     source: str
     title: str
     details: str
+
+
+TIMELINE_SOURCE_AUCTION = "auction"
+TIMELINE_SOURCE_BID = "bid"
+TIMELINE_SOURCE_COMPLAINT = "complaint"
+TIMELINE_SOURCE_FRAUD = "fraud"
+TIMELINE_SOURCE_MODERATION = "moderation"
+
+TIMELINE_SOURCES = frozenset(
+    {
+        TIMELINE_SOURCE_AUCTION,
+        TIMELINE_SOURCE_BID,
+        TIMELINE_SOURCE_COMPLAINT,
+        TIMELINE_SOURCE_FRAUD,
+        TIMELINE_SOURCE_MODERATION,
+    }
+)
 
 
 def _label_user(users_by_id: dict[int, User], user_id: int | None) -> str:
@@ -43,47 +61,136 @@ def _timeline_order_rank(item: AuctionTimelineItem) -> int:
     return 60
 
 
-async def build_auction_timeline(
-    session: AsyncSession,
-    auction_id: uuid.UUID,
-) -> tuple[Auction | None, list[AuctionTimelineItem]]:
-    auction = await session.scalar(select(Auction).where(Auction.id == auction_id))
-    if auction is None:
-        return None, []
+def _normalize_sources(sources: Iterable[str] | None) -> set[str]:
+    if sources is None:
+        return set(TIMELINE_SOURCES)
 
-    bids = (
-        await session.execute(
+    normalized = {value.strip().lower() for value in sources if value.strip()}
+    if not normalized:
+        return set(TIMELINE_SOURCES)
+
+    invalid = sorted(normalized - TIMELINE_SOURCES)
+    if invalid:
+        allowed = ", ".join(sorted(TIMELINE_SOURCES))
+        invalid_label = ", ".join(invalid)
+        raise ValueError(f"Unknown timeline source filter: {invalid_label}. Allowed: {allowed}")
+    return normalized
+
+
+async def _count_timeline_events(
+    session: AsyncSession,
+    auction: Auction,
+    included_sources: set[str],
+) -> int:
+    total = 0
+
+    if TIMELINE_SOURCE_AUCTION in included_sources:
+        total += 1
+        if auction.starts_at is not None:
+            total += 1
+
+    if TIMELINE_SOURCE_BID in included_sources:
+        total += int(
+            await session.scalar(select(func.count(Bid.id)).where(Bid.auction_id == auction.id)) or 0
+        )
+
+    if TIMELINE_SOURCE_COMPLAINT in included_sources:
+        total += int(
+            await session.scalar(select(func.count(Complaint.id)).where(Complaint.auction_id == auction.id)) or 0
+        )
+        total += int(
+            await session.scalar(
+                select(func.count(Complaint.id)).where(
+                    Complaint.auction_id == auction.id,
+                    Complaint.resolved_at.is_not(None),
+                )
+            )
+            or 0
+        )
+
+    if TIMELINE_SOURCE_FRAUD in included_sources:
+        total += int(
+            await session.scalar(select(func.count(FraudSignal.id)).where(FraudSignal.auction_id == auction.id))
+            or 0
+        )
+        total += int(
+            await session.scalar(
+                select(func.count(FraudSignal.id)).where(
+                    FraudSignal.auction_id == auction.id,
+                    FraudSignal.resolved_at.is_not(None),
+                )
+            )
+            or 0
+        )
+
+    if TIMELINE_SOURCE_MODERATION in included_sources:
+        total += int(
+            await session.scalar(
+                select(func.count(ModerationLog.id)).where(ModerationLog.auction_id == auction.id)
+            )
+            or 0
+        )
+
+    return total
+
+
+async def _build_timeline_events(
+    session: AsyncSession,
+    auction: Auction,
+    included_sources: set[str],
+    *,
+    max_per_source: int | None,
+) -> list[AuctionTimelineItem]:
+    bids: list[Bid] = []
+    complaints: list[Complaint] = []
+    signals: list[FraudSignal] = []
+    mod_logs: list[ModerationLog] = []
+
+    if TIMELINE_SOURCE_BID in included_sources:
+        bid_query = (
             select(Bid)
-            .where(Bid.auction_id == auction_id)
+            .where(Bid.auction_id == auction.id)
             .order_by(Bid.created_at.asc(), Bid.id.asc())
         )
-    ).scalars().all()
-    complaints = (
-        await session.execute(
+        if max_per_source is not None:
+            bid_query = bid_query.limit(max_per_source)
+        bids = list((await session.execute(bid_query)).scalars().all())
+
+    if TIMELINE_SOURCE_COMPLAINT in included_sources:
+        complaint_query = (
             select(Complaint)
-            .where(Complaint.auction_id == auction_id)
+            .where(Complaint.auction_id == auction.id)
             .order_by(Complaint.created_at.asc(), Complaint.id.asc())
         )
-    ).scalars().all()
-    signals = (
-        await session.execute(
+        if max_per_source is not None:
+            complaint_query = complaint_query.limit(max_per_source)
+        complaints = list((await session.execute(complaint_query)).scalars().all())
+
+    if TIMELINE_SOURCE_FRAUD in included_sources:
+        signal_query = (
             select(FraudSignal)
-            .where(FraudSignal.auction_id == auction_id)
+            .where(FraudSignal.auction_id == auction.id)
             .order_by(FraudSignal.created_at.asc(), FraudSignal.id.asc())
         )
-    ).scalars().all()
-    mod_logs = (
-        await session.execute(
+        if max_per_source is not None:
+            signal_query = signal_query.limit(max_per_source)
+        signals = list((await session.execute(signal_query)).scalars().all())
+
+    if TIMELINE_SOURCE_MODERATION in included_sources:
+        moderation_query = (
             select(ModerationLog)
-            .where(ModerationLog.auction_id == auction_id)
+            .where(ModerationLog.auction_id == auction.id)
             .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
         )
-    ).scalars().all()
+        if max_per_source is not None:
+            moderation_query = moderation_query.limit(max_per_source)
+        mod_logs = list((await session.execute(moderation_query)).scalars().all())
 
     user_ids: set[int] = set()
-    user_ids.add(auction.seller_user_id)
-    if auction.winner_user_id is not None:
-        user_ids.add(auction.winner_user_id)
+    if TIMELINE_SOURCE_AUCTION in included_sources:
+        user_ids.add(auction.seller_user_id)
+        if auction.winner_user_id is not None:
+            user_ids.add(auction.winner_user_id)
     for item in bids:
         user_ids.add(item.user_id)
         if item.removed_by_user_id is not None:
@@ -110,27 +217,28 @@ async def build_auction_timeline(
 
     timeline: list[AuctionTimelineItem] = []
 
-    timeline.append(
-        AuctionTimelineItem(
-            happened_at=auction.created_at,
-            source="auction",
-            title="Аукцион создан",
-            details=(
-                f"seller={_label_user(users_by_id, auction.seller_user_id)}, "
-                f"start=${auction.start_price}, step=${auction.min_step}"
-            ),
-        )
-    )
-
-    if auction.starts_at is not None:
+    if TIMELINE_SOURCE_AUCTION in included_sources:
         timeline.append(
             AuctionTimelineItem(
-                happened_at=auction.starts_at,
+                happened_at=auction.created_at,
                 source="auction",
-                title="Аукцион опубликован",
-                details=f"status={auction.status}",
+                title="Аукцион создан",
+                details=(
+                    f"seller={_label_user(users_by_id, auction.seller_user_id)}, "
+                    f"start=${auction.start_price}, step=${auction.min_step}"
+                ),
             )
         )
+
+        if auction.starts_at is not None:
+            timeline.append(
+                AuctionTimelineItem(
+                    happened_at=auction.starts_at,
+                    source="auction",
+                    title="Аукцион опубликован",
+                    details=f"status={auction.status}",
+                )
+            )
 
     for item in bids:
         title = "Ставка принята" if not item.is_removed else "Ставка снята"
@@ -217,5 +325,55 @@ async def build_auction_timeline(
             item.happened_at,
             _timeline_order_rank(item),
         )
+    )
+    return timeline
+
+
+async def build_auction_timeline_page(
+    session: AsyncSession,
+    auction_id: uuid.UUID,
+    *,
+    page: int,
+    limit: int,
+    sources: Iterable[str] | None = None,
+) -> tuple[Auction | None, list[AuctionTimelineItem], int]:
+    if page < 0:
+        raise ValueError("Page must be >= 0")
+    if limit < 1:
+        raise ValueError("Limit must be >= 1")
+
+    auction = await session.scalar(select(Auction).where(Auction.id == auction_id))
+    if auction is None:
+        return None, [], 0
+
+    included_sources = _normalize_sources(sources)
+    total_items = await _count_timeline_events(session, auction, included_sources)
+
+    if total_items == 0:
+        return auction, [], 0
+
+    fetch_limit = (page + 1) * limit
+    timeline = await _build_timeline_events(
+        session,
+        auction,
+        included_sources,
+        max_per_source=fetch_limit,
+    )
+    offset = page * limit
+    return auction, timeline[offset : offset + limit], total_items
+
+
+async def build_auction_timeline(
+    session: AsyncSession,
+    auction_id: uuid.UUID,
+) -> tuple[Auction | None, list[AuctionTimelineItem]]:
+    auction = await session.scalar(select(Auction).where(Auction.id == auction_id))
+    if auction is None:
+        return None, []
+    timeline = await _build_timeline_events(
+        session,
+        auction,
+        set(TIMELINE_SOURCES),
+        max_per_source=None,
     )
     return auction, timeline

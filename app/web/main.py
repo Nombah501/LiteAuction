@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from html import escape
 import logging
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
@@ -25,7 +26,7 @@ from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import list_complaints
 from app.services.fraud_service import list_fraud_signals
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
-from app.services.timeline_service import build_auction_timeline
+from app.services.timeline_service import build_auction_timeline_page
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -624,6 +625,7 @@ async def auction_timeline(
     auction_id: str,
     page: int = 0,
     limit: int = 100,
+    source: str | None = None,
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -634,20 +636,32 @@ async def auction_timeline(
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=400, detail="Invalid timeline limit")
 
+    source_filter = (source or "").strip().lower()
+    source_values: list[str] | None = None
+    if source_filter:
+        source_values = [value.strip() for value in source_filter.split(",") if value.strip()]
+
     try:
         auction_uuid = uuid.UUID(auction_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid auction UUID")
 
     async with SessionFactory() as session:
-        auction, timeline = await build_auction_timeline(session, auction_uuid)
+        try:
+            auction, page_items, total_items = await build_auction_timeline_page(
+                session,
+                auction_uuid,
+                page=page,
+                limit=limit,
+                sources=source_values,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     if auction is None:
         raise HTTPException(status_code=404, detail="Auction not found")
 
     offset = page * limit
-    page_items = timeline[offset : offset + limit]
-    total_items = len(timeline)
     start_item = offset + 1 if page_items else 0
     end_item = offset + len(page_items)
     has_prev = page > 0
@@ -666,16 +680,34 @@ async def auction_timeline(
         rows = "<tr><td colspan='4'>События отсутствуют на этой странице</td></tr>"
 
     timeline_base = f"/timeline/auction/{auction.id}"
+
+    def _timeline_path(target_page: int, source_value: str | None = None) -> str:
+        query: dict[str, str] = {"page": str(target_page), "limit": str(limit)}
+        if source_value:
+            query["source"] = source_value
+        return f"{timeline_base}?{urlencode(query)}"
+
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'{timeline_base}?page={page-1}&limit={limit}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _timeline_path(page - 1, source_filter or None)))}'>← Назад</a>"
         if has_prev
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'{timeline_base}?page={page+1}&limit={limit}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _timeline_path(page + 1, source_filter or None)))}'>Вперед →</a>"
         if has_next
         else ""
     )
+    source_links = " | ".join(
+        [
+            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, None)))}'>all</a>",
+            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'auction')))}'>auction</a>",
+            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'bid')))}'>bid</a>",
+            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'complaint')))}'>complaint</a>",
+            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'fraud')))}'>fraud</a>",
+            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'moderation')))}'>moderation</a>",
+        ]
+    )
+    filter_label = source_filter or "all"
 
     body = (
         f"<h1>Таймлайн аукциона {escape(str(auction.id))}</h1>"
@@ -684,6 +716,7 @@ async def auction_timeline(
         f"<a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
         f"<a href='{escape(_path_with_auth(request, f'/manage/auction/{auction.id}'))}'>Управление</a></p>"
         f"<p><b>Статус:</b> {escape(str(auction.status))} | <b>Seller UID:</b> {auction.seller_user_id}</p>"
+        f"<p><b>Фильтр source:</b> {escape(filter_label)} | {source_links}</p>"
         f"<p><b>Показано:</b> {start_item}-{end_item} из {total_items} | <b>Лимит:</b> {limit}</p>"
         "<table><thead><tr><th>Time</th><th>Source</th><th>Event</th><th>Details</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
