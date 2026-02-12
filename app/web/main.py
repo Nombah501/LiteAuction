@@ -23,7 +23,12 @@ from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, UserRole
 from app.db.models import Appeal, Auction, Bid, BlacklistEntry, Complaint, FraudSignal, User, UserRoleAssignment
 from app.db.session import SessionFactory
-from app.services.appeal_service import reject_appeal, resolve_appeal, resolve_appeal_auction_id
+from app.services.appeal_service import (
+    mark_appeal_in_review,
+    reject_appeal,
+    resolve_appeal,
+    resolve_appeal_auction_id,
+)
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import list_complaints
 from app.services.fraud_service import list_fraud_signals
@@ -109,10 +114,35 @@ def _parse_appeal_source_filter(raw: str) -> AppealSourceType | None:
 
 def _appeal_source_label(source_type: AppealSourceType, source_id: int | None) -> str:
     if source_type == AppealSourceType.COMPLAINT:
-        return f"complaint #{source_id}" if source_id is not None else "complaint"
+        return f"Жалоба #{source_id}" if source_id is not None else "Жалоба"
     if source_type == AppealSourceType.RISK:
-        return f"risk #{source_id}" if source_id is not None else "risk"
-    return "manual"
+        return f"Фрод-сигнал #{source_id}" if source_id is not None else "Фрод-сигнал"
+    return "Ручная"
+
+
+def _appeal_status_label(status: AppealStatus | str) -> str:
+    raw = status.value if isinstance(status, AppealStatus) else str(status)
+    normalized = raw.strip().upper()
+    if normalized == AppealStatus.OPEN.value:
+        return "Открыта"
+    if normalized == AppealStatus.IN_REVIEW.value:
+        return "На рассмотрении"
+    if normalized == AppealStatus.RESOLVED.value:
+        return "Удовлетворена"
+    if normalized == AppealStatus.REJECTED.value:
+        return "Отклонена"
+    return raw
+
+
+def _violator_status_label(status: str) -> str:
+    normalized = status.strip().lower()
+    if normalized == "active":
+        return "Активный"
+    if normalized == "inactive":
+        return "Неактивный"
+    if normalized == "all":
+        return "Все"
+    return status
 
 
 def _parse_ymd_filter(raw: str, *, field_name: str) -> datetime | None:
@@ -1420,7 +1450,7 @@ async def violators(
                 f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
                 f"{csrf_input}"
                 "<input name='reason' placeholder='Причина разбана' style='width:180px' required>"
-                "<button type='submit'>Unban</button>"
+                "<button type='submit'>Разбанить</button>"
                 "</form>"
             )
 
@@ -1429,7 +1459,7 @@ async def violators(
             f"<td>{entry.id}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{target_user.id}'))}'>{target_user.tg_user_id}</a></td>"
             f"<td>{escape(target_label)}</td>"
-            f"<td>{'active' if entry.is_active else 'inactive'}</td>"
+            f"<td>{_violator_status_label('active' if entry.is_active else 'inactive')}</td>"
             f"<td>{escape(entry.reason[:160])}</td>"
             f"<td>{escape(actor_label)}</td>"
             f"<td>{escape(_fmt_ts(entry.created_at))}</td>"
@@ -1462,21 +1492,21 @@ async def violators(
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/violators'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
-        f"<input name='q' value='{escape(query_value)}' placeholder='tg id / username / reason' style='width:280px'>"
+        f"<input name='q' value='{escape(query_value)}' placeholder='tg id / username / причина' style='width:280px'>"
         f"<input name='by' value='{escape(moderator_value)}' placeholder='модератор tg id / username' style='width:220px'>"
-        f"<input name='created_from' value='{escape(created_from_value)}' placeholder='from YYYY-MM-DD' style='width:150px'>"
-        f"<input name='created_to' value='{escape(created_to_value)}' placeholder='to YYYY-MM-DD' style='width:150px'>"
+        f"<input name='created_from' value='{escape(created_from_value)}' placeholder='с YYYY-MM-DD' style='width:150px'>"
+        f"<input name='created_to' value='{escape(created_to_value)}' placeholder='по YYYY-MM-DD' style='width:150px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
         f"<p>Фильтр: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, active_status_path))}'>active</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, inactive_status_path))}'>inactive</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, all_status_path))}'>all</a></p>"
-        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Status</th><th>Reason</th><th>By</th><th>Created</th><th>Expires</th><th>Actions</th></tr></thead>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, active_status_path))}'>Активные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, inactive_status_path))}'>Неактивные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, all_status_path))}'>Все</a></p>"
+        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Статус</th><th>Причина</th><th>Кем</th><th>Создано</th><th>Истекает</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
-    return HTMLResponse(_render_page("Violators", body))
+    return HTMLResponse(_render_page("Нарушители", body))
 
 
 @app.get("/appeals", response_class=HTMLResponse)
@@ -1557,20 +1587,34 @@ async def appeals(
         actions = "-"
         appeal_status = AppealStatus(appeal.status)
         if appeal_status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
-            actions = (
+            action_forms: list[str] = []
+            if appeal_status == AppealStatus.OPEN:
+                action_forms.append(
+                    f"<form method='post' action='{escape(_path_with_auth(request, '/actions/appeal/review'))}' style='display:inline-block;margin-right:6px'>"
+                    f"<input type='hidden' name='appeal_id' value='{appeal.id}'>"
+                    f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
+                    f"{csrf_input}"
+                    "<input name='reason' placeholder='Комментарий' style='width:130px' required>"
+                    "<button type='submit'>В работу</button></form>"
+                )
+
+            action_forms.append(
                 f"<form method='post' action='{escape(_path_with_auth(request, '/actions/appeal/resolve'))}' style='display:inline-block;margin-right:6px'>"
                 f"<input type='hidden' name='appeal_id' value='{appeal.id}'>"
                 f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
                 f"{csrf_input}"
-                "<input name='reason' placeholder='reason' style='width:130px' required>"
-                "<button type='submit'>Resolve</button></form>"
+                "<input name='reason' placeholder='Причина' style='width:130px' required>"
+                "<button type='submit'>Удовлетворить</button></form>"
+            )
+            action_forms.append(
                 f"<form method='post' action='{escape(_path_with_auth(request, '/actions/appeal/reject'))}' style='display:inline-block'>"
                 f"<input type='hidden' name='appeal_id' value='{appeal.id}'>"
                 f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
                 f"{csrf_input}"
-                "<input name='reason' placeholder='reason' style='width:130px' required>"
-                "<button type='submit'>Reject</button></form>"
+                "<input name='reason' placeholder='Причина' style='width:130px' required>"
+                "<button type='submit'>Отклонить</button></form>"
             )
+            actions = "".join(action_forms)
 
         table_rows += (
             "<tr>"
@@ -1578,7 +1622,7 @@ async def appeals(
             f"<td>{escape(appeal.appeal_ref)}</td>"
             f"<td>{escape(source_label)}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{appellant.id}'))}'>{escape(appellant_label)}</a></td>"
-            f"<td>{escape(str(appeal.status))}</td>"
+            f"<td>{escape(_appeal_status_label(appeal_status))}</td>"
             f"<td>{escape((appeal.resolution_note or '-')[:160])}</td>"
             f"<td>{escape(resolver_label)}</td>"
             f"<td>{escape(_fmt_ts(appeal.created_at))}</td>"
@@ -1609,25 +1653,25 @@ async def appeals(
         f"<form method='get' action='{escape(_path_with_auth(request, '/appeals'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input type='hidden' name='source' value='{escape(source_value)}'>"
-        f"<input name='q' value='{escape(query_value)}' placeholder='appeal ref / tg id / username' style='width:300px'>"
+        f"<input name='q' value='{escape(query_value)}' placeholder='референс / tg id / username' style='width:300px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
-        f"<p>Status: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&q={query_value}'))}'>open</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&q={query_value}'))}'>in_review</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&q={query_value}'))}'>resolved</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&q={query_value}'))}'>rejected</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&q={query_value}'))}'>all</a></p>"
-        f"<p>Source: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&q={query_value}'))}'>complaint</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&q={query_value}'))}'>risk</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&q={query_value}'))}'>manual</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&q={query_value}'))}'>all</a></p>"
-        "<table><thead><tr><th>ID</th><th>Ref</th><th>Source</th><th>Appellant</th><th>Status</th><th>Note</th><th>Resolver</th><th>Created</th><th>Resolved</th><th>Actions</th></tr></thead>"
+        f"<p>Статус: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&q={query_value}'))}'>Открытые</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&q={query_value}'))}'>На рассмотрении</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&q={query_value}'))}'>Удовлетворенные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&q={query_value}'))}'>Отклоненные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&q={query_value}'))}'>Все</a></p>"
+        f"<p>Источник: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&q={query_value}'))}'>Жалобы</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&q={query_value}'))}'>Фрод</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&q={query_value}'))}'>Ручные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&q={query_value}'))}'>Все</a></p>"
+        "<table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>Закрыто</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
-    return HTMLResponse(_render_page("Appeals", body))
+    return HTMLResponse(_render_page("Апелляции", body))
 
 
 @app.post("/actions/auction/freeze")
@@ -1883,6 +1927,41 @@ async def action_resolve_appeal(
                         "source_id": result.appeal.source_id,
                     },
                 )
+
+    if not result.ok:
+        return _action_error_page(request, result.message, back_to=target)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/appeal/review")
+async def action_review_appeal(
+    request: Request,
+    appeal_id: int = Form(...),
+    reason: str = Form(...),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/appeals?status=open&source=all")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    reason = reason.strip()
+    if not reason:
+        return _action_error_page(request, "Reason is required", back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    async with SessionFactory() as session:
+        async with session.begin():
+            result = await mark_appeal_in_review(
+                session,
+                appeal_id=appeal_id,
+                reviewer_user_id=actor_user_id,
+                note=f"[web-review] {reason}",
+            )
 
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)

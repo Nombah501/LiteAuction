@@ -55,5 +55,5 @@ async def test_notify_moderators_about_appeal_uses_admin_fallback(monkeypatch) -
 
     assert [item[0] for item in sent] == [1001, 1002]
     assert all("Новая апелляция" in item[1] for item in sent)
-    assert all("Appeal ID: 54" in item[1] for item in sent)
+    assert all("ID апелляции: 54" in item[1] for item in sent)
     assert all("risk_42" in item[1] for item in sent)

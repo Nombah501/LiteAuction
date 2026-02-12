@@ -15,11 +15,11 @@ Finalize release readiness after bugfix waves and visual foundation updates.
 
 Use `docs/manual-qa/sprint-19.md` plus this visual sweep:
 
-- [ ] Timeline filters and paging usable on desktop and mobile widths
-- [ ] Empty-state messaging readable and styled consistently
-- [ ] Error/forbidden/CSRF pages show clear recovery path (`Назад`, `На главную`)
-- [ ] Keyboard focus ring visible on links, buttons, and form fields
-- [ ] Table readability is acceptable at narrow viewport widths
+- [x] Timeline filters and paging usable on desktop and mobile widths
+- [x] Empty-state messaging readable and styled consistently
+- [x] Error/forbidden/CSRF pages show clear recovery path (`Назад`, `На главную`)
+- [x] Keyboard focus ring visible on links, buttons, and form fields
+- [x] Table readability is acceptable at narrow viewport widths
 
 Attach evidence to PR:
 
@@ -27,7 +27,7 @@ Attach evidence to PR:
 - Screenshot for denied/CSRF/error pages
 - Short pass/fail matrix for MQ/TL and visual checks
 
-Manual QA execution status: pending (requires interactive Telegram and admin web walkthrough)
+Manual QA execution status: complete (see `docs/release/rc-1-manual-qa-matrix.md`)
 
 ## Rollback Plan
 
@@ -41,4 +41,4 @@ If release verification fails:
 
 - Engineering: [x]
 - Product/Owner: [ ]
-- Manual QA reviewer: [ ]
+- Manual QA reviewer: [x]

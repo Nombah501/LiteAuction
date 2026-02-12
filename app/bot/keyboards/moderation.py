@@ -213,24 +213,36 @@ def moderation_appeals_list_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def moderation_appeal_actions_keyboard(*, appeal_id: int, page: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def moderation_appeal_actions_keyboard(*, appeal_id: int, page: int, show_take: bool = True) -> InlineKeyboardMarkup:
+    rows = []
+    if show_take:
+        rows.append(
             [
                 styled_button(
-                    text="Удовлетворить",
-                    callback_data=f"modui:appeal_resolve:{appeal_id}:{page}",
-                    style="success",
-                ),
-                styled_button(
-                    text="Отклонить",
-                    callback_data=f"modui:appeal_reject:{appeal_id}:{page}",
-                    style="danger",
-                ),
-            ],
-            [styled_button(text="Назад", callback_data=f"modui:appeals:{page}")],
+                    text="В работу",
+                    callback_data=f"modui:appeal_review:{appeal_id}:{page}",
+                    style="primary",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            styled_button(
+                text="Удовлетворить",
+                callback_data=f"modui:appeal_resolve:{appeal_id}:{page}",
+                style="success",
+            ),
+            styled_button(
+                text="Отклонить",
+                callback_data=f"modui:appeal_reject:{appeal_id}:{page}",
+                style="danger",
+            ),
         ]
     )
+    rows.append([styled_button(text="Назад", callback_data=f"modui:appeals:{page}")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def moderation_appeal_back_keyboard(*, page: int) -> InlineKeyboardMarkup:

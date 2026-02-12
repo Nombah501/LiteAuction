@@ -25,7 +25,12 @@ from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction
 from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
-from app.services.appeal_service import reject_appeal, resolve_appeal, resolve_appeal_auction_id
+from app.services.appeal_service import (
+    mark_appeal_in_review,
+    reject_appeal,
+    resolve_appeal,
+    resolve_appeal_auction_id,
+)
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import (
     list_complaints,
@@ -147,7 +152,7 @@ async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
         appeals = (
             await session.execute(
                 select(Appeal)
-                .where(Appeal.status == AppealStatus.OPEN)
+                .where(Appeal.status.in_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]))
                 .order_by(Appeal.created_at.desc(), Appeal.id.desc())
                 .offset(offset)
                 .limit(PANEL_PAGE_SIZE + 1)
@@ -156,10 +161,10 @@ async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
 
     has_next = len(appeals) > PANEL_PAGE_SIZE
     visible = appeals[:PANEL_PAGE_SIZE]
-    items = [(item.id, f"Апелляция #{item.id} | {item.appeal_ref}") for item in visible]
-    text_lines = [f"Открытые апелляции, стр. {page + 1}"]
+    items = [(item.id, f"Апелляция #{item.id} | {item.status} | {item.appeal_ref}") for item in visible]
+    text_lines = [f"Активные апелляции, стр. {page + 1}"]
     for item in visible:
-        text_lines.append(f"- #{item.id} | ref={item.appeal_ref}")
+        text_lines.append(f"- #{item.id} | status={item.status} | ref={item.appeal_ref}")
     if not visible:
         text_lines.append("- нет записей")
 
@@ -288,15 +293,17 @@ async def _require_scope_callback(callback: CallbackQuery, scope: str) -> bool:
 async def _render_mod_panel_home_text() -> str:
     async with SessionFactory() as session:
         snapshot = await get_moderation_dashboard_snapshot(session)
-        open_appeals = (
-            await session.scalar(select(func.count(Appeal.id)).where(Appeal.status == AppealStatus.OPEN))
+        active_appeals = (
+            await session.scalar(
+                select(func.count(Appeal.id)).where(Appeal.status.in_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]))
+            )
         ) or 0
 
     return (
         "Мод-панель\n"
         f"- Открытые жалобы: {snapshot.open_complaints}\n"
         f"- Открытые фрод-сигналы: {snapshot.open_signals}\n"
-        f"- Открытые апелляции: {open_appeals}\n"
+        f"- Активные апелляции: {active_appeals}\n"
         f"- Активные аукционы: {snapshot.active_auctions}\n"
         f"- Замороженные аукционы: {snapshot.frozen_auctions}\n\n"
         "Используйте кнопки ниже для просмотра очередей."
@@ -306,8 +313,10 @@ async def _render_mod_panel_home_text() -> str:
 async def _render_mod_stats_text() -> str:
     async with SessionFactory() as session:
         snapshot = await get_moderation_dashboard_snapshot(session)
-        open_appeals = (
-            await session.scalar(select(func.count(Appeal.id)).where(Appeal.status == AppealStatus.OPEN))
+        active_appeals = (
+            await session.scalar(
+                select(func.count(Appeal.id)).where(Appeal.status.in_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]))
+            )
         ) or 0
 
     engaged_with_private = max(
@@ -322,7 +331,7 @@ async def _render_mod_stats_text() -> str:
         "Статистика модерации\n"
         f"- Открытые жалобы: {snapshot.open_complaints}\n"
         f"- Открытые фрод-сигналы: {snapshot.open_signals}\n"
-        f"- Открытые апелляции: {open_appeals}\n"
+        f"- Активные апелляции: {active_appeals}\n"
         f"- Активные аукционы: {snapshot.active_auctions}\n"
         f"- Замороженные аукционы: {snapshot.frozen_auctions}\n"
         f"- Ставок за 1 час: {snapshot.bids_last_hour}\n"
@@ -893,16 +902,49 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 resolver = await session.scalar(select(User).where(User.id == appeal.resolver_user_id))
 
         status = AppealStatus(appeal.status)
-        keyboard = (
-            moderation_appeal_actions_keyboard(appeal_id=appeal.id, page=page)
-            if status == AppealStatus.OPEN
-            else moderation_appeal_back_keyboard(page=page)
-        )
+        keyboard = moderation_appeal_back_keyboard(page=page)
+        if status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
+            keyboard = moderation_appeal_actions_keyboard(
+                appeal_id=appeal.id,
+                page=page,
+                show_take=status == AppealStatus.OPEN,
+            )
         await callback.message.edit_text(
             _render_appeal_text(appeal, appellant=appellant, resolver=resolver),
             reply_markup=keyboard,
         )
         await callback.answer()
+        return
+
+    if section == "appeal_review":
+        if len(parts) != 4 or not parts[2].isdigit():
+            await callback.answer("Некорректная апелляция", show_alert=True)
+            return
+        appeal_id = int(parts[2])
+        page = _parse_page(parts[3])
+        if page is None:
+            await callback.answer("Некорректная страница", show_alert=True)
+            return
+        if not await _require_scope_callback(callback, SCOPE_USER_BAN):
+            return
+
+        async with SessionFactory() as session:
+            async with session.begin():
+                actor = await upsert_user(session, callback.from_user)
+                result = await mark_appeal_in_review(
+                    session,
+                    appeal_id=appeal_id,
+                    reviewer_user_id=actor.id,
+                    note="Взята в работу через modpanel",
+                )
+
+        if not result.ok:
+            await callback.answer(result.message, show_alert=True)
+            return
+
+        text, keyboard = await _build_appeals_page(page)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.answer(result.message)
         return
 
     if section in {"appeal_resolve", "appeal_reject"}:

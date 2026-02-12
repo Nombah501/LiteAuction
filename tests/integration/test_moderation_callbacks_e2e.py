@@ -633,6 +633,60 @@ async def test_modpanel_unfreeze_action_from_frozen_list(monkeypatch, integratio
 
 
 @pytest.mark.asyncio
+async def test_modpanel_appeal_review_updates_status(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    actor_tg_user_id = 75991
+    monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=75992, username="appellant")
+            session.add(appellant)
+            await session.flush()
+
+            appeal = Appeal(
+                appeal_ref="manual_appeal_review",
+                source_type=AppealSourceType.MANUAL,
+                source_id=None,
+                appellant_user_id=appellant.id,
+                status=AppealStatus.OPEN,
+            )
+            session.add(appeal)
+            await session.flush()
+            appeal_id = appeal.id
+
+    message = _DummyMessage()
+    callback = _DummyCallback(
+        data=f"modui:appeal_review:{appeal_id}:0",
+        from_user_id=actor_tg_user_id,
+        message=message,
+    )
+    bot = _DummyBot()
+
+    await mod_panel_callbacks(callback, bot)
+
+    async with session_factory() as session:
+        appeal_row = await session.scalar(select(Appeal).where(Appeal.id == appeal_id))
+
+    assert appeal_row is not None
+    assert appeal_row.status == AppealStatus.IN_REVIEW
+    assert appeal_row.resolver_user_id is not None
+    assert appeal_row.resolution_note == "Взята в работу через modpanel"
+    assert appeal_row.resolved_at is None
+
+    assert callback.answers
+    assert callback.answers[-1][0] == "Апелляция взята в работу"
+    assert len(message.edits) == 1
+    assert "Активные апелляции" in message.edits[0][0]
+    assert bot.sent_messages == []
+
+
+@pytest.mark.asyncio
 async def test_modpanel_appeal_resolve_updates_status_and_notifies(monkeypatch, integration_engine) -> None:
     from app.config import settings
 
@@ -722,7 +776,7 @@ async def test_modpanel_appeal_resolve_updates_status_and_notifies(monkeypatch, 
     assert callback.answers
     assert callback.answers[-1][0] == "Апелляция удовлетворена"
     assert len(message.edits) == 1
-    assert "Открытые апелляции" in message.edits[0][0]
+    assert "Активные апелляции" in message.edits[0][0]
 
     assert len(bot.sent_messages) == 1
     sent_chat_id, sent_text, _ = bot.sent_messages[0]
