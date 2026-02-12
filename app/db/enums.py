@@ -29,6 +29,7 @@ class ModerationAction(StrEnum):
     UNBAN_USER = "UNBAN_USER"
     RESOLVE_APPEAL = "RESOLVE_APPEAL"
     REJECT_APPEAL = "REJECT_APPEAL"
+    ESCALATE_APPEAL = "ESCALATE_APPEAL"
 
 
 class AppealSourceType(StrEnum):

@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     appeal_escalation_enabled: bool = True
     appeal_escalation_interval_seconds: int = 60
     appeal_escalation_batch_size: int = 50
+    appeal_escalation_actor_tg_user_id: int = -1
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

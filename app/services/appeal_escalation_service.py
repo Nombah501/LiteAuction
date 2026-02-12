@@ -7,13 +7,16 @@ from datetime import UTC, datetime
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.config import settings
-from app.db.enums import AppealSourceType
+from app.db.enums import AppealSourceType, ModerationAction
 from app.db.models import Appeal, User
 from app.db.session import SessionFactory
-from app.services.appeal_service import escalate_overdue_appeals
+from app.services.appeal_service import escalate_overdue_appeals, resolve_appeal_auction_id
+from app.services.moderation_service import log_moderation_action
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +72,31 @@ def _render_escalation_text(item: EscalatedAppealView) -> str:
     )
 
 
+async def _resolve_escalation_actor_user_id(session: AsyncSession) -> int:
+    actor_tg_user_id = settings.appeal_escalation_actor_tg_user_id
+    actor = await session.scalar(select(User).where(User.tg_user_id == actor_tg_user_id))
+    if actor is not None:
+        return actor.id
+
+    try:
+        async with session.begin_nested():
+            actor = User(tg_user_id=actor_tg_user_id, username="system_escalation")
+            session.add(actor)
+            await session.flush()
+            return actor.id
+    except IntegrityError:
+        existing_actor = await session.scalar(select(User).where(User.tg_user_id == actor_tg_user_id))
+        if existing_actor is None:
+            raise
+        return existing_actor.id
+
+
 async def _notify_moderators(bot: Bot, text: str) -> None:
     moderation_chat_id = settings.parsed_moderation_chat_id()
     moderation_thread_id = settings.parsed_moderation_thread_id()
     if moderation_chat_id is not None:
         try:
-            kwargs: dict[str, int] = {}
+            kwargs: dict[str, object] = {}
             if moderation_thread_id is not None:
                 kwargs["message_thread_id"] = moderation_thread_id
             await bot.send_message(moderation_chat_id, text, **kwargs)
@@ -100,6 +122,7 @@ async def process_overdue_appeal_escalations(bot: Bot) -> int:
             escalation_result = await escalate_overdue_appeals(session, limit=batch_size)
             if not escalation_result.escalated:
                 return 0
+            actor_user_id = await _resolve_escalation_actor_user_id(session)
 
             resolver_user = aliased(User)
             rows = (
@@ -111,6 +134,27 @@ async def process_overdue_appeal_escalations(bot: Bot) -> int:
                     .order_by(Appeal.sla_deadline_at.asc(), Appeal.id.asc())
                 )
             ).all()
+
+            for appeal, _appellant, _resolver in rows:
+                related_auction_id = await resolve_appeal_auction_id(session, appeal)
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor_user_id,
+                    action=ModerationAction.ESCALATE_APPEAL,
+                    reason="Апелляция просрочена по SLA и эскалирована",
+                    target_user_id=appeal.appellant_user_id,
+                    auction_id=related_auction_id,
+                    payload={
+                        "appeal_id": appeal.id,
+                        "appeal_ref": appeal.appeal_ref,
+                        "source_type": appeal.source_type,
+                        "source_id": appeal.source_id,
+                        "status": str(appeal.status),
+                        "sla_deadline_at": appeal.sla_deadline_at.isoformat() if appeal.sla_deadline_at else None,
+                        "escalated_at": appeal.escalated_at.isoformat() if appeal.escalated_at else None,
+                        "escalation_level": appeal.escalation_level,
+                    },
+                )
 
     escalated_items: list[EscalatedAppealView] = []
     for appeal, appellant, resolver in rows:
