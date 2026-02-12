@@ -1,0 +1,59 @@
+# Bug Backlog
+
+Updated: 2026-02-12
+
+## Priority Queue (Sprint 27 candidates)
+
+| ID | Priority | Area | Title | Repro status | Owner | Target sprint | Status |
+|---|---|---|---|---|---|---|---|
+| BUG-001 | P1 | timeline/web | Timeline source filter should keep state across all navigation entry points | reproducible | unassigned | 27 | triaged |
+| BUG-002 | P1 | timeline/service | Timeline page assembly should not over-fetch rows under high page numbers | reproducible | unassigned | 27 | triaged |
+| BUG-003 | P1 | moderation/timeline | Callback retry paths must not create duplicate timeline side effects | reproducible | unassigned | 27 | triaged |
+| BUG-004 | P2 | web/rbac | Denied scope pages should preserve return navigation context consistently | reproducible | unassigned | 27 | triaged |
+| BUG-005 | P2 | web/ui | Timeline empty-state and filter-label rendering should be consistent for invalid or blank input | reproducible | unassigned | 27 | triaged |
+
+## Reproduction Notes
+
+### BUG-001
+
+1. Open `/timeline/auction/<id>?source=moderation,complaint&page=0&limit=50`.
+2. Navigate via prev/next and quick source links.
+3. Verify source state is always preserved where expected.
+
+Expected: source context remains stable across pagination and quick links.
+Actual: edge paths can reset source unexpectedly.
+
+### BUG-002
+
+1. Seed auction with large timeline history.
+2. Request higher pages with low `limit`.
+3. Compare fetched rows vs shown rows.
+
+Expected: bounded fetch behavior remains predictable and efficient.
+Actual: candidate for over-fetch pressure under high page index.
+
+### BUG-003
+
+1. Trigger moderation callback action.
+2. Repeat callback quickly or retry manually.
+3. Inspect moderation log and timeline entries.
+
+Expected: idempotent state and no duplicate timeline side effects.
+Actual: guard exists; keep as focused regression watchlist item.
+
+### BUG-004
+
+1. Login as operator with partial scopes.
+2. Attempt forbidden action from management pages.
+3. Follow navigation links back.
+
+Expected: consistent return context and clear access messaging.
+Actual: candidate edge inconsistency in return path continuity.
+
+### BUG-005
+
+1. Open timeline with empty, mixed-case, or malformed source values.
+2. Observe header labels and empty-state rendering.
+
+Expected: normalized filter label and consistent empty-state wording.
+Actual: candidate UX inconsistency in boundary inputs.
