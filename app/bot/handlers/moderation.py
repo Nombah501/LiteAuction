@@ -22,10 +22,10 @@ from app.bot.keyboards.moderation import (
     moderation_signals_list_keyboard,
 )
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction
 from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
-from app.services.appeal_service import reject_appeal, resolve_appeal
+from app.services.appeal_service import reject_appeal, resolve_appeal, resolve_appeal_auction_id
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import (
     list_complaints,
@@ -48,6 +48,7 @@ from app.services.moderation_service import (
     grant_moderator_role,
     has_moderation_scope,
     has_moderator_access,
+    log_moderation_action,
     list_tg_user_roles,
     list_moderation_logs,
     list_recent_bids,
@@ -923,6 +924,7 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
         async with SessionFactory() as session:
             async with session.begin():
                 actor = await upsert_user(session, callback.from_user)
+                audit_action = ModerationAction.RESOLVE_APPEAL
                 if section == "appeal_resolve":
                     result = await resolve_appeal(
                         session,
@@ -932,6 +934,7 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                     )
                     action_message = "Апелляция удовлетворена"
                 else:
+                    audit_action = ModerationAction.REJECT_APPEAL
                     result = await reject_appeal(
                         session,
                         appeal_id=appeal_id,
@@ -943,6 +946,22 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 if not result.ok or result.appeal is None:
                     await callback.answer(result.message, show_alert=True)
                     return
+
+                related_auction_id = await resolve_appeal_auction_id(session, result.appeal)
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor.id,
+                    action=audit_action,
+                    reason=result.appeal.resolution_note or action_message,
+                    target_user_id=result.appeal.appellant_user_id,
+                    auction_id=related_auction_id,
+                    payload={
+                        "appeal_id": result.appeal.id,
+                        "appeal_ref": result.appeal.appeal_ref,
+                        "source_type": result.appeal.source_type,
+                        "source_id": result.appeal.source_id,
+                    },
+                )
 
                 appellant = await session.scalar(select(User).where(User.id == result.appeal.appellant_user_id))
                 if appellant is not None:

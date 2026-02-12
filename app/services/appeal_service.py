@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -8,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import AppealSourceType, AppealStatus
-from app.db.models import Appeal
+from app.db.models import Appeal, Complaint, FraudSignal
 
 
 @dataclass(slots=True)
@@ -105,6 +106,15 @@ async def list_appeals(
     if status is not None:
         stmt = stmt.where(Appeal.status == status)
     return list((await session.execute(stmt)).scalars().all())
+
+
+async def resolve_appeal_auction_id(session: AsyncSession, appeal: Appeal) -> uuid.UUID | None:
+    source_type = AppealSourceType(appeal.source_type)
+    if source_type == AppealSourceType.COMPLAINT and appeal.source_id is not None:
+        return await session.scalar(select(Complaint.auction_id).where(Complaint.id == appeal.source_id))
+    if source_type == AppealSourceType.RISK and appeal.source_id is not None:
+        return await session.scalar(select(FraudSignal.auction_id).where(FraudSignal.id == appeal.source_id))
+    return None
 
 
 def _can_finalize(status: AppealStatus) -> bool:

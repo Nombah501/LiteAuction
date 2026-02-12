@@ -6,8 +6,8 @@ from starlette.requests import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import AppealSourceType, AppealStatus
-from app.db.models import Appeal, User
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction
+from app.db.models import Appeal, Auction, FraudSignal, ModerationLog, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
 from app.web.main import action_reject_appeal, action_resolve_appeal, appeals
@@ -111,15 +111,40 @@ async def test_action_resolve_appeal_updates_status(monkeypatch, integration_eng
 
     async with session_factory() as session:
         async with session.begin():
+            seller = User(tg_user_id=99300, username="seller")
             appellant = User(tg_user_id=99301, username="appellant")
             actor = User(tg_user_id=99302, username="actor")
-            session.add_all([appellant, actor])
+            session.add_all([seller, appellant, actor])
+            await session.flush()
+
+            auction = Auction(
+                seller_user_id=seller.id,
+                description="web appeal lot",
+                photo_file_id="photo",
+                start_price=25,
+                buyout_price=None,
+                min_step=1,
+                duration_hours=24,
+                status=AuctionStatus.ACTIVE,
+            )
+            session.add(auction)
+            await session.flush()
+
+            signal = FraudSignal(
+                auction_id=auction.id,
+                user_id=appellant.id,
+                bid_id=None,
+                score=81,
+                reasons={"rules": [{"code": "WEB_APPEAL", "detail": "risk", "score": 81}]},
+                status="OPEN",
+            )
+            session.add(signal)
             await session.flush()
 
             appeal = Appeal(
-                appeal_ref="risk_801",
+                appeal_ref=f"risk_{signal.id}",
                 source_type=AppealSourceType.RISK,
-                source_id=801,
+                source_id=signal.id,
                 appellant_user_id=appellant.id,
                 status=AppealStatus.OPEN,
             )
@@ -127,6 +152,8 @@ async def test_action_resolve_appeal_updates_status(monkeypatch, integration_eng
             await session.flush()
             appeal_id = appeal.id
             actor_user_id = actor.id
+            appellant_user_id = appellant.id
+            auction_id = auction.id
 
     monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
     monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
@@ -151,11 +178,23 @@ async def test_action_resolve_appeal_updates_status(monkeypatch, integration_eng
 
     async with session_factory() as session:
         appeal_row = await session.scalar(select(Appeal).where(Appeal.id == appeal_id))
+        audit_logs = (
+            await session.execute(
+                select(ModerationLog).where(
+                    ModerationLog.action == ModerationAction.RESOLVE_APPEAL,
+                    ModerationLog.target_user_id == appellant_user_id,
+                    ModerationLog.auction_id == auction_id,
+                )
+            )
+        ).scalars().all()
 
     assert appeal_row is not None
     assert appeal_row.status == AppealStatus.RESOLVED
     assert appeal_row.resolution_note == "[web] checked"
     assert appeal_row.resolver_user_id == actor_user_id
+    assert len(audit_logs) == 1
+    assert audit_logs[0].payload is not None
+    assert audit_logs[0].payload.get("appeal_id") == appeal_id
 
 
 @pytest.mark.asyncio

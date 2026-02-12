@@ -27,6 +27,8 @@ class ModerationAction(StrEnum):
     REMOVE_BID = "REMOVE_BID"
     BAN_USER = "BAN_USER"
     UNBAN_USER = "UNBAN_USER"
+    RESOLVE_APPEAL = "RESOLVE_APPEAL"
+    REJECT_APPEAL = "REJECT_APPEAL"
 
 
 class AppealSourceType(StrEnum):

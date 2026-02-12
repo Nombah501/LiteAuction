@@ -645,14 +645,39 @@ async def test_modpanel_appeal_resolve_updates_status_and_notifies(monkeypatch, 
 
     async with session_factory() as session:
         async with session.begin():
+            seller = User(tg_user_id=76100, username="seller")
             appellant = User(tg_user_id=76101, username="appellant")
-            session.add(appellant)
+            session.add_all([seller, appellant])
+            await session.flush()
+
+            auction = Auction(
+                seller_user_id=seller.id,
+                description="appeal lot",
+                photo_file_id="photo",
+                start_price=20,
+                buyout_price=None,
+                min_step=1,
+                duration_hours=24,
+                status=AuctionStatus.ACTIVE,
+            )
+            session.add(auction)
+            await session.flush()
+
+            signal = FraudSignal(
+                auction_id=auction.id,
+                user_id=appellant.id,
+                bid_id=None,
+                score=77,
+                reasons={"rules": [{"code": "APPEAL", "detail": "risk", "score": 77}]},
+                status="OPEN",
+            )
+            session.add(signal)
             await session.flush()
 
             appeal = Appeal(
-                appeal_ref="risk_17",
+                appeal_ref=f"risk_{signal.id}",
                 source_type=AppealSourceType.RISK,
-                source_id=17,
+                source_id=signal.id,
                 appellant_user_id=appellant.id,
                 status=AppealStatus.OPEN,
             )
@@ -660,6 +685,8 @@ async def test_modpanel_appeal_resolve_updates_status_and_notifies(monkeypatch, 
             await session.flush()
             appeal_id = appeal.id
             appellant_tg_user_id = appellant.tg_user_id
+            appellant_user_id = appellant.id
+            auction_id = auction.id
 
     message = _DummyMessage()
     callback = _DummyCallback(
@@ -673,12 +700,24 @@ async def test_modpanel_appeal_resolve_updates_status_and_notifies(monkeypatch, 
 
     async with session_factory() as session:
         appeal_row = await session.scalar(select(Appeal).where(Appeal.id == appeal_id))
+        audit_logs = (
+            await session.execute(
+                select(ModerationLog).where(
+                    ModerationLog.action == ModerationAction.RESOLVE_APPEAL,
+                    ModerationLog.target_user_id == appellant_user_id,
+                    ModerationLog.auction_id == auction_id,
+                )
+            )
+        ).scalars().all()
 
     assert appeal_row is not None
     assert appeal_row.status == AppealStatus.RESOLVED
     assert appeal_row.resolution_note == "Апелляция удовлетворена"
     assert appeal_row.resolver_user_id is not None
     assert appeal_row.resolved_at is not None
+    assert len(audit_logs) == 1
+    assert audit_logs[0].payload is not None
+    assert audit_logs[0].payload.get("appeal_id") == appeal_id
 
     assert callback.answers
     assert callback.answers[-1][0] == "Апелляция удовлетворена"
