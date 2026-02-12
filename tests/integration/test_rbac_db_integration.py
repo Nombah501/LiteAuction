@@ -32,7 +32,7 @@ def _test_tg_user_id() -> int:
     return random.randint(10_000_000, 999_999_999)
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def integration_engine():
     db_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not db_url:
@@ -56,14 +56,16 @@ async def integration_engine():
 
 @pytest_asyncio.fixture
 async def db_session(integration_engine) -> AsyncSession:
-    async with integration_engine.connect() as conn:
-        tx = await conn.begin()
-        session = async_sessionmaker(bind=conn, class_=AsyncSession, expire_on_commit=False)()
+    session_factory = async_sessionmaker(
+        bind=integration_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    async with session_factory() as session:
         try:
             yield session
         finally:
-            await session.close()
-            await tx.rollback()
+            await session.rollback()
 
 
 @pytest.mark.asyncio
@@ -84,8 +86,8 @@ async def test_dynamic_moderator_grant_and_revoke_changes_scopes(monkeypatch, db
     assert await has_moderation_scope(db_session, tg_user_id, SCOPE_AUCTION_MANAGE) is True
     assert await has_moderation_scope(db_session, tg_user_id, SCOPE_USER_BAN) is False
 
-    async with db_session.begin():
-        revoke_result = await revoke_moderator_role(db_session, target_tg_user_id=tg_user_id)
+    revoke_result = await revoke_moderator_role(db_session, target_tg_user_id=tg_user_id)
+    await db_session.flush()
     assert revoke_result.ok is True
 
     scopes_after_revoke = await resolve_tg_user_scopes(db_session, tg_user_id)
