@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27 + Sprint 28 + Sprint 29**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27 + Sprint 28 + Sprint 29 + Sprint 30**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -42,6 +42,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Bugfix wave 1 improvements for timeline navigation context and pagination safety
 - Bugfix wave 2 improvements for callback retry safety and denied-scope back navigation
 - Visual foundation refresh for admin web layout, controls, and responsive readability
+- Final visual polish and release-readiness checklist with consolidated QA evidence template
 
 ## Sprint 0 Checklist
 
@@ -248,6 +249,13 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Added responsive layout handling for mobile viewports in core admin pages
 - [x] Updated timeline source quick-links to chip-style controls for clearer filtering affordance
 
+## Sprint 30 Checklist (Final Polish + Release Readiness)
+
+- [x] Added focus-visible keyboard affordances for interactive controls in admin web
+- [x] Unified visual treatment for empty/error/warning states across key pages
+- [x] Added release-readiness checklist at `docs/release/sprint-30-readiness.md`
+- [x] Kept backend behavior unchanged while polishing UX and recovery paths
+
 ## Quick Start
 
 1. Copy env template:
@@ -403,8 +411,8 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 30)
+## Next (Post-Sprint)
 
-- Apply final visual polish pass (empty/error states, contrast tuning, focus/keyboard affordances)
-- Prepare release-readiness checklist with consolidated Manual QA evidence
-- Run manual QA using `docs/manual-qa/sprint-19.md` and attach evidence in PR
+- Continue point improvements from bug triage backlog in small scoped PRs
+- Run consolidated manual QA using `docs/manual-qa/sprint-19.md` + `docs/release/sprint-30-readiness.md`
+- Prepare release candidate notes and known limitations

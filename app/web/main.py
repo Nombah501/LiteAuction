@@ -163,7 +163,7 @@ def _validate_csrf_token(request: Request, auth: AdminAuthContext, csrf_token: s
 def _csrf_failed_response(request: Request, *, back_to: str) -> HTMLResponse:
     body = (
         "<h1>CSRF check failed</h1>"
-        "<p>Обновите страницу и повторите действие.</p>"
+        "<div class='notice notice-error'><p>Обновите страницу и повторите действие.</p></div>"
         f"<p><a href='{escape(_path_with_auth(request, back_to))}'>Назад</a></p>"
     )
     return HTMLResponse(_render_page("Forbidden", body), status_code=403)
@@ -252,8 +252,16 @@ def _render_page(title: str, body: str) -> str:
         "padding:10px 12px;border-radius:10px;box-shadow:0 4px 12px rgba(15,26,31,0.06);}"
         "a{color:var(--accent);text-decoration:none;font-weight:600;}"
         "a:hover{text-decoration:underline;}"
+        "a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{"
+        "outline:3px solid #ffb454;outline-offset:2px;}"
         ".chip{display:inline-block;padding:4px 9px;border-radius:999px;border:1px solid #b8c9c7;"
         "background:#f3faf8;font-size:12px;font-weight:600;margin-right:6px;margin-bottom:4px;}"
+        ".notice{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;}"
+        ".notice p{margin:0;}"
+        ".notice-error{background:#fff1f1;border-color:#e4b5b5;color:#822727;}"
+        ".notice-warn{background:#fff8ec;border-color:#e9c28e;color:#7b4a0d;}"
+        ".notice-info{background:#edf7f7;border-color:#b4d7d4;color:#0b4f4a;}"
+        ".empty-state{color:var(--muted);font-style:italic;}"
         ".card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;"
         "box-shadow:0 3px 10px rgba(11,31,36,0.05);}"
         "pre{white-space:pre-wrap;background:var(--soft);padding:8px;border-radius:8px;border:1px solid var(--line);margin:0;}"
@@ -364,7 +372,7 @@ def _require_scope_permission(request: Request, scope: str) -> tuple[Response | 
     back_to = _safe_back_to_from_request(request)
     body = (
         "<h1>Недостаточно прав</h1>"
-        f"<p>Для этого действия нужна роль с правом: <b>{escape(scope_title)}</b>.</p>"
+        f"<div class='notice notice-warn'><p>Для этого действия нужна роль с правом: <b>{escape(scope_title)}</b>.</p></div>"
         f"<p><a href='{escape(_path_with_auth(request, back_to))}'>Назад</a></p>"
         f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
     )
@@ -551,7 +559,7 @@ async def complaints(request: Request, status: str = "OPEN", page: int = 0) -> R
         for item in rows
     )
     if not table_rows:
-        table_rows = "<tr><td colspan='6'>Нет записей</td></tr>"
+        table_rows = "<tr><td colspan='6'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, f'/complaints?status={status}&page={page-1}'))}'>← Назад</a>"
@@ -608,7 +616,7 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
         for item in rows
     )
     if not table_rows:
-        table_rows = "<tr><td colspan='6'>Нет записей</td></tr>"
+        table_rows = "<tr><td colspan='6'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, f'/signals?status={status}&page={page-1}'))}'>← Назад</a>"
@@ -672,7 +680,7 @@ async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> R
         for item in rows
     )
     if not table_rows:
-        table_rows = "<tr><td colspan='7'>Нет записей</td></tr>"
+        table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, f'/auctions?status={status}&page={page-1}'))}'>← Назад</a>"
@@ -751,7 +759,7 @@ async def auction_timeline(
         for item in page_items
     )
     if not rows:
-        rows = "<tr><td colspan='4'>События отсутствуют на этой странице</td></tr>"
+        rows = "<tr><td colspan='4'><span class='empty-state'>События отсутствуют на этой странице</span></td></tr>"
 
     timeline_base = f"/timeline/auction/{auction.id}"
 
@@ -818,7 +826,7 @@ def _safe_return_to(return_to: str | None, fallback: str) -> str:
 def _action_error_page(request: Request, message: str, *, back_to: str) -> HTMLResponse:
     body = (
         "<h1>Action failed</h1>"
-        f"<p>{escape(message)}</p>"
+        f"<div class='notice notice-error'><p>{escape(message)}</p></div>"
         f"<p><a href='{escape(_path_with_auth(request, back_to))}'>Назад</a></p>"
     )
     return HTMLResponse(_render_page("Action Error", body), status_code=400)
@@ -911,7 +919,7 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
 
     bids_table = (
         "<table><thead><tr><th>Bid ID</th><th>Amount</th><th>TG UID</th><th>Username</th><th>Created</th><th>Removed</th><th>Action</th></tr></thead>"
-        f"<tbody>{''.join(bid_rows) if bid_rows else '<tr><td colspan=7>Нет ставок</td></tr>'}</tbody></table>"
+        f"<tbody>{''.join(bid_rows) if bid_rows else '<tr><td colspan=7><span class=\"empty-state\">Нет ставок</span></td></tr>'}</tbody></table>"
     )
 
     body = (
@@ -1068,7 +1076,7 @@ async def manage_user(request: Request, user_id: int) -> Response:
         for item in recent_complaints_against
     )
     if not complaints_rows:
-        complaints_rows = "<tr><td colspan='5'>Нет записей</td></tr>"
+        complaints_rows = "<tr><td colspan='5'><span class='empty-state'>Нет записей</span></td></tr>"
 
     signal_rows = "".join(
         "<tr>"
@@ -1081,7 +1089,7 @@ async def manage_user(request: Request, user_id: int) -> Response:
         for item in recent_fraud_signals
     )
     if not signal_rows:
-        signal_rows = "<tr><td colspan='5'>Нет записей</td></tr>"
+        signal_rows = "<tr><td colspan='5'><span class='empty-state'>Нет записей</span></td></tr>"
 
     roles_text = ", ".join(sorted(role.value for role in user_roles)) if user_roles else "-"
     moderator_text = "yes" if has_moderator_access else "no"
@@ -1229,7 +1237,7 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         "</form>"
         f"{moderator_grant_form}"
         "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Created</th><th>Manage</th></tr></thead>"
-        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=7>Нет записей</td></tr>'}</tbody></table>"
+        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=7><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
     return HTMLResponse(_render_page("Manage Users", body))
