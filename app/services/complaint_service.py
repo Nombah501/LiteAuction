@@ -24,6 +24,7 @@ class ComplaintView:
     reporter: User
     target_user: User | None
     target_bid: Bid | None
+    resolver_user: User | None
 
 
 async def create_complaint(
@@ -93,12 +94,17 @@ async def load_complaint_view(
     if complaint.target_bid_id is not None:
         target_bid = await session.scalar(select(Bid).where(Bid.id == complaint.target_bid_id))
 
+    resolver_user = None
+    if complaint.resolved_by_user_id is not None:
+        resolver_user = await session.scalar(select(User).where(User.id == complaint.resolved_by_user_id))
+
     return ComplaintView(
         complaint=complaint,
         auction=auction,
         reporter=reporter,
         target_user=target_user,
         target_bid=target_bid,
+        resolver_user=resolver_user,
     )
 
 
@@ -112,15 +118,27 @@ def render_complaint_text(view: ComplaintView) -> str:
     if view.target_bid is not None:
         top_bid = f"{view.target_bid.id} (${view.target_bid.amount})"
 
-    return (
-        f"Жалоба #{view.complaint.id}\n"
-        f"Статус: {view.complaint.status}\n"
-        f"Аукцион: {view.auction.id}\n"
-        f"Репортер: {reporter}\n"
-        f"Подозреваемый: {target}\n"
-        f"Ставка: {top_bid}\n"
-        f"Причина: {view.complaint.reason}"
-    )
+    lines = [
+        f"Жалоба #{view.complaint.id}",
+        f"Статус: {view.complaint.status}",
+        f"Аукцион: {view.auction.id}",
+        f"Репортер: {reporter}",
+        f"Подозреваемый: {target}",
+        f"Ставка: {top_bid}",
+        f"Причина: {view.complaint.reason}",
+    ]
+
+    if view.complaint.resolution_note:
+        lines.append(f"Решение: {view.complaint.resolution_note}")
+    if view.resolver_user is not None:
+        resolver = (
+            f"@{view.resolver_user.username}"
+            if view.resolver_user.username
+            else str(view.resolver_user.tg_user_id)
+        )
+        lines.append(f"Модератор: {resolver}")
+
+    return "\n".join(lines)
 
 
 async def set_complaint_queue_message(
@@ -188,4 +206,4 @@ async def list_complaints(
         stmt = stmt.where(Complaint.auction_id == auction_id)
     if status is not None:
         stmt = stmt.where(Complaint.status == status)
-    return (await session.execute(stmt)).scalars().all()
+    return list((await session.execute(stmt)).scalars().all())

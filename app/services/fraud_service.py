@@ -20,6 +20,7 @@ class FraudSignalView:
     auction: Auction
     user: User
     bid: Bid | None
+    resolver_user: User | None
 
 
 async def evaluate_and_store_bid_fraud_signal(
@@ -332,7 +333,17 @@ async def load_fraud_signal_view(
     if signal.bid_id is not None:
         bid = await session.scalar(select(Bid).where(Bid.id == signal.bid_id))
 
-    return FraudSignalView(signal=signal, auction=auction, user=user, bid=bid)
+    resolver_user = None
+    if signal.resolved_by_user_id is not None:
+        resolver_user = await session.scalar(select(User).where(User.id == signal.resolved_by_user_id))
+
+    return FraudSignalView(
+        signal=signal,
+        auction=auction,
+        user=user,
+        bid=bid,
+        resolver_user=resolver_user,
+    )
 
 
 def render_fraud_signal_text(view: FraudSignalView) -> str:
@@ -358,6 +369,13 @@ def render_fraud_signal_text(view: FraudSignalView) -> str:
             lines.append(f"- {reason.get('code')}: {reason.get('detail')} (+{reason.get('score')})")
     if view.signal.resolution_note:
         lines.append(f"Решение: {view.signal.resolution_note}")
+    if view.resolver_user is not None:
+        resolver = (
+            f"@{view.resolver_user.username}"
+            if view.resolver_user.username
+            else str(view.resolver_user.tg_user_id)
+        )
+        lines.append(f"Модератор: {resolver}")
     return "\n".join(lines)
 
 
@@ -411,7 +429,7 @@ async def list_fraud_signals(
         stmt = stmt.where(FraudSignal.auction_id == auction_id)
     if status is not None:
         stmt = stmt.where(FraudSignal.status == status)
-    return (await session.execute(stmt)).scalars().all()
+    return list((await session.execute(stmt)).scalars().all())
 
 
 async def has_open_signal_for_bid(session: AsyncSession, bid_id: uuid.UUID) -> bool:

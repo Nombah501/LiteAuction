@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.bot.handlers.moderation import mod_report_action, mod_risk_action
+from app.bot.handlers.moderation import mod_panel_callbacks, mod_report_action, mod_risk_action
 from app.db.enums import AuctionStatus, ModerationAction
 from app.db.models import Auction, BlacklistEntry, Complaint, FraudSignal, ModerationLog, User
 from app.services.timeline_service import build_auction_timeline
@@ -33,10 +33,10 @@ class _DummyCallback:
 
 class _DummyBot:
     def __init__(self) -> None:
-        self.sent_messages: list[tuple[int, str]] = []
+        self.sent_messages: list[tuple[int, str, object | None]] = []
 
-    async def send_message(self, chat_id: int, text: str) -> None:
-        self.sent_messages.append((chat_id, text))
+    async def send_message(self, chat_id: int, text: str, reply_markup=None) -> None:
+        self.sent_messages.append((chat_id, text, reply_markup))
 
 
 class _DummyMessage:
@@ -245,6 +245,7 @@ async def test_modrisk_ban_updates_db_refresh_and_notifies(monkeypatch, integrat
     actor_tg_user_id = 72001
     monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
     monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+    monkeypatch.setattr(settings, "bot_username", "liteauction_bot")
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
@@ -311,9 +312,13 @@ async def test_modrisk_ban_updates_db_refresh_and_notifies(monkeypatch, integrat
     assert blacklist is not None
     assert blacklist.is_active is True
     assert refresh_calls == [auction_id]
-    assert bot.sent_messages == [
-        (suspect_tg_user_id, f"Ваш аккаунт заблокирован модератором по фрод-сигналу #{signal_id}")
-    ]
+    assert len(bot.sent_messages) == 1
+    sent_chat_id, sent_text, sent_markup = bot.sent_messages[0]
+    assert sent_chat_id == suspect_tg_user_id
+    assert "Ваш аккаунт получил санкции" in sent_text
+    assert f"#{signal_id}" in sent_text
+    assert "апелляцию" in sent_text
+    assert sent_markup is not None
     assert callback.answers[-1][0] == "Пользователь заблокирован"
     assert len(queue_message.edits) == 1
     updated_text, updated_reply_markup = queue_message.edits[-1]
@@ -449,6 +454,7 @@ async def test_modrisk_ban_repeat_click_is_idempotent(monkeypatch, integration_e
     actor_tg_user_id = 74001
     monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
     monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+    monkeypatch.setattr(settings, "bot_username", "liteauction_bot")
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
@@ -513,9 +519,12 @@ async def test_modrisk_ban_repeat_click_is_idempotent(monkeypatch, integration_e
     await mod_risk_action(second_callback, bot)
 
     assert refresh_calls == [auction_id]
-    assert bot.sent_messages == [
-        (suspect_tg_user_id, f"Ваш аккаунт заблокирован модератором по фрод-сигналу #{signal_id}")
-    ]
+    assert len(bot.sent_messages) == 1
+    sent_chat_id, sent_text, sent_markup = bot.sent_messages[0]
+    assert sent_chat_id == suspect_tg_user_id
+    assert "санкции" in sent_text
+    assert "апелляцию" in sent_text
+    assert sent_markup is not None
     assert second_callback.answers
     assert second_callback.answers[-1][1] is True
     assert "Сигнал уже обработан" in (second_callback.answers[-1][0] or "")
@@ -555,3 +564,69 @@ async def test_modrisk_ban_repeat_click_is_idempotent(monkeypatch, integration_e
             "Фрод-сигнал обработан",
         ],
     )
+
+
+@pytest.mark.asyncio
+async def test_modpanel_unfreeze_action_from_frozen_list(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    actor_tg_user_id = 75001
+    monkeypatch.setattr(settings, "admin_user_ids", str(actor_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    refresh_calls: list[uuid.UUID] = []
+
+    async def fake_refresh(_bot, auction_id: uuid.UUID) -> None:
+        refresh_calls.append(auction_id)
+
+    monkeypatch.setattr("app.bot.handlers.moderation.refresh_auction_posts", fake_refresh)
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=75101, username="seller")
+            session.add(seller)
+            await session.flush()
+
+            auction = Auction(
+                seller_user_id=seller.id,
+                description="lot",
+                photo_file_id="photo",
+                start_price=10,
+                buyout_price=None,
+                min_step=1,
+                duration_hours=24,
+                status=AuctionStatus.FROZEN,
+            )
+            session.add(auction)
+            await session.flush()
+            auction_id = auction.id
+            seller_tg_user_id = seller.tg_user_id
+
+    message = _DummyMessage()
+    callback = _DummyCallback(
+        data=f"modui:unfreeze:{auction_id}:0",
+        from_user_id=actor_tg_user_id,
+        message=message,
+    )
+    bot = _DummyBot()
+
+    await mod_panel_callbacks(callback, bot)
+
+    async with session_factory() as session:
+        auction_row = await session.scalar(select(Auction).where(Auction.id == auction_id))
+
+    assert auction_row is not None
+    assert auction_row.status == AuctionStatus.ACTIVE
+    assert refresh_calls == [auction_id]
+    assert len(message.edits) == 1
+    assert "Замороженные аукционы" in message.edits[0][0]
+    assert callback.answers
+    assert callback.answers[-1][0] == "Аукцион разморожен"
+
+    assert bot.sent_messages
+    sent_chat_id, sent_text, _ = bot.sent_messages[-1]
+    assert sent_chat_id == seller_tg_user_id
+    assert "разморожен модератором" in sent_text
