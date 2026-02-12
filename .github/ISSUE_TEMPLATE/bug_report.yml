@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a reproducible defect in bot, web, timeline, moderation, or CI flows
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - P0
+        - P1
+        - P2
+        - P3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Impacted area
+      options:
+        - bot
+        - web
+        - timeline
+        - moderation
+        - rbac
+        - infra/ci
+    validations:
+      required: true
+
+  - type: dropdown
+    id: env
+    attributes:
+      label: Environment
+      options:
+        - local
+        - ci
+        - prod-like
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Numbered deterministic steps
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, screenshots, trace IDs, failing tests, or links
+    validations:
+      required: true
+
+  - type: input
+    id: target_sprint
+    attributes:
+      label: Target sprint
+      placeholder: "27"
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional context, mitigations, or workaround
