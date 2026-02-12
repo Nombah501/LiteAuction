@@ -226,21 +226,56 @@ async def _refresh_auction_posts_from_web(auction_id: uuid.UUID | None) -> None:
 
 
 def _render_page(title: str, body: str) -> str:
+    styles = (
+        ":root{"
+        "--bg-0:#f5f8f9;--bg-1:#e8f0f1;--ink:#1d2b33;--muted:#5d7078;"
+        "--card:#ffffff;--line:#d2dde2;--soft:#eef4f6;--accent:#0f766e;--accent-ink:#0b4f4a;}"
+        "*{box-sizing:border-box;}"
+        "body{margin:0;font-family:'IBM Plex Sans','Trebuchet MS','Segoe UI',sans-serif;"
+        "line-height:1.45;color:var(--ink);"
+        "background:radial-gradient(1400px 600px at -10% -20%,#d7ece7 0%,transparent 70%),"
+        "radial-gradient(1200px 500px at 120% -30%,#e5ebe2 0%,transparent 68%),"
+        "linear-gradient(180deg,var(--bg-0),var(--bg-1));}"
+        ".page-shell{max-width:1280px;margin:20px auto;padding:20px 24px;border:1px solid var(--line);"
+        "border-radius:16px;background:rgba(255,255,255,0.86);backdrop-filter:blur(2px);"
+        "box-shadow:0 20px 36px rgba(18,33,40,0.09);overflow:auto;}"
+        "h1{margin:0 0 12px;font-size:30px;letter-spacing:0.2px;}"
+        "h2,h3{margin-top:20px;margin-bottom:10px;}"
+        "p{margin:10px 0;}"
+        "table{border-collapse:separate;border-spacing:0;width:100%;margin-top:12px;background:var(--card);"
+        "border:1px solid var(--line);border-radius:12px;overflow:hidden;}"
+        "th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;font-size:14px;vertical-align:top;}"
+        "th{background:var(--soft);font-weight:600;color:var(--accent-ink);letter-spacing:0.2px;}"
+        "tr:nth-child(even) td{background:#fbfdfe;}"
+        "tr:last-child td{border-bottom:none;}"
+        ".kpi{display:inline-block;margin:0 14px 10px 0;background:var(--card);border:1px solid var(--line);"
+        "padding:10px 12px;border-radius:10px;box-shadow:0 4px 12px rgba(15,26,31,0.06);}"
+        "a{color:var(--accent);text-decoration:none;font-weight:600;}"
+        "a:hover{text-decoration:underline;}"
+        ".chip{display:inline-block;padding:4px 9px;border-radius:999px;border:1px solid #b8c9c7;"
+        "background:#f3faf8;font-size:12px;font-weight:600;margin-right:6px;margin-bottom:4px;}"
+        ".card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;"
+        "box-shadow:0 3px 10px rgba(11,31,36,0.05);}"
+        "pre{white-space:pre-wrap;background:var(--soft);padding:8px;border-radius:8px;border:1px solid var(--line);margin:0;}"
+        "input,button,select,textarea{font:inherit;}"
+        "input,select,textarea{border:1px solid #b6c7cc;border-radius:8px;padding:7px 9px;background:#fff;color:var(--ink);"
+        "max-width:100%;}"
+        "button{border:1px solid #0f766e;background:linear-gradient(180deg,#179186,#11756d);color:#fff;"
+        "font-weight:700;border-radius:8px;padding:7px 12px;cursor:pointer;box-shadow:0 3px 8px rgba(6,74,69,0.23);}"
+        "button:hover{filter:brightness(1.03);}"
+        "button:active{transform:translateY(1px);}"
+        "@media (max-width:900px){.page-shell{margin:10px;padding:12px;border-radius:12px;}"
+        "h1{font-size:24px;}th,td{font-size:13px;padding:7px;}"
+        "table{display:block;overflow-x:auto;white-space:nowrap;}"
+        ".kpi{margin-right:8px;}}"
+    )
+
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         f"<title>{escape(title)}</title>"
-        "<style>"
-        "body{font-family:Arial,sans-serif;margin:24px;line-height:1.45;background:#f7f8fa;}"
-        "table{border-collapse:collapse;width:100%;margin-top:12px;background:#fff;}"
-        "th,td{border:1px solid #d9d9d9;padding:8px;text-align:left;font-size:14px;vertical-align:top;}"
-        "th{background:#f0f3f7;}"
-        ".kpi{display:inline-block;margin-right:24px;background:#fff;border:1px solid #d9d9d9;padding:10px 12px;border-radius:8px;}"
-        "a{color:#0b5ed7;text-decoration:none;} a:hover{text-decoration:underline;}"
-        ".card{background:#fff;border:1px solid #d9d9d9;border-radius:8px;padding:14px;}"
-        "pre{white-space:pre-wrap;background:#f4f6f8;padding:8px;border-radius:6px;}"
-        "</style>"
-        "</head><body>"
-        f"{body}</body></html>"
+        f"<style>{styles}</style>"
+        "</head><body><div class='page-shell'>"
+        f"{body}</div></body></html>"
     )
 
 
@@ -746,12 +781,12 @@ async def auction_timeline(
     )
     source_links = " | ".join(
         [
-            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, None)))}'>all</a>",
-            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'auction')))}'>auction</a>",
-            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'bid')))}'>bid</a>",
-            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'complaint')))}'>complaint</a>",
-            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'fraud')))}'>fraud</a>",
-            f"<a href='{escape(_path_with_auth(request, _timeline_path(0, 'moderation')))}'>moderation</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _timeline_path(0, None)))}'>all</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _timeline_path(0, 'auction')))}'>auction</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _timeline_path(0, 'bid')))}'>bid</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _timeline_path(0, 'complaint')))}'>complaint</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _timeline_path(0, 'fraud')))}'>fraud</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _timeline_path(0, 'moderation')))}'>moderation</a>",
         ]
     )
     filter_label = source_filter or "all"
