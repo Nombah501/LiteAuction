@@ -2,7 +2,7 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23**:
+This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -36,6 +36,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Timeline event sequence guards for callback flows (`create -> moderation action -> resolve`)
 - Stable per-entity timeline ordering on equal timestamps (`created_at` + primary-key tie-breakers)
 - Web timeline pagination with configurable `page`/`limit` and navigation links
+- CI anti-flaky integration re-run and PR quality checklist template
 
 ## Sprint 0 Checklist
 
@@ -204,6 +205,12 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Added validation for pagination bounds (`page >= 0`, `1 <= limit <= 500`)
 - [x] Added regression tests for page boundaries and event ordering preservation
 
+## Sprint 24 Checklist (Quality Gates)
+
+- [x] Added PR template with validation/self-review/risk/manual-QA checklist
+- [x] Added CI anti-flaky re-run for integration DB suite on pull requests
+- [x] Standardized reviewer focus section in PR metadata
+
 ## Quick Start
 
 1. Copy env template:
@@ -359,7 +366,7 @@ FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
 
-## Next (Sprint 24)
+## Next (Sprint 25)
 
 - Move timeline pagination closer to DB layer to avoid loading full event history for very large auctions
 - Add filters by source (`auction`, `bid`, `complaint`, `fraud`, `moderation`) in timeline view
