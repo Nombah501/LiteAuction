@@ -48,7 +48,7 @@ Expected:
 - Complaint becomes non-open (`RESOLVED`).
 - Auction status becomes `FROZEN` and auction post is refreshed.
 - Original queue message is edited (same message id), action buttons are replaced by panel navigation.
-- Timeline contains complaint creation + complaint resolution + moderation action entries in chronological order.
+- Timeline contains complaint creation + moderation action + complaint resolution entries in chronological order.
 
 ### MQ-02 ban_top denied for operator without user ban scope
 
@@ -81,7 +81,7 @@ Expected:
 - Auction post is refreshed.
 - Target user receives Telegram notification about ban.
 - Queue message is edited to resolved state and action buttons are replaced.
-- Timeline contains signal creation + signal resolution + moderation action in correct order.
+- Timeline contains signal creation + moderation action + signal resolution in correct order.
 
 ### MQ-04 Idempotency on repeated callback click
 

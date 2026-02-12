@@ -47,6 +47,15 @@ class _DummyMessage:
         self.edits.append((text, reply_markup))
 
 
+def _assert_timeline_sequence(timeline, expected_titles: list[str]) -> None:
+    titles = [item.title for item in timeline]
+    cursor = -1
+    for expected in expected_titles:
+        next_index = next((idx for idx in range(cursor + 1, len(titles)) if titles[idx] == expected), None)
+        assert next_index is not None, f"Timeline does not include expected event: {expected}"
+        cursor = next_index
+
+
 @pytest.mark.asyncio
 async def test_modrep_freeze_updates_db_and_refresh(monkeypatch, integration_engine) -> None:
     from app.config import settings
@@ -130,6 +139,14 @@ async def test_modrep_freeze_updates_db_and_refresh(monkeypatch, integration_eng
     assert "Жалоба создана" in titles
     assert "Жалоба обработана" in titles
     assert "Мод-действие: FREEZE_AUCTION" in titles
+    _assert_timeline_sequence(
+        timeline,
+        [
+            "Жалоба создана",
+            "Мод-действие: FREEZE_AUCTION",
+            "Жалоба обработана",
+        ],
+    )
     assert [item.happened_at for item in timeline] == sorted(item.happened_at for item in timeline)
     complaint_resolved_item = next(item for item in timeline if item.title == "Жалоба обработана")
     assert "status=RESOLVED" in complaint_resolved_item.details
@@ -312,6 +329,14 @@ async def test_modrisk_ban_updates_db_refresh_and_notifies(monkeypatch, integrat
     assert "Фрод-сигнал создан" in timeline_titles
     assert "Фрод-сигнал обработан" in timeline_titles
     assert "Мод-действие: BAN_USER" in timeline_titles
+    _assert_timeline_sequence(
+        timeline,
+        [
+            "Фрод-сигнал создан",
+            "Мод-действие: BAN_USER",
+            "Фрод-сигнал обработан",
+        ],
+    )
     assert [item.happened_at for item in timeline] == sorted(item.happened_at for item in timeline)
     signal_resolved_item = next(item for item in timeline if item.title == "Фрод-сигнал обработан")
     assert "status=CONFIRMED" in signal_resolved_item.details
@@ -407,3 +432,11 @@ async def test_modrep_freeze_repeat_click_is_idempotent(monkeypatch, integration
     assert len(freeze_logs) == 1
     assert sum(1 for item in timeline if item.title == "Жалоба обработана") == 1
     assert sum(1 for item in timeline if item.title == "Мод-действие: FREEZE_AUCTION") == 1
+    _assert_timeline_sequence(
+        timeline,
+        [
+            "Жалоба создана",
+            "Мод-действие: FREEZE_AUCTION",
+            "Жалоба обработана",
+        ],
+    )
