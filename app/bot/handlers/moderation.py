@@ -6,15 +6,21 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import select
 
 from app.bot.keyboards.moderation import (
     complaint_actions_keyboard,
     fraud_actions_keyboard,
+    moderation_frozen_actions_keyboard,
+    moderation_frozen_list_keyboard,
     moderation_complaints_list_keyboard,
     moderation_panel_keyboard,
     moderation_signals_list_keyboard,
 )
+from app.config import settings
+from app.db.enums import AuctionStatus
+from app.db.models import Auction
 from app.db.session import SessionFactory
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import (
@@ -57,6 +63,62 @@ from app.services.user_service import upsert_user
 
 router = Router(name="moderation")
 PANEL_PAGE_SIZE = 5
+
+
+def _appeal_deep_link(appeal_ref: str) -> str | None:
+    username = settings.bot_username.strip()
+    if not username:
+        return None
+    return f"https://t.me/{username}?start=appeal_{appeal_ref}"
+
+
+def _appeal_keyboard(appeal_ref: str) -> InlineKeyboardMarkup | None:
+    url = _appeal_deep_link(appeal_ref)
+    if url is None:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Обжаловать решение", url=url)],
+        ]
+    )
+
+
+def _build_appeal_cta(appeal_ref: str) -> tuple[str, InlineKeyboardMarkup | None]:
+    keyboard = _appeal_keyboard(appeal_ref)
+    if keyboard is None:
+        return (
+            f"Если вы не согласны с решением, отправьте в этот чат команду /start appeal_{appeal_ref}.",
+            None,
+        )
+    return (
+        "Если вы не согласны с решением, нажмите кнопку ниже и отправьте апелляцию.",
+        keyboard,
+    )
+
+
+async def _build_frozen_auctions_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
+    offset = page * PANEL_PAGE_SIZE
+    async with SessionFactory() as session:
+        auctions = (
+            await session.execute(
+                select(Auction)
+                .where(Auction.status == AuctionStatus.FROZEN)
+                .order_by(Auction.updated_at.desc(), Auction.created_at.desc())
+                .offset(offset)
+                .limit(PANEL_PAGE_SIZE + 1)
+            )
+        ).scalars().all()
+
+    has_next = len(auctions) > PANEL_PAGE_SIZE
+    visible = auctions[:PANEL_PAGE_SIZE]
+    items = [(str(item.id), f"Аукцион {str(item.id)[:8]} | seller {item.seller_user_id}") for item in visible]
+    text_lines = [f"Замороженные аукционы, стр. {page + 1}"]
+    for item in visible:
+        text_lines.append(f"- auc={str(item.id)[:8]} | seller={item.seller_user_id} | ends={item.ends_at}")
+    if not visible:
+        text_lines.append("- нет записей")
+
+    return "\n".join(text_lines), moderation_frozen_list_keyboard(items=items, page=page, has_next=has_next)
 
 
 def _parse_uuid(raw: str) -> uuid.UUID | None:
@@ -687,7 +749,7 @@ async def mod_risk(message: Message) -> None:
 
 
 @router.callback_query(F.data.startswith("modui:"))
-async def mod_panel_callbacks(callback: CallbackQuery) -> None:
+async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
     if not await _require_moderator_callback(callback):
         return
     if callback.data is None or callback.message is None:
@@ -800,6 +862,97 @@ async def mod_panel_callbacks(callback: CallbackQuery) -> None:
         await callback.answer()
         return
 
+    if section == "frozen":
+        if len(parts) != 3:
+            await callback.answer("Некорректная пагинация", show_alert=True)
+            return
+        page = _parse_page(parts[2])
+        if page is None:
+            await callback.answer("Некорректная страница", show_alert=True)
+            return
+        if not await _require_scope_callback(callback, SCOPE_AUCTION_MANAGE):
+            return
+
+        text, keyboard = await _build_frozen_auctions_page(page)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.answer()
+        return
+
+    if section == "frozen_auction":
+        if len(parts) != 4:
+            await callback.answer("Некорректный аукцион", show_alert=True)
+            return
+        auction_id = _parse_uuid(parts[2])
+        page = _parse_page(parts[3])
+        if auction_id is None or page is None:
+            await callback.answer("Некорректные параметры", show_alert=True)
+            return
+        if not await _require_scope_callback(callback, SCOPE_AUCTION_MANAGE):
+            return
+
+        async with SessionFactory() as session:
+            auction = await session.scalar(select(Auction).where(Auction.id == auction_id))
+
+        if auction is None:
+            await callback.answer("Аукцион не найден", show_alert=True)
+            return
+
+        text = (
+            f"Аукцион {auction.id}\n"
+            f"Статус: {auction.status}\n"
+            f"Seller UID: {auction.seller_user_id}\n"
+            f"Ends: {auction.ends_at}"
+        )
+        await callback.message.edit_text(
+            text,
+            reply_markup=moderation_frozen_actions_keyboard(auction_id=str(auction.id), page=page),
+        )
+        await callback.answer()
+        return
+
+    if section == "unfreeze":
+        if len(parts) != 4:
+            await callback.answer("Некорректный аукцион", show_alert=True)
+            return
+        auction_id = _parse_uuid(parts[2])
+        page = _parse_page(parts[3])
+        if auction_id is None or page is None:
+            await callback.answer("Некорректные параметры", show_alert=True)
+            return
+        if not await _require_scope_callback(callback, SCOPE_AUCTION_MANAGE):
+            return
+
+        seller_tg_user_id: int | None = None
+        async with SessionFactory() as session:
+            async with session.begin():
+                actor = await upsert_user(session, callback.from_user)
+                result = await unfreeze_auction(
+                    session,
+                    actor_user_id=actor.id,
+                    auction_id=auction_id,
+                    reason="Через modpanel",
+                )
+                seller_tg_user_id = result.seller_tg_user_id
+
+        if not result.ok:
+            await callback.answer(result.message, show_alert=True)
+            return
+
+        await refresh_auction_posts(bot, auction_id)
+        if seller_tg_user_id is not None:
+            try:
+                await bot.send_message(
+                    seller_tg_user_id,
+                    f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
+                )
+            except TelegramForbiddenError:
+                pass
+
+        text, keyboard = await _build_frozen_auctions_page(page)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.answer(result.message)
+        return
+
     if section == "complaint":
         if len(parts) != 4 or not parts[2].isdigit():
             await callback.answer("Некорректная жалоба", show_alert=True)
@@ -886,6 +1039,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
     notify_target_tg_user_id: int | None = None
     callback_message = "Действие выполнено"
     updated_text: str | None = None
+    sanction_note: str | None = None
 
     async with SessionFactory() as session:
         async with session.begin():
@@ -930,6 +1084,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
                     note="Заморозка аукциона",
                 )
                 callback_message = "Аукцион заморожен"
+                sanction_note = callback_message
 
             elif action == "rm_top":
                 if view.complaint.target_bid_id is None:
@@ -955,6 +1110,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
                     note="Снята топ-ставка",
                 )
                 callback_message = "Топ-ставка снята"
+                sanction_note = callback_message
 
             elif action == "ban_top":
                 if view.target_user is None:
@@ -989,6 +1145,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
                     note="Пользователь заблокирован, ставка снята",
                 )
                 callback_message = "Пользователь заблокирован"
+                sanction_note = callback_message
 
             refreshed_view = await load_complaint_view(session, complaint_id)
             if refreshed_view is not None:
@@ -999,7 +1156,16 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
 
     if notify_target_tg_user_id is not None:
         try:
-            await bot.send_message(notify_target_tg_user_id, f"По жалобе #{complaint_id} модератор применил санкции")
+            sanction_label = sanction_note or "Применены санкции"
+            appeal_note, appeal_keyboard = _build_appeal_cta(f"complaint_{complaint_id}")
+            await bot.send_message(
+                notify_target_tg_user_id,
+                (
+                    f"По жалобе #{complaint_id} модератор применил санкции: {sanction_label}.\n"
+                    f"{appeal_note}"
+                ),
+                reply_markup=appeal_keyboard,
+            )
         except TelegramForbiddenError:
             pass
 
@@ -1042,6 +1208,7 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
     updated_text: str | None = None
     auction_id: uuid.UUID | None = None
     banned_user_tg: int | None = None
+    sanction_note: str | None = None
 
     async with SessionFactory() as session:
         async with session.begin():
@@ -1086,6 +1253,7 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
                     note="Аукцион заморожен",
                 )
                 callback_message = "Аукцион заморожен"
+                sanction_note = callback_message
 
             elif action == "ban":
                 ban_result = await ban_user(
@@ -1108,6 +1276,7 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
                     note="Пользователь заблокирован",
                 )
                 callback_message = "Пользователь заблокирован"
+                sanction_note = callback_message
 
             refreshed = await load_fraud_signal_view(session, signal_id)
             if refreshed is not None:
@@ -1118,7 +1287,16 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
 
     if banned_user_tg is not None:
         try:
-            await bot.send_message(banned_user_tg, f"Ваш аккаунт заблокирован модератором по фрод-сигналу #{signal_id}")
+            sanction_label = sanction_note or "Применены санкции"
+            appeal_note, appeal_keyboard = _build_appeal_cta(f"risk_{signal_id}")
+            await bot.send_message(
+                banned_user_tg,
+                (
+                    f"Ваш аккаунт получил санкции по фрод-сигналу #{signal_id}: {sanction_label}.\n"
+                    f"{appeal_note}"
+                ),
+                reply_markup=appeal_keyboard,
+            )
         except TelegramForbiddenError:
             pass
 

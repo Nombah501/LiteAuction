@@ -17,6 +17,7 @@ from aiogram.enums import ParseMode
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.db.enums import AuctionStatus, UserRole
@@ -529,6 +530,7 @@ async def dashboard(request: Request) -> Response:
         f"<li><a href='{escape(_path_with_auth(request, '/signals?status=OPEN'))}'>Открытые фрод-сигналы</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=ACTIVE'))}'>Активные аукционы</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=FROZEN'))}'>Замороженные аукционы</a></li>"
+        f"<li><a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>Нарушители</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/manage/users'))}'>Управление пользователями</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/logout'))}'>Выйти</a></li>"
         "</ul>"
@@ -1249,6 +1251,115 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
     return HTMLResponse(_render_page("Manage Users", body))
+
+
+@app.get("/violators", response_class=HTMLResponse)
+async def violators(request: Request, status: str = "active", page: int = 0, q: str = "") -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    page = max(page, 0)
+    page_size = 30
+    offset = page * page_size
+    query_value = q.strip()
+    status_value = status.strip().lower()
+    if status_value not in {"active", "inactive", "all"}:
+        raise HTTPException(status_code=400, detail="Invalid violators status filter")
+
+    actor_user = aliased(User)
+    stmt = (
+        select(BlacklistEntry, User, actor_user)
+        .join(User, User.id == BlacklistEntry.user_id)
+        .outerjoin(actor_user, actor_user.id == BlacklistEntry.created_by_user_id)
+    )
+
+    if status_value == "active":
+        stmt = stmt.where(BlacklistEntry.is_active.is_(True))
+    elif status_value == "inactive":
+        stmt = stmt.where(BlacklistEntry.is_active.is_(False))
+
+    if query_value:
+        if query_value.isdigit():
+            stmt = stmt.where(
+                or_(
+                    User.username.ilike(f"%{query_value}%"),
+                    BlacklistEntry.reason.ilike(f"%{query_value}%"),
+                    User.tg_user_id == int(query_value),
+                )
+            )
+        else:
+            stmt = stmt.where(
+                or_(
+                    User.username.ilike(f"%{query_value}%"),
+                    BlacklistEntry.reason.ilike(f"%{query_value}%"),
+                )
+            )
+
+    stmt = (
+        stmt.order_by(BlacklistEntry.created_at.desc())
+        .offset(offset)
+        .limit(page_size + 1)
+    )
+
+    async with SessionFactory() as session:
+        rows = (await session.execute(stmt)).all()
+
+    has_next = len(rows) > page_size
+    rows = rows[:page_size]
+
+    table_rows = ""
+    for entry, target_user, actor in rows:
+        actor_label = "-"
+        if actor is not None:
+            actor_label = f"@{actor.username}" if actor.username else str(actor.tg_user_id)
+        target_label = f"@{target_user.username}" if target_user.username else "-"
+        table_rows += (
+            "<tr>"
+            f"<td>{entry.id}</td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{target_user.id}'))}'>{target_user.tg_user_id}</a></td>"
+            f"<td>{escape(target_label)}</td>"
+            f"<td>{'active' if entry.is_active else 'inactive'}</td>"
+            f"<td>{escape(entry.reason[:160])}</td>"
+            f"<td>{escape(actor_label)}</td>"
+            f"<td>{escape(_fmt_ts(entry.created_at))}</td>"
+            f"<td>{escape(_fmt_ts(entry.expires_at))}</td>"
+            "</tr>"
+        )
+
+    if not table_rows:
+        table_rows = "<tr><td colspan='8'><span class='empty-state'>Нет записей</span></td></tr>"
+
+    prev_link = (
+        f"<a href='{escape(_path_with_auth(request, f'/violators?status={status_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
+        if page > 0
+        else ""
+    )
+    next_link = (
+        f"<a href='{escape(_path_with_auth(request, f'/violators?status={status_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        if has_next
+        else ""
+    )
+
+    body = (
+        "<h1>Нарушители</h1>"
+        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
+        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
+        f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
+        f"<form method='get' action='{escape(_path_with_auth(request, '/violators'))}'>"
+        f"<input type='hidden' name='status' value='{escape(status_value)}'>"
+        f"<input name='q' value='{escape(query_value)}' placeholder='tg id / username / reason' style='width:280px'>"
+        "<button type='submit'>Поиск</button>"
+        "</form>"
+        f"<p>Фильтр: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/violators?status=active&q={query_value}'))}'>active</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/violators?status=inactive&q={query_value}'))}'>inactive</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/violators?status=all&q={query_value}'))}'>all</a></p>"
+        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Status</th><th>Reason</th><th>By</th><th>Created</th><th>Expires</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table>"
+        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+    )
+    return HTMLResponse(_render_page("Violators", body))
 
 
 @app.post("/actions/auction/freeze")

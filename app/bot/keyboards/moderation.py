@@ -89,6 +89,13 @@ def moderation_panel_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 styled_button(
+                    text="Замороженные аукционы",
+                    callback_data="modui:frozen:0",
+                    style="success",
+                )
+            ],
+            [
+                styled_button(
                     text="Статистика",
                     callback_data="modui:stats",
                     style="success",
@@ -141,3 +148,40 @@ def moderation_signals_list_keyboard(
     rows.append(nav_row)
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def moderation_frozen_list_keyboard(
+    *,
+    items: list[tuple[str, str]],
+    page: int,
+    has_next: bool,
+) -> InlineKeyboardMarkup:
+    rows = [
+        [styled_button(text=label, callback_data=f"modui:frozen_auction:{auction_id}:{page}")]
+        for auction_id, label in items
+    ]
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(styled_button(text="<-", callback_data=f"modui:frozen:{page - 1}"))
+    nav_row.append(styled_button(text="Меню", callback_data="modui:home"))
+    if has_next:
+        nav_row.append(styled_button(text="->", callback_data=f"modui:frozen:{page + 1}"))
+    rows.append(nav_row)
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def moderation_frozen_actions_keyboard(*, auction_id: str, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(
+                    text="Разморозить",
+                    callback_data=f"modui:unfreeze:{auction_id}:{page}",
+                    style="success",
+                )
+            ],
+            [styled_button(text="Назад", callback_data=f"modui:frozen:{page}")],
+        ]
+    )
