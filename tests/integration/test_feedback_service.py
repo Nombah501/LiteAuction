@@ -4,14 +4,15 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import FeedbackStatus, FeedbackType
-from app.db.models import FeedbackItem, User
+from app.db.enums import FeedbackStatus, FeedbackType, IntegrationOutboxStatus
+from app.db.models import FeedbackItem, IntegrationOutbox, User
 from app.services.feedback_service import (
     approve_feedback,
     create_feedback,
     reject_feedback,
     take_feedback_in_review,
 )
+from app.services.outbox_service import OUTBOX_EVENT_FEEDBACK_APPROVED
 
 
 @pytest.mark.asyncio
@@ -75,10 +76,14 @@ async def test_feedback_service_full_transition(integration_engine) -> None:
 
     async with session_factory() as session:
         row = await session.scalar(select(FeedbackItem).where(FeedbackItem.type == FeedbackType.BUG))
+        outbox_row = await session.scalar(select(IntegrationOutbox).where(IntegrationOutbox.event_type == OUTBOX_EVENT_FEEDBACK_APPROVED))
 
     assert row is not None
     assert row.status == FeedbackStatus.APPROVED
     assert row.resolved_at is not None
+    assert outbox_row is not None
+    assert outbox_row.status == IntegrationOutboxStatus.PENDING
+    assert outbox_row.payload.get("feedback_id") == row.id
 
 
 @pytest.mark.asyncio

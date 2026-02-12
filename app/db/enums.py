@@ -33,6 +33,7 @@ class ModerationAction(StrEnum):
     TAKE_FEEDBACK = "TAKE_FEEDBACK"
     APPROVE_FEEDBACK = "APPROVE_FEEDBACK"
     REJECT_FEEDBACK = "REJECT_FEEDBACK"
+    CREATE_FEEDBACK_GITHUB_ISSUE = "CREATE_FEEDBACK_GITHUB_ISSUE"
 
 
 class AppealSourceType(StrEnum):
@@ -58,3 +59,9 @@ class FeedbackStatus(StrEnum):
     IN_REVIEW = "IN_REVIEW"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+
+
+class IntegrationOutboxStatus(StrEnum):
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"

@@ -5,8 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.handlers.feedback import feedback_callbacks
-from app.db.enums import FeedbackStatus, FeedbackType, ModerationAction
-from app.db.models import FeedbackItem, ModerationLog, User
+from app.db.enums import FeedbackStatus, FeedbackType, IntegrationOutboxStatus, ModerationAction
+from app.db.models import FeedbackItem, IntegrationOutbox, ModerationLog, User
+from app.services.outbox_service import OUTBOX_EVENT_FEEDBACK_APPROVED
 
 
 class _DummyFromUser:
@@ -84,6 +85,11 @@ async def test_feedback_callback_approve_updates_status_and_notifies(monkeypatch
             .where(ModerationLog.action == ModerationAction.APPROVE_FEEDBACK)
             .order_by(ModerationLog.id.desc())
         )
+        outbox_row = await session.scalar(
+            select(IntegrationOutbox)
+            .where(IntegrationOutbox.event_type == OUTBOX_EVENT_FEEDBACK_APPROVED)
+            .order_by(IntegrationOutbox.id.desc())
+        )
 
     assert item_row is not None
     assert item_row.status == FeedbackStatus.APPROVED
@@ -94,6 +100,10 @@ async def test_feedback_callback_approve_updates_status_and_notifies(monkeypatch
     assert log_row.payload is not None
     assert log_row.payload.get("feedback_id") == feedback_id
     assert log_row.payload.get("status") == FeedbackStatus.APPROVED
+
+    assert outbox_row is not None
+    assert outbox_row.status == IntegrationOutboxStatus.PENDING
+    assert outbox_row.payload.get("feedback_id") == feedback_id
 
     assert queue_message.edits
     assert "Статус: APPROVED" in queue_message.edits[-1][0]
