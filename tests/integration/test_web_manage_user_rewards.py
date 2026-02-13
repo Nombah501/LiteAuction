@@ -97,6 +97,9 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     assert response.status_code == 200
     assert "Rewards / points" in body
     assert "Points баланс" in body
+    assert "Риск-уровень:</b> LOW" in body
+    assert "Риск-скор:</b> 0" in body
+    assert "Риск-факторы:</b> -" in body
     assert "Начислено всего:</b> +30" in body
     assert "Списано всего:</b> -5" in body
     assert "Награда за фидбек" in body
