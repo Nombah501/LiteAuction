@@ -66,6 +66,7 @@ from app.services.moderation_service import (
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
 from app.services.points_service import (
     UserPointsSummary,
+    count_user_points_entries,
     get_user_points_summary,
     grant_points,
     list_user_points_entries,
@@ -82,6 +83,7 @@ router = Router(name="moderation")
 PANEL_PAGE_SIZE = 5
 DEFAULT_POINTS_HISTORY_LIMIT = 5
 MAX_POINTS_HISTORY_LIMIT = 20
+MODPOINTS_HISTORY_PAGE_SIZE = 10
 
 
 def _appeal_deep_link(appeal_ref: str) -> str | None:
@@ -262,6 +264,56 @@ def _event_label(event_type: PointsEventType) -> str:
     if event_type == PointsEventType.FEEDBACK_APPROVED:
         return "Награда за фидбек"
     return "Ручная корректировка"
+
+
+def _parse_points_filter(raw: str | None) -> PointsEventType | None | str:
+    if raw is None:
+        return None
+    lowered = raw.strip().lower()
+    if lowered in {"", "all", "all_types"}:
+        return None
+    if lowered in {"feedback", "feedback_approved"}:
+        return PointsEventType.FEEDBACK_APPROVED
+    if lowered in {"manual", "manual_adjustment"}:
+        return PointsEventType.MANUAL_ADJUSTMENT
+    return "invalid"
+
+
+def _points_filter_label(event_type: PointsEventType | None) -> str:
+    if event_type is None:
+        return "all"
+    if event_type == PointsEventType.FEEDBACK_APPROVED:
+        return "feedback"
+    return "manual"
+
+
+def _render_modpoints_history(
+    *,
+    target_tg_user_id: int,
+    entries: list,
+    page: int,
+    total_pages: int,
+    total_items: int,
+    filter_event_type: PointsEventType | None,
+) -> str:
+    lines = [
+        (
+            f"История points пользователя {target_tg_user_id} | "
+            f"фильтр: {_points_filter_label(filter_event_type)} | "
+            f"стр. {page}/{total_pages}"
+        ),
+        f"Всего записей: {total_items}",
+    ]
+    if not entries:
+        lines.append("Операции не найдены")
+        return "\n".join(lines)
+
+    lines.append("")
+    for entry in entries:
+        created_at = entry.created_at.astimezone().strftime("%d.%m %H:%M")
+        amount_text = f"+{entry.amount}" if entry.amount > 0 else str(entry.amount)
+        lines.append(f"- {created_at} | {amount_text} | {_event_label(PointsEventType(entry.event_type))} | {entry.reason}")
+    return "\n".join(lines)
 
 
 def _render_points_snapshot(
@@ -482,6 +534,7 @@ async def mod_help(message: Message) -> None:
                 "/modpoints <tg_user_id>",
                 "/modpoints <tg_user_id> <limit>",
                 "/modpoints <tg_user_id> <amount> <reason>",
+                "/modpoints_history <tg_user_id> [page] [all|feedback|manual]",
             ]
         )
 
@@ -693,6 +746,95 @@ async def mod_points(message: Message, bot: Bot) -> None:
         return
 
     await message.answer(f"Команда уже обработана ранее\n\n{snapshot}")
+
+
+@router.message(Command("modpoints_history"), F.chat.type == ChatType.PRIVATE)
+async def mod_points_history(message: Message) -> None:
+    if not await _require_scope_message(message, SCOPE_ROLE_MANAGE) or message.text is None:
+        return
+
+    usage_text = (
+        "Формат:\n"
+        "/modpoints_history <tg_user_id>\n"
+        "/modpoints_history <tg_user_id> <page>\n"
+        "/modpoints_history <tg_user_id> <all|feedback|manual>\n"
+        "/modpoints_history <tg_user_id> <page> <all|feedback|manual>"
+    )
+
+    parts = message.text.split()
+    if len(parts) < 2 or len(parts) > 4 or not parts[1].isdigit():
+        await message.answer(usage_text)
+        return
+
+    target_tg_user_id = int(parts[1])
+    page_raw: str | None = None
+    filter_raw: str | None = None
+    if len(parts) == 3:
+        token = parts[2]
+        if token.isdigit():
+            page_raw = token
+        else:
+            filter_raw = token
+    elif len(parts) == 4:
+        if parts[2].isdigit():
+            page_raw = parts[2]
+            filter_raw = parts[3]
+        elif parts[3].isdigit():
+            filter_raw = parts[2]
+            page_raw = parts[3]
+        else:
+            await message.answer(usage_text)
+            return
+
+    page = 1
+    if page_raw is not None:
+        parsed_page = _parse_positive_int(page_raw, minimum=1, maximum=1000)
+        if parsed_page is None:
+            await message.answer("Некорректная страница. Допустимо: 1..1000")
+            return
+        page = parsed_page
+
+    filter_value = _parse_points_filter(filter_raw)
+    if filter_value == "invalid":
+        await message.answer(usage_text)
+        return
+    filter_event_type = filter_value
+
+    async with SessionFactory() as session:
+        target = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id))
+        if target is None:
+            await message.answer("Пользователь не найден")
+            return
+
+        total_items = await count_user_points_entries(
+            session,
+            user_id=target.id,
+            event_type=filter_event_type,
+        )
+        total_pages = max((total_items + MODPOINTS_HISTORY_PAGE_SIZE - 1) // MODPOINTS_HISTORY_PAGE_SIZE, 1)
+        if total_items > 0 and page > total_pages:
+            await message.answer(f"Страница вне диапазона. Доступно: 1..{total_pages}")
+            return
+
+        offset = (page - 1) * MODPOINTS_HISTORY_PAGE_SIZE
+        entries = await list_user_points_entries(
+            session,
+            user_id=target.id,
+            limit=MODPOINTS_HISTORY_PAGE_SIZE,
+            offset=offset,
+            event_type=filter_event_type,
+        )
+
+    await message.answer(
+        _render_modpoints_history(
+            target_tg_user_id=target_tg_user_id,
+            entries=entries,
+            page=page,
+            total_pages=total_pages,
+            total_items=total_items,
+            filter_event_type=filter_event_type,
+        )
+    )
 
 
 @router.message(Command("modpanel"), F.chat.type == ChatType.PRIVATE)

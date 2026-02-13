@@ -343,6 +343,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_te
 /modpoints <tg_user_id>
 /modpoints <tg_user_id> <limit>
 /modpoints <tg_user_id> <amount> <reason>
+/modpoints_history <tg_user_id> [page] [all|feedback|manual]
 ```
 
 - Open stateful moderation panel:
