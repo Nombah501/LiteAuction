@@ -117,12 +117,31 @@ async def list_user_points_entries(
     *,
     user_id: int,
     limit: int = 5,
+    offset: int = 0,
+    event_type: PointsEventType | None = None,
 ) -> list[PointsLedgerEntry]:
-    safe_limit = max(1, min(limit, 20))
+    safe_limit = max(1, min(limit, 50))
+    safe_offset = max(offset, 0)
+    stmt = select(PointsLedgerEntry).where(PointsLedgerEntry.user_id == user_id)
+    if event_type is not None:
+        stmt = stmt.where(PointsLedgerEntry.event_type == event_type)
+
     rows = await session.execute(
-        select(PointsLedgerEntry)
-        .where(PointsLedgerEntry.user_id == user_id)
-        .order_by(PointsLedgerEntry.created_at.desc(), PointsLedgerEntry.id.desc())
+        stmt.order_by(PointsLedgerEntry.created_at.desc(), PointsLedgerEntry.id.desc())
+        .offset(safe_offset)
         .limit(safe_limit)
     )
     return list(rows.scalars().all())
+
+
+async def count_user_points_entries(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    event_type: PointsEventType | None = None,
+) -> int:
+    stmt = select(func.count(PointsLedgerEntry.id)).where(PointsLedgerEntry.user_id == user_id)
+    if event_type is not None:
+        stmt = stmt.where(PointsLedgerEntry.event_type == event_type)
+    count = await session.scalar(stmt)
+    return int(count or 0)

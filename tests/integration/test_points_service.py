@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.enums import PointsEventType
 from app.db.models import PointsLedgerEntry, User
 from app.services.points_service import (
+    count_user_points_entries,
     get_user_points_balance,
     get_user_points_summary,
     grant_points,
@@ -108,3 +109,60 @@ async def test_points_balance_and_recent_entries(integration_engine) -> None:
     assert len(recent) == 2
     assert recent[0].dedupe_key == "manual:611:bonus"
     assert recent[1].dedupe_key == "manual:611:decay"
+
+
+@pytest.mark.asyncio
+async def test_points_list_and_count_support_filter_and_offset(integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=93521, username="points_filter")
+            session.add(user)
+            await session.flush()
+
+            await grant_points(
+                session,
+                user_id=user.id,
+                amount=20,
+                event_type=PointsEventType.FEEDBACK_APPROVED,
+                dedupe_key="feedback:621:reward",
+                reason="Награда",
+            )
+            await grant_points(
+                session,
+                user_id=user.id,
+                amount=5,
+                event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                dedupe_key="manual:621:plus",
+                reason="Бонус",
+            )
+            await grant_points(
+                session,
+                user_id=user.id,
+                amount=-2,
+                event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                dedupe_key="manual:621:minus",
+                reason="Корректировка",
+            )
+
+    async with session_factory() as session:
+        all_count = await count_user_points_entries(session, user_id=user.id)
+        manual_count = await count_user_points_entries(
+            session,
+            user_id=user.id,
+            event_type=PointsEventType.MANUAL_ADJUSTMENT,
+        )
+        manual_rows = await list_user_points_entries(
+            session,
+            user_id=user.id,
+            limit=10,
+            event_type=PointsEventType.MANUAL_ADJUSTMENT,
+        )
+        paged_rows = await list_user_points_entries(session, user_id=user.id, limit=1, offset=1)
+
+    assert all_count == 3
+    assert manual_count == 2
+    assert len(manual_rows) == 2
+    assert all(row.event_type == PointsEventType.MANUAL_ADJUSTMENT for row in manual_rows)
+    assert len(paged_rows) == 1
