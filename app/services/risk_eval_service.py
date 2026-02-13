@@ -10,6 +10,18 @@ class UserRiskSnapshot:
     reasons: tuple[str, ...]
 
 
+def format_risk_reason_label(reason_code: str) -> str:
+    labels = {
+        "ACTIVE_BLACKLIST": "Активный бан",
+        "OPEN_FRAUD_SIGNAL": "Есть открытые фрод-сигналы",
+        "COMPLAINTS_AGAINST_3PLUS": "3+ жалобы на пользователя",
+        "COMPLAINTS_AGAINST": "Есть жалобы на пользователя",
+        "REMOVED_BIDS_3PLUS": "3+ снятые ставки",
+        "REMOVED_BIDS": "Есть снятые ставки",
+    }
+    return labels.get(reason_code, reason_code)
+
+
 def evaluate_user_risk_snapshot(
     *,
     complaints_against: int,

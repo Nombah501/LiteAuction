@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     feedback_suggestion_reward_points: int = 20
     guarantor_intake_min_length: int = 10
     guarantor_intake_cooldown_seconds: int = 180
+    publish_high_risk_requires_guarantor: bool = True
+    publish_guarantor_assignment_max_age_days: int = 30
     github_automation_enabled: bool = False
     github_token: str = ""
     github_repo_owner: str = "Nombah501"

@@ -16,6 +16,7 @@ from app.bot.states.auction_create import AuctionCreateStates
 from app.db.session import SessionFactory
 from app.services.moderation_service import is_tg_user_blacklisted
 from app.services.auction_service import create_draft_auction, load_auction_view, render_auction_caption
+from app.services.publish_gate_service import evaluate_seller_publish_gate
 from app.services.user_service import upsert_user
 
 router = Router(name="create_auction")
@@ -207,6 +208,7 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) ->
     data = await state.get_data()
 
     async with SessionFactory() as session:
+        publish_gate = None
         seller = await upsert_user(session, callback.from_user, mark_private_started=True)
         auction = await create_draft_auction(
             session,
@@ -220,6 +222,7 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) ->
             anti_sniper_enabled=anti_sniper,
         )
         view = await load_auction_view(session, auction.id)
+        publish_gate = await evaluate_seller_publish_gate(session, seller_user_id=seller.id)
         await session.commit()
 
     await state.clear()
@@ -229,12 +232,17 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) ->
         await callback.message.answer("Не удалось собрать предпросмотр. Попробуйте снова.")
         return
 
-    caption = render_auction_caption(view, publish_pending=True)
+    publish_blocked = publish_gate is not None and not publish_gate.allowed
+    caption = render_auction_caption(view, publish_pending=not publish_blocked)
     await callback.message.answer_photo(
         photo=view.auction.photo_file_id,
         caption=caption,
-        reply_markup=draft_publish_keyboard(str(view.auction.id)),
+        reply_markup=None if publish_blocked else draft_publish_keyboard(str(view.auction.id)),
     )
+    if publish_blocked:
+        await callback.message.answer(publish_gate.block_message or "Публикация временно ограничена")
+        return
+
     await callback.message.answer(
         "Нажмите 'Опубликовать в чате/канале', выберите нужный чат/раздел и отправьте карточку."
     )
