@@ -60,6 +60,7 @@ from app.services.points_service import (
     grant_points,
     list_user_points_entries,
 )
+from app.services.risk_eval_service import evaluate_user_risk_snapshot
 from app.web.auth import (
     AdminAuthContext,
     build_admin_session_cookie,
@@ -487,6 +488,18 @@ def _points_event_label(event_type: PointsEventType) -> str:
     if event_type == PointsEventType.FEEDBACK_APPROVED:
         return "Награда за фидбек"
     return "Ручная корректировка"
+
+
+def _risk_reason_label(reason_code: str) -> str:
+    labels = {
+        "ACTIVE_BLACKLIST": "Активный бан",
+        "OPEN_FRAUD_SIGNAL": "Есть открытые фрод-сигналы",
+        "COMPLAINTS_AGAINST_3PLUS": "3+ жалобы на пользователя",
+        "COMPLAINTS_AGAINST": "Есть жалобы на пользователя",
+        "REMOVED_BIDS_3PLUS": "3+ снятые ставки",
+        "REMOVED_BIDS": "Есть снятые ставки",
+    }
+    return labels.get(reason_code, reason_code)
 
 
 def _is_safe_local_path(path: str | None) -> bool:
@@ -1246,6 +1259,16 @@ async def manage_user(
     if controls_blocks:
         controls = "<br>".join(controls_blocks)
 
+    risk_snapshot = evaluate_user_risk_snapshot(
+        complaints_against=complaints_against,
+        open_fraud_signals=fraud_open,
+        has_active_blacklist=active_blacklist_entry is not None,
+        removed_bids=bids_removed,
+    )
+    risk_reasons_text = "-"
+    if risk_snapshot.reasons:
+        risk_reasons_text = ", ".join(_risk_reason_label(code) for code in risk_snapshot.reasons)
+
     complaints_rows = "".join(
         "<tr>"
         f"<td>{item.id}</td>"
@@ -1347,6 +1370,9 @@ async def manage_user(
         f"<div class='kpi'><b>Жалоб на пользователя:</b> {complaints_against}</div>"
         f"<div class='kpi'><b>Фрод-сигналов:</b> {fraud_total}</div>"
         f"<div class='kpi'><b>Открытых сигналов:</b> {fraud_open}</div>"
+        f"<div class='kpi'><b>Риск-уровень:</b> {risk_snapshot.level}</div>"
+        f"<div class='kpi'><b>Риск-скор:</b> {risk_snapshot.score}</div>"
+        f"<p><b>Риск-факторы:</b> {escape(risk_reasons_text)}</p>"
         f"<div class='kpi'><b>Points баланс:</b> {points_summary.balance}</div>"
         f"<div class='kpi'><b>Начислено всего:</b> +{points_summary.total_earned}</div>"
         f"<div class='kpi'><b>Списано всего:</b> -{points_summary.total_spent}</div>"
