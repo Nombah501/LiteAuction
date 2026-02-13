@@ -5,9 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.handlers.feedback import feedback_callbacks
-from app.db.enums import FeedbackStatus, FeedbackType, IntegrationOutboxStatus, ModerationAction
-from app.db.models import FeedbackItem, IntegrationOutbox, ModerationLog, User
+from app.db.enums import FeedbackStatus, FeedbackType, IntegrationOutboxStatus, ModerationAction, PointsEventType
+from app.db.models import FeedbackItem, IntegrationOutbox, ModerationLog, PointsLedgerEntry, User
 from app.services.outbox_service import OUTBOX_EVENT_FEEDBACK_APPROVED
+from app.services.points_service import feedback_reward_dedupe_key
 
 
 class _DummyFromUser:
@@ -90,6 +91,9 @@ async def test_feedback_callback_approve_updates_status_and_notifies(monkeypatch
             .where(IntegrationOutbox.event_type == OUTBOX_EVENT_FEEDBACK_APPROVED)
             .order_by(IntegrationOutbox.id.desc())
         )
+        points_row = await session.scalar(
+            select(PointsLedgerEntry).where(PointsLedgerEntry.dedupe_key == feedback_reward_dedupe_key(feedback_id))
+        )
 
     assert item_row is not None
     assert item_row.status == FeedbackStatus.APPROVED
@@ -104,6 +108,9 @@ async def test_feedback_callback_approve_updates_status_and_notifies(monkeypatch
     assert outbox_row is not None
     assert outbox_row.status == IntegrationOutboxStatus.PENDING
     assert outbox_row.payload.get("feedback_id") == feedback_id
+    assert points_row is not None
+    assert points_row.amount == 20
+    assert points_row.event_type == PointsEventType.FEEDBACK_APPROVED
 
     assert queue_message.edits
     assert "Статус: APPROVED" in queue_message.edits[-1][0]

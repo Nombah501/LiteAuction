@@ -73,3 +73,8 @@ class GuarantorRequestStatus(StrEnum):
     NEW = "NEW"
     ASSIGNED = "ASSIGNED"
     REJECTED = "REJECTED"
+
+
+class PointsEventType(StrEnum):
+    FEEDBACK_APPROVED = "FEEDBACK_APPROVED"
+    MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT"

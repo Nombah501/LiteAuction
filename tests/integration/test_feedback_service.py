@@ -4,8 +4,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import FeedbackStatus, FeedbackType, IntegrationOutboxStatus
-from app.db.models import FeedbackItem, IntegrationOutbox, User
+from app.db.enums import FeedbackStatus, FeedbackType, IntegrationOutboxStatus, PointsEventType
+from app.db.models import FeedbackItem, IntegrationOutbox, PointsLedgerEntry, User
 from app.services.feedback_service import (
     approve_feedback,
     create_feedback,
@@ -13,6 +13,7 @@ from app.services.feedback_service import (
     take_feedback_in_review,
 )
 from app.services.outbox_service import OUTBOX_EVENT_FEEDBACK_APPROVED
+from app.services.points_service import feedback_reward_dedupe_key
 
 
 @pytest.mark.asyncio
@@ -77,6 +78,7 @@ async def test_feedback_service_full_transition(integration_engine) -> None:
     async with session_factory() as session:
         row = await session.scalar(select(FeedbackItem).where(FeedbackItem.type == FeedbackType.BUG))
         outbox_row = await session.scalar(select(IntegrationOutbox).where(IntegrationOutbox.event_type == OUTBOX_EVENT_FEEDBACK_APPROVED))
+        points_row = await session.scalar(select(PointsLedgerEntry).where(PointsLedgerEntry.dedupe_key == feedback_reward_dedupe_key(row.id if row else -1)))
 
     assert row is not None
     assert row.status == FeedbackStatus.APPROVED
@@ -84,6 +86,10 @@ async def test_feedback_service_full_transition(integration_engine) -> None:
     assert outbox_row is not None
     assert outbox_row.status == IntegrationOutboxStatus.PENDING
     assert outbox_row.payload.get("feedback_id") == row.id
+    assert points_row is not None
+    assert points_row.amount == 30
+    assert points_row.event_type == PointsEventType.FEEDBACK_APPROVED
+    assert points_row.user_id == row.submitter_user_id
 
 
 @pytest.mark.asyncio

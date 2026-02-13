@@ -31,6 +31,7 @@ from app.db.enums import (
     GuarantorRequestStatus,
     IntegrationOutboxStatus,
     ModerationAction,
+    PointsEventType,
     UserRole,
 )
 
@@ -358,6 +359,29 @@ class IntegrationOutbox(Base, TimestampMixin):
         server_default=text("'pending'"),
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PointsLedgerEntry(Base, TimestampMixin):
+    __tablename__ = "points_ledger"
+    __table_args__ = (
+        CheckConstraint("amount <> 0", name="points_ledger_amount_nonzero"),
+        UniqueConstraint("dedupe_key", name="uq_points_ledger_dedupe_key"),
+        Index("ix_points_ledger_user_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[PointsEventType] = mapped_column(
+        Enum(PointsEventType, name="points_event_type"),
+        nullable=False,
+    )
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class FraudSignal(Base):

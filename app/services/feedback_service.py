@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.enums import FeedbackStatus, FeedbackType
+from app.db.enums import FeedbackStatus, FeedbackType, PointsEventType
 from app.db.models import FeedbackItem, User
 from app.services.outbox_service import enqueue_feedback_issue_event
+from app.services.points_service import feedback_reward_dedupe_key, grant_points
 
 
 @dataclass(slots=True)
@@ -210,6 +211,18 @@ async def approve_feedback(
     item.resolved_at = now
     item.reward_points = resolve_feedback_reward_points(FeedbackType(item.type))
     item.updated_at = now
+    await grant_points(
+        session,
+        user_id=item.submitter_user_id,
+        amount=item.reward_points,
+        event_type=PointsEventType.FEEDBACK_APPROVED,
+        dedupe_key=feedback_reward_dedupe_key(item.id),
+        reason="Награда за одобренный фидбек",
+        payload={
+            "feedback_id": item.id,
+            "feedback_type": str(item.type),
+        },
+    )
     await enqueue_feedback_issue_event(session, feedback_id=item.id)
     return FeedbackModerationResult(True, "Одобрено", item=item, changed=True)
 
