@@ -346,6 +346,14 @@ TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_te
 /modpoints_history <tg_user_id> [page] [all|feedback|manual]
 ```
 
+- Adjust user reward balance from admin web (requires `role:manage` scope):
+
+```text
+/manage/users -> open user -> Rewards / points -> amount (+/-), reason -> Применить
+```
+
+The web action uses an idempotent key per form submit (`action_id`) to prevent duplicate ledger writes on repeated submit.
+
 - Open stateful moderation panel:
 
 ```text

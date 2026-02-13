@@ -54,7 +54,12 @@ from app.services.moderation_service import (
     unban_user,
     unfreeze_auction,
 )
-from app.services.points_service import count_user_points_entries, get_user_points_summary, list_user_points_entries
+from app.services.points_service import (
+    count_user_points_entries,
+    get_user_points_summary,
+    grant_points,
+    list_user_points_entries,
+)
 from app.web.auth import (
     AdminAuthContext,
     build_admin_session_cookie,
@@ -441,6 +446,20 @@ def _parse_non_negative_int(raw: str | None) -> int | None:
     if raw is None or not raw.isdigit():
         return None
     return int(raw)
+
+
+def _parse_signed_int(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+
+    value = raw.strip()
+    if not value:
+        return None
+
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _normalize_points_filter_query(raw: str | None) -> PointsEventType | None:
@@ -1269,6 +1288,8 @@ async def manage_user(
         query = urlencode({"points_page": str(target_page), "points_filter": filter_query})
         return f"/manage/user/{user.id}?{query}"
 
+    points_manage_return_to = _points_manage_path(points_page, points_filter_query)
+
     points_prev_link = ""
     if points_page > 1:
         points_prev_link = (
@@ -1293,6 +1314,22 @@ async def manage_user(
         )
     )
 
+    points_adjust_form = ""
+    if can_manage_roles:
+        points_action_id = secrets.token_hex(12)
+        points_adjust_form = (
+            "<div class='card'><h3>Ручная корректировка points</h3>"
+            f"<form method='post' action='{escape(_path_with_auth(request, '/actions/user/points/adjust'))}'>"
+            f"<input type='hidden' name='target_tg_user_id' value='{user.tg_user_id}'>"
+            f"<input type='hidden' name='return_to' value='{escape(points_manage_return_to)}'>"
+            f"<input type='hidden' name='action_id' value='{points_action_id}'>"
+            f"{csrf_input}"
+            "<input name='amount' placeholder='+10 или -5' style='width:140px' required>"
+            "<input name='reason' placeholder='Причина корректировки' style='width:320px' required>"
+            "<button type='submit'>Применить</button>"
+            "</form></div>"
+        )
+
     roles_text = ", ".join(sorted(role.value for role in user_roles)) if user_roles else "-"
     moderator_text = "yes" if has_moderator_access else "no"
     blacklist_status = "active" if active_blacklist_entry is not None else "no"
@@ -1316,6 +1353,7 @@ async def manage_user(
         f"<div class='kpi'><b>Points операций:</b> {points_summary.operations_count}</div>"
         f"<div class='card'>{controls}</div>"
         "<h2>Rewards / points</h2>"
+        f"{points_adjust_form}"
         f"<p><b>Фильтр:</b> {escape(points_filter_query)} | <b>Страница:</b> {points_page}/{points_total_pages} | "
         f"<b>Записей:</b> {points_total_items}</p>"
         f"<p>{points_filter_links}</p>"
@@ -2283,6 +2321,92 @@ async def action_unban_user(
             )
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/user/points/adjust")
+async def action_adjust_user_points(
+    request: Request,
+    target_tg_user_id: int = Form(...),
+    amount: str = Form(...),
+    reason: str = Form(...),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+    action_id: str = Form(...),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_ROLE_MANAGE)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/manage/users")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    amount_value = _parse_signed_int(amount)
+    if amount_value is None:
+        return _action_error_page(request, "Amount must be an integer", back_to=target)
+    if amount_value == 0:
+        return _action_error_page(request, "Amount cannot be 0", back_to=target)
+
+    reason = reason.strip()
+    if not reason:
+        return _action_error_page(request, "Reason is required", back_to=target)
+
+    action_nonce = action_id.strip()
+    if not action_nonce:
+        return _action_error_page(request, "Action id is required", back_to=target)
+    if len(action_nonce) > 64:
+        return _action_error_page(request, "Action id is too long", back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    changed = False
+    dedupe_key = ""
+    async with SessionFactory() as session:
+        async with session.begin():
+            target_user = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id).with_for_update())
+            if target_user is None:
+                return _action_error_page(request, "User not found", back_to=target)
+
+            dedupe_key = f"web:modpoints:{actor_user_id}:{target_user.id}:{action_nonce}"
+            grant_result = await grant_points(
+                session,
+                user_id=target_user.id,
+                amount=amount_value,
+                event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                dedupe_key=dedupe_key,
+                reason=reason,
+                payload={
+                    "source": "web",
+                    "actor_user_id": actor_user_id,
+                    "actor_tg_user_id": auth.tg_user_id,
+                    "target_tg_user_id": target_tg_user_id,
+                    "action_id": action_nonce,
+                },
+            )
+            changed = grant_result.changed
+
+            if changed:
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor_user_id,
+                    action=ModerationAction.ADJUST_USER_POINTS,
+                    reason=f"[web] {reason}",
+                    target_user_id=target_user.id,
+                    payload={
+                        "amount": amount_value,
+                        "target_tg_user_id": target_tg_user_id,
+                        "dedupe_key": dedupe_key,
+                        "action_id": action_nonce,
+                    },
+                )
+
+    logger.info(
+        "[web] points adjustment %s for tg_user_id=%s amount=%s dedupe_key=%s",
+        "applied" if changed else "dedupe-skip",
+        target_tg_user_id,
+        amount_value,
+        dedupe_key,
+    )
     return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
 
 
