@@ -44,6 +44,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Visual foundation refresh for admin web layout, controls, and responsive readability
 - Final visual polish and release-readiness checklist with consolidated QA evidence template
 - Section-based moderation topic routing and user feedback/guarantor intake commands (`/bug`, `/suggest`, `/guarant`)
+- Rewards ledger foundation with idempotent points accrual and user `/points` balance history
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 
 ## Sprint 0 Checklist
@@ -362,6 +363,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 /bug <описание>
 /suggest <предложение>
 /guarant <запрос на гаранта>
+/points
 ```
 
 - Include moderation queue destination in env (recommended):
