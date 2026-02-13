@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from fastapi.responses import HTMLResponse
 from starlette.requests import Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import PointsEventType
-from app.db.models import PointsLedgerEntry, User
+from app.db.enums import ModerationAction, PointsEventType
+from app.db.models import ModerationLog, PointsLedgerEntry, User
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -15,15 +17,15 @@ from app.services.rbac_service import (
     SCOPE_USER_BAN,
 )
 from app.web.auth import AdminAuthContext
-from app.web.main import manage_user
+from app.web.main import action_adjust_user_points, manage_user
 
 
-def _make_request(path: str, query: str = "") -> Request:
+def _make_request(path: str, query: str = "", *, method: str = "GET") -> Request:
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "GET",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode("utf-8"),
@@ -149,3 +151,248 @@ async def test_manage_user_points_filter_and_paging(monkeypatch, integration_eng
     assert "manual-0" in body
     assert "manual-10" not in body
     assert "points_page=1&amp;points_filter=manual" in body
+
+
+@pytest.mark.asyncio
+async def test_web_adjust_points_updates_totals_and_audit(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            actor = User(tg_user_id=93821, username="web_points_actor")
+            target = User(tg_user_id=93822, username="web_points_target")
+            session.add_all([actor, target])
+            await session.flush()
+            actor_user_id = actor.id
+            target_user_id = target.id
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=target.id,
+                    amount=10,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="feedback:web-adjust:seed",
+                    reason="Награда",
+                    payload=None,
+                    created_at=datetime.now(UTC),
+                )
+            )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+
+    async def _resolve_actor(_auth):
+        return actor_user_id
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+
+    request = _make_request("/actions/user/points/adjust", method="POST")
+    response = await action_adjust_user_points(
+        request,
+        target_tg_user_id=93822,
+        amount="-3",
+        reason="manual web correction",
+        return_to=f"/manage/user/{target_user_id}?points_page=1&points_filter=all",
+        csrf_token="ok",
+        action_id="web-adjust-1",
+    )
+
+    assert response.status_code == 303
+
+    async with session_factory() as session:
+        entries = (
+            await session.execute(
+                select(PointsLedgerEntry)
+                .where(PointsLedgerEntry.user_id == target_user_id)
+                .order_by(PointsLedgerEntry.id.asc())
+            )
+        ).scalars().all()
+        log_rows = (
+            await session.execute(
+                select(ModerationLog)
+                .where(
+                    ModerationLog.action == ModerationAction.ADJUST_USER_POINTS,
+                    ModerationLog.target_user_id == target_user_id,
+                )
+                .order_by(ModerationLog.id.asc())
+            )
+        ).scalars().all()
+
+    assert len(entries) == 2
+    assert entries[-1].amount == -3
+    assert entries[-1].event_type == PointsEventType.MANUAL_ADJUSTMENT
+    assert entries[-1].reason == "manual web correction"
+    assert entries[-1].dedupe_key == f"web:modpoints:{actor_user_id}:{target_user_id}:web-adjust-1"
+    assert len(log_rows) == 1
+    assert log_rows[0].target_user_id == target_user_id
+    assert log_rows[0].payload is not None
+    assert log_rows[0].payload.get("amount") == -3
+
+    manage_request = _make_request(f"/manage/user/{target_user_id}")
+    manage_response = await manage_user(manage_request, user_id=target_user_id)
+    body = bytes(manage_response.body).decode("utf-8")
+
+    assert manage_response.status_code == 200
+    assert "Points баланс:</b> 7" in body
+    assert "Начислено всего:</b> +10" in body
+    assert "Списано всего:</b> -3" in body
+    assert "manual web correction" in body
+
+
+@pytest.mark.asyncio
+async def test_web_adjust_points_requires_role_manage_scope(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            target = User(tg_user_id=93831, username="web_points_scope_target")
+            session.add(target)
+            await session.flush()
+            target_user_id = target.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
+    )
+
+    request = _make_request("/actions/user/points/adjust", method="POST")
+    response = await action_adjust_user_points(
+        request,
+        target_tg_user_id=93831,
+        amount="8",
+        reason="scope denied",
+        return_to=f"/manage/user/{target_user_id}",
+        csrf_token="ok",
+        action_id="web-adjust-scope",
+    )
+
+    assert response.status_code == 403
+
+    async with session_factory() as session:
+        entries = (
+            await session.execute(select(PointsLedgerEntry).where(PointsLedgerEntry.user_id == target_user_id))
+        ).scalars().all()
+        log_rows = (
+            await session.execute(
+                select(ModerationLog).where(
+                    ModerationLog.action == ModerationAction.ADJUST_USER_POINTS,
+                    ModerationLog.target_user_id == target_user_id,
+                )
+            )
+        ).scalars().all()
+
+    assert entries == []
+    assert log_rows == []
+
+
+@pytest.mark.asyncio
+async def test_web_adjust_points_enforces_csrf(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            target = User(tg_user_id=93841, username="web_points_csrf_target")
+            session.add(target)
+            await session.flush()
+            target_user_id = target.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+
+    request = _make_request("/actions/user/points/adjust", method="POST")
+    response = await action_adjust_user_points(
+        request,
+        target_tg_user_id=93841,
+        amount="8",
+        reason="csrf denied",
+        return_to=f"/manage/user/{target_user_id}",
+        csrf_token="invalid",
+        action_id="web-adjust-csrf",
+    )
+
+    assert response.status_code == 403
+    assert "CSRF check failed" in bytes(response.body).decode("utf-8")
+
+    async with session_factory() as session:
+        entries = (
+            await session.execute(select(PointsLedgerEntry).where(PointsLedgerEntry.user_id == target_user_id))
+        ).scalars().all()
+        log_rows = (
+            await session.execute(
+                select(ModerationLog).where(
+                    ModerationLog.action == ModerationAction.ADJUST_USER_POINTS,
+                    ModerationLog.target_user_id == target_user_id,
+                )
+            )
+        ).scalars().all()
+
+    assert entries == []
+    assert log_rows == []
+
+
+@pytest.mark.asyncio
+async def test_web_adjust_points_is_idempotent_by_action_id(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            actor = User(tg_user_id=93851, username="web_points_idempot_actor")
+            target = User(tg_user_id=93852, username="web_points_idempot_target")
+            session.add_all([actor, target])
+            await session.flush()
+            actor_user_id = actor.id
+            target_user_id = target.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+
+    async def _resolve_actor(_auth):
+        return actor_user_id
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+
+    request = _make_request("/actions/user/points/adjust", method="POST")
+    response_first = await action_adjust_user_points(
+        request,
+        target_tg_user_id=93852,
+        amount="12",
+        reason="idempotent test",
+        return_to=f"/manage/user/{target_user_id}",
+        csrf_token="ok",
+        action_id="web-adjust-idempotent",
+    )
+    response_second = await action_adjust_user_points(
+        request,
+        target_tg_user_id=93852,
+        amount="12",
+        reason="idempotent test",
+        return_to=f"/manage/user/{target_user_id}",
+        csrf_token="ok",
+        action_id="web-adjust-idempotent",
+    )
+
+    assert response_first.status_code == 303
+    assert response_second.status_code == 303
+
+    async with session_factory() as session:
+        entries = (
+            await session.execute(select(PointsLedgerEntry).where(PointsLedgerEntry.user_id == target_user_id))
+        ).scalars().all()
+        log_rows = (
+            await session.execute(
+                select(ModerationLog).where(
+                    ModerationLog.action == ModerationAction.ADJUST_USER_POINTS,
+                    ModerationLog.target_user_id == target_user_id,
+                )
+            )
+        ).scalars().all()
+
+    assert len(entries) == 1
+    assert entries[0].amount == 12
+    assert len(log_rows) == 1
