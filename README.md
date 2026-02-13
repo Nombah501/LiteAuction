@@ -44,7 +44,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Visual foundation refresh for admin web layout, controls, and responsive readability
 - Final visual polish and release-readiness checklist with consolidated QA evidence template
 - Section-based moderation topic routing and user feedback/guarantor intake commands (`/bug`, `/suggest`, `/guarant`)
-- Rewards ledger foundation with idempotent points accrual and user `/points` balance history
+- Rewards ledger foundation with idempotent points accrual, user `/points`, and moderator manual adjustments
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 
 ## Sprint 0 Checklist
@@ -335,6 +335,13 @@ TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_te
 /role list <tg_user_id>
 /role grant <tg_user_id> moderator
 /role revoke <tg_user_id> moderator
+```
+
+- View or adjust user reward balance from bot (requires `role:manage` scope):
+
+```text
+/modpoints <tg_user_id>
+/modpoints <tg_user_id> <amount> <reason>
 ```
 
 - Open stateful moderation panel:

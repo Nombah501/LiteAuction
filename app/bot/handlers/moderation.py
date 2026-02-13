@@ -23,7 +23,7 @@ from app.bot.keyboards.moderation import (
     moderation_signals_list_keyboard,
 )
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType
 from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
 from app.services.appeal_service import (
@@ -64,6 +64,7 @@ from app.services.moderation_service import (
     unfreeze_auction,
 )
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
+from app.services.points_service import get_user_points_balance, grant_points, list_user_points_entries
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -232,6 +233,34 @@ def _split_args(text: str) -> tuple[str, str] | None:
     if len(parts) < 3:
         return None
     return parts[1], parts[2]
+
+
+def _parse_signed_int(raw: str) -> int | None:
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _event_label(event_type: PointsEventType) -> str:
+    if event_type == PointsEventType.FEEDBACK_APPROVED:
+        return "Награда за фидбек"
+    return "Ручная корректировка"
+
+
+def _render_points_snapshot(*, target_tg_user_id: int, balance: int, entries: list) -> str:
+    lines = [f"Баланс пользователя {target_tg_user_id}: {balance} points"]
+    if not entries:
+        lines.append("Операций пока нет")
+        return "\n".join(lines)
+
+    lines.append("")
+    lines.append("Последние операции:")
+    for entry in entries:
+        created_at = entry.created_at.astimezone().strftime("%d.%m %H:%M")
+        amount_text = f"+{entry.amount}" if entry.amount > 0 else str(entry.amount)
+        lines.append(f"- {created_at} | {amount_text} | {_event_label(PointsEventType(entry.event_type))}")
+    return "\n".join(lines)
 
 
 async def _require_moderator(message: Message) -> bool:
@@ -424,6 +453,8 @@ async def mod_help(message: Message) -> None:
                 "/role list <tg_user_id>",
                 "/role grant <tg_user_id> moderator",
                 "/role revoke <tg_user_id> moderator",
+                "/modpoints <tg_user_id>",
+                "/modpoints <tg_user_id> <amount> <reason>",
             ]
         )
 
@@ -496,6 +527,132 @@ async def mod_role_manage(message: Message) -> None:
         return
 
     await message.answer("Неизвестная команда. Используйте /role list|grant|revoke ...")
+
+
+@router.message(Command("modpoints"), F.chat.type == ChatType.PRIVATE)
+async def mod_points(message: Message, bot: Bot) -> None:
+    if (
+        not await _require_scope_message(message, SCOPE_ROLE_MANAGE)
+        or message.from_user is None
+        or message.text is None
+    ):
+        return
+
+    parts = message.text.split(maxsplit=3)
+    if len(parts) == 2:
+        if not parts[1].isdigit():
+            await message.answer(
+                "Формат:\n"
+                "/modpoints <tg_user_id>\n"
+                "/modpoints <tg_user_id> <amount> <reason>"
+            )
+            return
+
+        target_tg_user_id = int(parts[1])
+        async with SessionFactory() as session:
+            target = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id))
+            if target is None:
+                await message.answer("Пользователь не найден")
+                return
+
+            balance = await get_user_points_balance(session, user_id=target.id)
+            entries = await list_user_points_entries(session, user_id=target.id, limit=5)
+
+        await message.answer(
+            _render_points_snapshot(
+                target_tg_user_id=target_tg_user_id,
+                balance=balance,
+                entries=entries,
+            )
+        )
+        return
+
+    if len(parts) < 4 or not parts[1].isdigit():
+        await message.answer(
+            "Формат:\n"
+            "/modpoints <tg_user_id>\n"
+            "/modpoints <tg_user_id> <amount> <reason>"
+        )
+        return
+
+    target_tg_user_id = int(parts[1])
+    amount = _parse_signed_int(parts[2])
+    reason = parts[3].strip()
+    if amount is None:
+        await message.answer("amount должен быть целым числом (например: 20 или -5)")
+        return
+    if amount == 0:
+        await message.answer("amount не может быть 0")
+        return
+    if not reason:
+        await message.answer("Укажите причину изменения")
+        return
+
+    chat_id = message.chat.id if message.chat is not None else 0
+    changed = False
+    balance = 0
+    entries = []
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, message.from_user)
+            target = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id).with_for_update())
+            if target is None:
+                await message.answer("Пользователь не найден")
+                return
+
+            dedupe_key = f"modpoints:{actor.id}:{target.id}:{chat_id}:{message.message_id}"
+            grant_result = await grant_points(
+                session,
+                user_id=target.id,
+                amount=amount,
+                event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                dedupe_key=dedupe_key,
+                reason=reason,
+                payload={
+                    "actor_tg_user_id": message.from_user.id,
+                    "target_tg_user_id": target_tg_user_id,
+                },
+            )
+            changed = grant_result.changed
+
+            if changed:
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor.id,
+                    action=ModerationAction.ADJUST_USER_POINTS,
+                    reason=reason,
+                    target_user_id=target.id,
+                    payload={
+                        "amount": amount,
+                        "dedupe_key": dedupe_key,
+                    },
+                )
+
+            balance = await get_user_points_balance(session, user_id=target.id)
+            entries = await list_user_points_entries(session, user_id=target.id, limit=5)
+
+    snapshot = _render_points_snapshot(
+        target_tg_user_id=target_tg_user_id,
+        balance=balance,
+        entries=entries,
+    )
+    if changed:
+        delta_text = f"+{amount}" if amount > 0 else str(amount)
+        await message.answer(f"Изменение применено: {delta_text} points\n\n{snapshot}")
+        notify_label = f"@{message.from_user.username}" if message.from_user.username else str(message.from_user.id)
+        try:
+            await bot.send_message(
+                target_tg_user_id,
+                (
+                    f"Ваш баланс скорректирован модератором {notify_label}: {delta_text} points.\n"
+                    f"Причина: {reason}"
+                ),
+            )
+        except TelegramForbiddenError:
+            pass
+        return
+
+    await message.answer(f"Команда уже обработана ранее\n\n{snapshot}")
 
 
 @router.message(Command("modpanel"), F.chat.type == ChatType.PRIVATE)
