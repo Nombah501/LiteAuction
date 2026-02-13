@@ -79,6 +79,7 @@ Recommended priority score:
 ## Deliverables
 
 - Completed benchmark matrix.
+- Competitor longlist and collection scope: `docs/planning/sprint-31-competitor-longlist.md`.
 - Baseline metrics report (with formulas and extraction notes).
 - Baseline SQL playbook: `docs/planning/sprint-31-baseline-metrics-playbook.md`.
 - Top-5 practices shortlist with rationale and KPI hypotheses.
