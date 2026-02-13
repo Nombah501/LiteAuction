@@ -86,6 +86,7 @@ Recommended priority score:
 - Top-5 practices shortlist with rationale and KPI hypotheses.
 - Current top-5 shortlist: `docs/planning/sprint-31-top5-practices-shortlist.md`.
 - Sprint 32 implementation plan (small scoped PR sequence).
+- Draft Sprint 32 plan: `docs/planning/sprint-32-implementation-plan.md`.
 
 ## Risks and Mitigations
 
