@@ -195,3 +195,25 @@ async def reject_guarantor_request(
     item.resolved_at = now
     item.updated_at = now
     return GuarantorRequestModerationResult(True, "Отклонено", item=item, changed=True)
+
+
+async def has_assigned_guarantor_request(
+    session: AsyncSession,
+    *,
+    submitter_user_id: int,
+    max_age_days: int,
+) -> bool:
+    stmt = select(GuarantorRequest.id).where(
+        GuarantorRequest.submitter_user_id == submitter_user_id,
+        GuarantorRequest.status == GuarantorRequestStatus.ASSIGNED,
+    )
+
+    if max_age_days > 0:
+        cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+        stmt = stmt.where(
+            (GuarantorRequest.resolved_at.is_not(None) & (GuarantorRequest.resolved_at >= cutoff))
+            | (GuarantorRequest.updated_at >= cutoff)
+        )
+
+    stmt = stmt.order_by(GuarantorRequest.updated_at.desc()).limit(1)
+    return await session.scalar(stmt) is not None

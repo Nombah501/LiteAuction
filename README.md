@@ -11,6 +11,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Startup and container health checks for DB/Redis
 - FSM lot creation in private chat (`/newauction`)
 - Inline auction publishing via `auc_<id>` and `chosen_inline_result`
+- High-risk publish gate requiring assigned guarantor for risky sellers
 - Live post updates after bids (`top-3`, current price, ending time)
 - Buyout, anti-sniper (`2m -> +3m`, max `3`) and anti-mistake protections
 - Background watcher for expired auctions
@@ -384,6 +385,8 @@ Use it as a reply to a message that contains premium/custom emoji.
 /points <1..20>
 ```
 
+High-risk sellers cannot publish drafts until a guarantor request is assigned by moderation.
+
 - Include moderation queue destination in env (recommended):
 
 ```text
@@ -410,6 +413,8 @@ FEEDBACK_BUG_REWARD_POINTS=30
 FEEDBACK_SUGGESTION_REWARD_POINTS=20
 GUARANTOR_INTAKE_MIN_LENGTH=10
 GUARANTOR_INTAKE_COOLDOWN_SECONDS=180
+PUBLISH_HIGH_RISK_REQUIRES_GUARANTOR=true
+PUBLISH_GUARANTOR_ASSIGNMENT_MAX_AGE_DAYS=30
 GITHUB_AUTOMATION_ENABLED=true
 GITHUB_TOKEN=ghp_xxx
 GITHUB_REPO_OWNER=Nombah501

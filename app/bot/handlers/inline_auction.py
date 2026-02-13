@@ -14,6 +14,7 @@ from app.services.auction_service import (
     refresh_auction_posts,
     render_auction_caption,
 )
+from app.services.publish_gate_service import evaluate_seller_publish_gate
 from app.services.user_service import upsert_user
 
 router = Router(name="inline_auction")
@@ -40,8 +41,15 @@ async def handle_inline_auction_query(inline_query: InlineQuery) -> None:
 
     async with SessionFactory() as session:
         view = await load_auction_view(session, auction_uuid)
+        publish_gate = None
+        if view is not None:
+            publish_gate = await evaluate_seller_publish_gate(session, seller_user_id=view.seller.id)
 
     if view is None:
+        await inline_query.answer([], cache_time=1, is_personal=True)
+        return
+
+    if publish_gate is not None and not publish_gate.allowed:
         await inline_query.answer([], cache_time=1, is_personal=True)
         return
 
@@ -80,15 +88,28 @@ async def handle_chosen_inline_result(chosen: ChosenInlineResult, bot: Bot) -> N
     if auction_uuid is None:
         return
 
+    blocked_message: str | None = None
     async with SessionFactory() as session:
         async with session.begin():
             publisher = await upsert_user(session, chosen.from_user)
-            auction = await activate_auction_inline_post(
-                session,
-                auction_id=auction_uuid,
-                publisher_user_id=publisher.id,
-                inline_message_id=chosen.inline_message_id,
-            )
+            publish_gate = await evaluate_seller_publish_gate(session, seller_user_id=publisher.id)
+            if not publish_gate.allowed:
+                blocked_message = publish_gate.block_message
+                auction = None
+            else:
+                auction = await activate_auction_inline_post(
+                    session,
+                    auction_id=auction_uuid,
+                    publisher_user_id=publisher.id,
+                    inline_message_id=chosen.inline_message_id,
+                )
+
+    if blocked_message:
+        try:
+            await bot.send_message(chosen.from_user.id, blocked_message)
+        except Exception:
+            pass
+        return
 
     if auction is None:
         return
