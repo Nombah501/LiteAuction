@@ -80,6 +80,7 @@ Recommended priority score:
 
 - Completed benchmark matrix.
 - Baseline metrics report (with formulas and extraction notes).
+- Baseline SQL playbook: `docs/planning/sprint-31-baseline-metrics-playbook.md`.
 - Top-5 practices shortlist with rationale and KPI hypotheses.
 - Sprint 32 implementation plan (small scoped PR sequence).
 
