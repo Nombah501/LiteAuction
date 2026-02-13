@@ -3,7 +3,7 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup
 
 from app.bot.keyboards.auction import styled_button
-from app.db.enums import FeedbackStatus
+from app.db.enums import FeedbackStatus, GuarantorRequestStatus
 
 
 def complaint_actions_keyboard(
@@ -283,3 +283,25 @@ def feedback_actions_keyboard(*, feedback_id: int, status: FeedbackStatus) -> In
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def guarantor_actions_keyboard(*, request_id: int, status: GuarantorRequestStatus) -> InlineKeyboardMarkup | None:
+    if status in {GuarantorRequestStatus.ASSIGNED, GuarantorRequestStatus.REJECTED}:
+        return None
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(
+                    text="Взять гарантом",
+                    callback_data=f"modgr:assign:{request_id}",
+                    style="success",
+                ),
+                styled_button(
+                    text="Отклонить",
+                    callback_data=f"modgr:reject:{request_id}",
+                    style="danger",
+                ),
+            ]
+        ]
+    )

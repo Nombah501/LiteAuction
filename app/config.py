@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     feedback_intake_cooldown_seconds: int = 90
     feedback_bug_reward_points: int = 30
     feedback_suggestion_reward_points: int = 20
+    guarantor_intake_min_length: int = 10
+    guarantor_intake_cooldown_seconds: int = 180
     github_automation_enabled: bool = False
     github_token: str = ""
     github_repo_owner: str = "Nombah501"

@@ -43,7 +43,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Bugfix wave 2 improvements for callback retry safety and denied-scope back navigation
 - Visual foundation refresh for admin web layout, controls, and responsive readability
 - Final visual polish and release-readiness checklist with consolidated QA evidence template
-- Section-based moderation topic routing and user feedback intake commands (`/bug`, `/suggest`)
+- Section-based moderation topic routing and user feedback/guarantor intake commands (`/bug`, `/suggest`, `/guarant`)
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 
 ## Sprint 0 Checklist
@@ -361,6 +361,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 ```text
 /bug <описание>
 /suggest <предложение>
+/guarant <запрос на гаранта>
 ```
 
 - Include moderation queue destination in env (recommended):
@@ -387,6 +388,8 @@ FEEDBACK_INTAKE_MIN_LENGTH=10
 FEEDBACK_INTAKE_COOLDOWN_SECONDS=90
 FEEDBACK_BUG_REWARD_POINTS=30
 FEEDBACK_SUGGESTION_REWARD_POINTS=20
+GUARANTOR_INTAKE_MIN_LENGTH=10
+GUARANTOR_INTAKE_COOLDOWN_SECONDS=180
 GITHUB_AUTOMATION_ENABLED=true
 GITHUB_TOKEN=ghp_xxx
 GITHUB_REPO_OWNER=Nombah501
