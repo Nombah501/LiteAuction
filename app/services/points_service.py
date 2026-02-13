@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,14 @@ from app.db.models import PointsLedgerEntry
 class PointsGrantResult:
     changed: bool
     entry: PointsLedgerEntry | None
+
+
+@dataclass(slots=True)
+class UserPointsSummary:
+    balance: int
+    total_earned: int
+    total_spent: int
+    operations_count: int
 
 
 def feedback_reward_dedupe_key(feedback_id: int) -> str:
@@ -66,6 +74,42 @@ async def get_user_points_balance(session: AsyncSession, *, user_id: int) -> int
         select(func.coalesce(func.sum(PointsLedgerEntry.amount), 0)).where(PointsLedgerEntry.user_id == user_id)
     )
     return int(total or 0)
+
+
+async def get_user_points_summary(session: AsyncSession, *, user_id: int) -> UserPointsSummary:
+    balance, total_earned, total_spent, operations_count = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(PointsLedgerEntry.amount), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (PointsLedgerEntry.amount > 0, PointsLedgerEntry.amount),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (PointsLedgerEntry.amount < 0, -PointsLedgerEntry.amount),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.count(PointsLedgerEntry.id),
+            ).where(PointsLedgerEntry.user_id == user_id)
+        )
+    ).one()
+
+    return UserPointsSummary(
+        balance=int(balance or 0),
+        total_earned=int(total_earned or 0),
+        total_spent=int(total_spent or 0),
+        operations_count=int(operations_count or 0),
+    )
 
 
 async def list_user_points_entries(

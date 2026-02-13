@@ -341,6 +341,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_te
 
 ```text
 /modpoints <tg_user_id>
+/modpoints <tg_user_id> <limit>
 /modpoints <tg_user_id> <amount> <reason>
 ```
 
@@ -371,6 +372,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 /suggest <предложение>
 /guarant <запрос на гаранта>
 /points
+/points <1..20>
 ```
 
 - Include moderation queue destination in env (recommended):

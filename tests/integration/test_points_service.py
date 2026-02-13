@@ -8,6 +8,7 @@ from app.db.enums import PointsEventType
 from app.db.models import PointsLedgerEntry, User
 from app.services.points_service import (
     get_user_points_balance,
+    get_user_points_summary,
     grant_points,
     list_user_points_entries,
 )
@@ -96,9 +97,14 @@ async def test_points_balance_and_recent_entries(integration_engine) -> None:
 
     async with session_factory() as session:
         balance = await get_user_points_balance(session, user_id=user.id)
+        summary = await get_user_points_summary(session, user_id=user.id)
         recent = await list_user_points_entries(session, user_id=user.id, limit=2)
 
     assert balance == 25
+    assert summary.balance == 25
+    assert summary.total_earned == 30
+    assert summary.total_spent == 5
+    assert summary.operations_count == 3
     assert len(recent) == 2
     assert recent[0].dedupe_key == "manual:611:bonus"
     assert recent[1].dedupe_key == "manual:611:decay"
