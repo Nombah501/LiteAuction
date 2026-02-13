@@ -32,6 +32,7 @@ async def configure_bot_commands(bot: Bot) -> None:
         BotCommand(command="newauction", description="Создать новый аукцион"),
         BotCommand(command="bug", description="Сообщить о проблеме"),
         BotCommand(command="suggest", description="Предложить улучшение"),
+        BotCommand(command="guarant", description="Запросить гаранта для сделки"),
         BotCommand(command="modpanel", description="Открыть панель модератора"),
         BotCommand(command="modstats", description="Показать статистику модерации"),
         BotCommand(command="emojiid", description="Получить ID premium emoji (для UI)"),

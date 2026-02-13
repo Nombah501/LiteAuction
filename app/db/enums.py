@@ -34,6 +34,8 @@ class ModerationAction(StrEnum):
     APPROVE_FEEDBACK = "APPROVE_FEEDBACK"
     REJECT_FEEDBACK = "REJECT_FEEDBACK"
     CREATE_FEEDBACK_GITHUB_ISSUE = "CREATE_FEEDBACK_GITHUB_ISSUE"
+    ASSIGN_GUARANTOR_REQUEST = "ASSIGN_GUARANTOR_REQUEST"
+    REJECT_GUARANTOR_REQUEST = "REJECT_GUARANTOR_REQUEST"
 
 
 class AppealSourceType(StrEnum):
@@ -65,3 +67,9 @@ class IntegrationOutboxStatus(StrEnum):
     PENDING = "pending"
     DONE = "done"
     FAILED = "failed"
+
+
+class GuarantorRequestStatus(StrEnum):
+    NEW = "NEW"
+    ASSIGNED = "ASSIGNED"
+    REJECTED = "REJECTED"

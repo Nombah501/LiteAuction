@@ -28,6 +28,7 @@ from app.db.enums import (
     AuctionStatus,
     FeedbackStatus,
     FeedbackType,
+    GuarantorRequestStatus,
     IntegrationOutboxStatus,
     ModerationAction,
     UserRole,
@@ -298,6 +299,35 @@ class FeedbackItem(Base, TimestampMixin):
     queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     github_issue_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class GuarantorRequest(Base, TimestampMixin):
+    __tablename__ = "guarantor_requests"
+    __table_args__ = (
+        Index("ix_guarantor_requests_status_created_at", "status", "created_at"),
+        Index("ix_guarantor_requests_submitter_status", "submitter_user_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    status: Mapped[GuarantorRequestStatus] = mapped_column(
+        Enum(GuarantorRequestStatus, name="guarantor_request_status"),
+        nullable=False,
+        default=GuarantorRequestStatus.NEW,
+        server_default=text("'NEW'"),
+    )
+    submitter_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    moderator_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    details: Mapped[str] = mapped_column(Text, nullable=False)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    queue_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class IntegrationOutbox(Base, TimestampMixin):

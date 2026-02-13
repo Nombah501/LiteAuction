@@ -64,6 +64,7 @@ async def test_process_overdue_appeal_escalations_marks_and_notifies(monkeypatch
     monkeypatch.setattr(settings, "appeal_escalation_actor_tg_user_id", -99700)
     monkeypatch.setattr(settings, "moderation_chat_id", "-1007001")
     monkeypatch.setattr(settings, "moderation_thread_id", "42")
+    monkeypatch.setattr(settings, "moderation_topic_appeals_id", "")
     monkeypatch.setattr(settings, "admin_user_ids", "99710,99711")
 
     bot = _DummyBot()
