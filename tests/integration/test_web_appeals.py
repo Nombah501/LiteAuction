@@ -120,6 +120,17 @@ async def test_appeals_page_rejects_invalid_overdue_filter(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_appeals_page_rejects_invalid_escalated_filter(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    request = _make_request("/appeals")
+
+    with pytest.raises(HTTPException) as exc:
+        await appeals(request, status="open", source="all", overdue="all", escalated="broken", page=0, q="")
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_appeals_page_requires_user_ban_scope(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.web.main._require_scope_permission",
@@ -269,12 +280,86 @@ async def test_appeals_page_overdue_filter_and_pagination_context(monkeypatch, i
     body_page_0 = bytes(response_page_0.body).decode("utf-8")
     assert response_page_0.status_code == 200
     assert "manual_not_due" not in body_page_0
-    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;page=1&amp;q=manual_due" in body_page_0
+    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;escalated=all&amp;page=1&amp;q=manual_due" in body_page_0
 
     response_page_1 = await appeals(request, status="open", source="all", overdue="only", page=1, q="manual_due")
     body_page_1 = bytes(response_page_1.body).decode("utf-8")
     assert response_page_1.status_code == 200
-    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;page=0&amp;q=manual_due" in body_page_1
+    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;escalated=all&amp;page=0&amp;q=manual_due" in body_page_1
+
+
+@pytest.mark.asyncio
+async def test_appeals_page_escalated_filter_and_sla_markers(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    now = datetime.now(UTC)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=99291, username="escalated_filter_user")
+            session.add(user)
+            await session.flush()
+
+            session.add_all(
+                [
+                    Appeal(
+                        appeal_ref="manual_escalated_overdue",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=user.id,
+                        status=AppealStatus.OPEN,
+                        sla_deadline_at=now - timedelta(hours=1),
+                        escalated_at=now - timedelta(minutes=30),
+                        escalation_level=1,
+                    ),
+                    Appeal(
+                        appeal_ref="manual_not_escalated_due_soon",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=user.id,
+                        status=AppealStatus.OPEN,
+                        sla_deadline_at=now + timedelta(minutes=40),
+                        escalated_at=None,
+                        escalation_level=0,
+                    ),
+                ]
+            )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+
+    request = _make_request("/appeals")
+    response_escalated = await appeals(
+        request,
+        status="open",
+        source="all",
+        overdue="all",
+        escalated="only",
+        page=0,
+        q="manual_",
+    )
+    body_escalated = bytes(response_escalated.body).decode("utf-8")
+
+    assert response_escalated.status_code == 200
+    assert "manual_escalated_overdue" in body_escalated
+    assert "manual_not_escalated_due_soon" not in body_escalated
+    assert "Просрочена, эскалация L1" in body_escalated
+    assert "L1 (" in body_escalated
+
+    response_not_escalated = await appeals(
+        request,
+        status="open",
+        source="all",
+        overdue="all",
+        escalated="none",
+        page=0,
+        q="manual_",
+    )
+    body_not_escalated = bytes(response_not_escalated.body).decode("utf-8")
+
+    assert response_not_escalated.status_code == 200
+    assert "manual_not_escalated_due_soon" in body_not_escalated
+    assert "manual_escalated_overdue" not in body_not_escalated
+    assert "До SLA:" in body_not_escalated
 
 
 @pytest.mark.asyncio
