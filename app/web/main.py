@@ -20,7 +20,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, UserRole
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType, UserRole
 from app.db.models import Appeal, Auction, Bid, BlacklistEntry, Complaint, FraudSignal, User, UserRoleAssignment
 from app.db.session import SessionFactory
 from app.services.appeal_service import (
@@ -54,6 +54,7 @@ from app.services.moderation_service import (
     unban_user,
     unfreeze_auction,
 )
+from app.services.points_service import count_user_points_entries, get_user_points_summary, list_user_points_entries
 from app.web.auth import (
     AdminAuthContext,
     build_admin_session_cookie,
@@ -440,6 +441,33 @@ def _parse_non_negative_int(raw: str | None) -> int | None:
     if raw is None or not raw.isdigit():
         return None
     return int(raw)
+
+
+def _normalize_points_filter_query(raw: str | None) -> PointsEventType | None:
+    if raw is None:
+        return None
+    value = raw.strip().lower()
+    if value in {"", "all", "all_types"}:
+        return None
+    if value in {"feedback", "feedback_approved"}:
+        return PointsEventType.FEEDBACK_APPROVED
+    if value in {"manual", "manual_adjustment"}:
+        return PointsEventType.MANUAL_ADJUSTMENT
+    raise HTTPException(status_code=400, detail="Invalid points filter")
+
+
+def _points_filter_query_value(filter_value: PointsEventType | None) -> str:
+    if filter_value is None:
+        return "all"
+    if filter_value == PointsEventType.FEEDBACK_APPROVED:
+        return "feedback"
+    return "manual"
+
+
+def _points_event_label(event_type: PointsEventType) -> str:
+    if event_type == PointsEventType.FEEDBACK_APPROVED:
+        return "Награда за фидбек"
+    return "Ручная корректировка"
 
 
 def _is_safe_local_path(path: str | None) -> bool:
@@ -1043,12 +1071,21 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
 
 
 @app.get("/manage/user/{user_id}", response_class=HTMLResponse)
-async def manage_user(request: Request, user_id: int) -> Response:
+async def manage_user(
+    request: Request,
+    user_id: int,
+    points_page: int = 1,
+    points_filter: str = "all",
+) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
 
     now = datetime.now(UTC)
+    points_page_size = 10
+    points_page = max(points_page, 1)
+    points_filter_value = _normalize_points_filter_query(points_filter)
+    points_filter_query = _points_filter_query_value(points_filter_value)
     async with SessionFactory() as session:
         user = await session.scalar(select(User).where(User.id == user_id))
         if user is None:
@@ -1121,6 +1158,24 @@ async def manage_user(request: Request, user_id: int) -> Response:
                 .limit(10)
             )
         ).scalars().all()
+
+        points_summary = await get_user_points_summary(session, user_id=user.id)
+        points_total_items = await count_user_points_entries(
+            session,
+            user_id=user.id,
+            event_type=points_filter_value,
+        )
+        points_total_pages = max((points_total_items + points_page_size - 1) // points_page_size, 1)
+        if points_total_items > 0 and points_page > points_total_pages:
+            points_page = points_total_pages
+
+        points_entries = await list_user_points_entries(
+            session,
+            user_id=user.id,
+            limit=points_page_size,
+            offset=(points_page - 1) * points_page_size,
+            event_type=points_filter_value,
+        )
 
     can_ban_users = auth.can(SCOPE_USER_BAN)
     can_manage_roles = auth.can(SCOPE_ROLE_MANAGE)
@@ -1198,6 +1253,46 @@ async def manage_user(request: Request, user_id: int) -> Response:
     if not signal_rows:
         signal_rows = "<tr><td colspan='5'><span class='empty-state'>Нет записей</span></td></tr>"
 
+    points_rows = "".join(
+        "<tr>"
+        f"<td>{escape(_fmt_ts(item.created_at))}</td>"
+        f"<td>{'+{}'.format(item.amount) if item.amount > 0 else item.amount}</td>"
+        f"<td>{escape(_points_event_label(PointsEventType(item.event_type)))}</td>"
+        f"<td>{escape(item.reason[:200])}</td>"
+        "</tr>"
+        for item in points_entries
+    )
+    if not points_rows:
+        points_rows = "<tr><td colspan='4'><span class='empty-state'>Нет операций</span></td></tr>"
+
+    def _points_manage_path(target_page: int, filter_query: str) -> str:
+        query = urlencode({"points_page": str(target_page), "points_filter": filter_query})
+        return f"/manage/user/{user.id}?{query}"
+
+    points_prev_link = ""
+    if points_page > 1:
+        points_prev_link = (
+            f"<a href='{escape(_path_with_auth(request, _points_manage_path(points_page - 1, points_filter_query)))}'>"
+            "← Предыдущая страница</a>"
+        )
+    points_next_link = ""
+    if points_page < points_total_pages:
+        points_next_link = (
+            f"<a href='{escape(_path_with_auth(request, _points_manage_path(points_page + 1, points_filter_query)))}'>"
+            "Следующая страница →</a>"
+        )
+    points_pager = ""
+    if points_prev_link or points_next_link:
+        points_pager = f"<p>{points_prev_link} {' | ' if points_prev_link and points_next_link else ''}{points_next_link}</p>"
+
+    points_filter_links = " ".join(
+        (
+            f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'all')))}'>all</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'feedback')))}'>feedback</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'manual')))}'>manual</a>",
+        )
+    )
+
     roles_text = ", ".join(sorted(role.value for role in user_roles)) if user_roles else "-"
     moderator_text = "yes" if has_moderator_access else "no"
     blacklist_status = "active" if active_blacklist_entry is not None else "no"
@@ -1215,7 +1310,18 @@ async def manage_user(request: Request, user_id: int) -> Response:
         f"<div class='kpi'><b>Жалоб на пользователя:</b> {complaints_against}</div>"
         f"<div class='kpi'><b>Фрод-сигналов:</b> {fraud_total}</div>"
         f"<div class='kpi'><b>Открытых сигналов:</b> {fraud_open}</div>"
+        f"<div class='kpi'><b>Points баланс:</b> {points_summary.balance}</div>"
+        f"<div class='kpi'><b>Начислено всего:</b> +{points_summary.total_earned}</div>"
+        f"<div class='kpi'><b>Списано всего:</b> -{points_summary.total_spent}</div>"
+        f"<div class='kpi'><b>Points операций:</b> {points_summary.operations_count}</div>"
         f"<div class='card'>{controls}</div>"
+        "<h2>Rewards / points</h2>"
+        f"<p><b>Фильтр:</b> {escape(points_filter_query)} | <b>Страница:</b> {points_page}/{points_total_pages} | "
+        f"<b>Записей:</b> {points_total_items}</p>"
+        f"<p>{points_filter_links}</p>"
+        "<table><thead><tr><th>Created</th><th>Amount</th><th>Type</th><th>Reason</th></tr></thead>"
+        f"<tbody>{points_rows}</tbody></table>"
+        f"{points_pager}"
         "<h2>Последние жалобы на пользователя</h2>"
         "<table><thead><tr><th>ID</th><th>Auction</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
         f"<tbody>{complaints_rows}</tbody></table>"
