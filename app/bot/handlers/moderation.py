@@ -64,7 +64,12 @@ from app.services.moderation_service import (
     unfreeze_auction,
 )
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
-from app.services.points_service import get_user_points_balance, grant_points, list_user_points_entries
+from app.services.points_service import (
+    UserPointsSummary,
+    get_user_points_summary,
+    grant_points,
+    list_user_points_entries,
+)
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -75,6 +80,8 @@ from app.services.user_service import upsert_user
 
 router = Router(name="moderation")
 PANEL_PAGE_SIZE = 5
+DEFAULT_POINTS_HISTORY_LIMIT = 5
+MAX_POINTS_HISTORY_LIMIT = 20
 
 
 def _appeal_deep_link(appeal_ref: str) -> str | None:
@@ -242,20 +249,39 @@ def _parse_signed_int(raw: str) -> int | None:
         return None
 
 
+def _parse_positive_int(raw: str, *, minimum: int, maximum: int) -> int | None:
+    if not raw.isdigit():
+        return None
+    value = int(raw)
+    if value < minimum or value > maximum:
+        return None
+    return value
+
+
 def _event_label(event_type: PointsEventType) -> str:
     if event_type == PointsEventType.FEEDBACK_APPROVED:
         return "Награда за фидбек"
     return "Ручная корректировка"
 
 
-def _render_points_snapshot(*, target_tg_user_id: int, balance: int, entries: list) -> str:
-    lines = [f"Баланс пользователя {target_tg_user_id}: {balance} points"]
+def _render_points_snapshot(
+    *,
+    target_tg_user_id: int,
+    summary: UserPointsSummary,
+    entries: list,
+    shown_limit: int,
+) -> str:
+    lines = [
+        f"Баланс пользователя {target_tg_user_id}: {summary.balance} points",
+        f"Всего начислено: +{summary.total_earned}",
+        f"Всего списано: -{summary.total_spent}",
+    ]
     if not entries:
         lines.append("Операций пока нет")
         return "\n".join(lines)
 
     lines.append("")
-    lines.append("Последние операции:")
+    lines.append(f"Последние операции (до {shown_limit}):")
     for entry in entries:
         created_at = entry.created_at.astimezone().strftime("%d.%m %H:%M")
         amount_text = f"+{entry.amount}" if entry.amount > 0 else str(entry.amount)
@@ -454,6 +480,7 @@ async def mod_help(message: Message) -> None:
                 "/role grant <tg_user_id> moderator",
                 "/role revoke <tg_user_id> moderator",
                 "/modpoints <tg_user_id>",
+                "/modpoints <tg_user_id> <limit>",
                 "/modpoints <tg_user_id> <amount> <reason>",
             ]
         )
@@ -538,41 +565,49 @@ async def mod_points(message: Message, bot: Bot) -> None:
     ):
         return
 
+    usage_text = (
+        "Формат:\n"
+        "/modpoints <tg_user_id>\n"
+        f"/modpoints <tg_user_id> <1..{MAX_POINTS_HISTORY_LIMIT}>\n"
+        "/modpoints <tg_user_id> <amount> <reason>"
+    )
+
     parts = message.text.split(maxsplit=3)
-    if len(parts) == 2:
+    if len(parts) in {2, 3}:
         if not parts[1].isdigit():
-            await message.answer(
-                "Формат:\n"
-                "/modpoints <tg_user_id>\n"
-                "/modpoints <tg_user_id> <amount> <reason>"
-            )
+            await message.answer(usage_text)
             return
 
         target_tg_user_id = int(parts[1])
+        limit = DEFAULT_POINTS_HISTORY_LIMIT
+        if len(parts) == 3:
+            parsed_limit = _parse_positive_int(parts[2], minimum=1, maximum=MAX_POINTS_HISTORY_LIMIT)
+            if parsed_limit is None:
+                await message.answer(usage_text)
+                return
+            limit = parsed_limit
+
         async with SessionFactory() as session:
             target = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id))
             if target is None:
                 await message.answer("Пользователь не найден")
                 return
 
-            balance = await get_user_points_balance(session, user_id=target.id)
-            entries = await list_user_points_entries(session, user_id=target.id, limit=5)
+            summary = await get_user_points_summary(session, user_id=target.id)
+            entries = await list_user_points_entries(session, user_id=target.id, limit=limit)
 
         await message.answer(
             _render_points_snapshot(
                 target_tg_user_id=target_tg_user_id,
-                balance=balance,
+                summary=summary,
                 entries=entries,
+                shown_limit=limit,
             )
         )
         return
 
     if len(parts) < 4 or not parts[1].isdigit():
-        await message.answer(
-            "Формат:\n"
-            "/modpoints <tg_user_id>\n"
-            "/modpoints <tg_user_id> <amount> <reason>"
-        )
+        await message.answer(usage_text)
         return
 
     target_tg_user_id = int(parts[1])
@@ -590,7 +625,7 @@ async def mod_points(message: Message, bot: Bot) -> None:
 
     chat_id = message.chat.id if message.chat is not None else 0
     changed = False
-    balance = 0
+    summary: UserPointsSummary | None = None
     entries = []
     async with SessionFactory() as session:
         async with session.begin():
@@ -628,13 +663,18 @@ async def mod_points(message: Message, bot: Bot) -> None:
                     },
                 )
 
-            balance = await get_user_points_balance(session, user_id=target.id)
-            entries = await list_user_points_entries(session, user_id=target.id, limit=5)
+            summary = await get_user_points_summary(session, user_id=target.id)
+            entries = await list_user_points_entries(session, user_id=target.id, limit=DEFAULT_POINTS_HISTORY_LIMIT)
+
+    if summary is None:
+        await message.answer("Не удалось рассчитать баланс")
+        return
 
     snapshot = _render_points_snapshot(
         target_tg_user_id=target_tg_user_id,
-        balance=balance,
+        summary=summary,
         entries=entries,
+        shown_limit=DEFAULT_POINTS_HISTORY_LIMIT,
     )
     if changed:
         delta_text = f"+{amount}" if amount > 0 else str(amount)

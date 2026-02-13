@@ -127,15 +127,54 @@ async def test_modpoints_view_shows_balance(monkeypatch, integration_engine) -> 
                     payload=None,
                 )
             )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=target_user.id,
+                    amount=-3,
+                    event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                    dedupe_key="manual:view:2",
+                    reason="seed2",
+                    payload=None,
+                )
+            )
 
-    message = _DummyMessage(text=f"/modpoints {target_tg_user_id}", from_user_id=owner_tg_user_id)
+    message = _DummyMessage(text=f"/modpoints {target_tg_user_id} 1", from_user_id=owner_tg_user_id)
     bot = _DummyBot()
 
     await mod_points(message, bot)
 
     assert message.answers
-    assert f"Баланс пользователя {target_tg_user_id}: 20 points" in message.answers[-1]
-    assert "Последние операции:" in message.answers[-1]
+    assert f"Баланс пользователя {target_tg_user_id}: 17 points" in message.answers[-1]
+    assert "Всего начислено: +20" in message.answers[-1]
+    assert "Всего списано: -3" in message.answers[-1]
+    assert "Последние операции (до 1):" in message.answers[-1]
+    assert message.answers[-1].count("\n-") == 1
+
+
+@pytest.mark.asyncio
+async def test_modpoints_view_rejects_invalid_limit(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    owner_tg_user_id = 93725
+    target_tg_user_id = 93726
+    monkeypatch.setattr(settings, "admin_user_ids", str(owner_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    async with session_factory() as session:
+        async with session.begin():
+            target_user = User(tg_user_id=target_tg_user_id)
+            session.add(target_user)
+
+    message = _DummyMessage(text=f"/modpoints {target_tg_user_id} 0", from_user_id=owner_tg_user_id)
+    bot = _DummyBot()
+
+    await mod_points(message, bot)
+
+    assert message.answers
+    assert "Формат:" in message.answers[-1]
 
 
 @pytest.mark.asyncio
