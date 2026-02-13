@@ -82,6 +82,7 @@ Recommended priority score:
 - Competitor longlist and collection scope: `docs/planning/sprint-31-competitor-longlist.md`.
 - Baseline metrics report (with formulas and extraction notes).
 - Baseline SQL playbook: `docs/planning/sprint-31-baseline-metrics-playbook.md`.
+- Current baseline snapshot: `docs/planning/sprint-31-baseline-report-2026-02-13.md`.
 - Top-5 practices shortlist with rationale and KPI hypotheses.
 - Sprint 32 implementation plan (small scoped PR sequence).
 
