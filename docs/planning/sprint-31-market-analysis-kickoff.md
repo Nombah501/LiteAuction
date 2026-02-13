@@ -84,6 +84,7 @@ Recommended priority score:
 - Baseline SQL playbook: `docs/planning/sprint-31-baseline-metrics-playbook.md`.
 - Current baseline snapshot: `docs/planning/sprint-31-baseline-report-2026-02-13.md`.
 - Top-5 practices shortlist with rationale and KPI hypotheses.
+- Current top-5 shortlist: `docs/planning/sprint-31-top5-practices-shortlist.md`.
 - Sprint 32 implementation plan (small scoped PR sequence).
 
 ## Risks and Mitigations
