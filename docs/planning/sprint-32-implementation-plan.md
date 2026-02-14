@@ -26,10 +26,12 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #52: trade feedback moderation ergonomics.
   - PR #53: points utility v1 feedback priority boost.
   - PR #54: points utility v1.1 visibility slices.
+  - PR #55: points utility v2 guarantor priority boost.
+  - PR #56: points utility v2.1 conversion metrics.
 - In progress:
-  - Points redemption conversion metrics in moderation stats.
+  - Global cooldown guardrail for points redemptions.
 - Next:
-  - Additional redeem mechanics after dual-boost and conversion baseline.
+  - Additional redeem mechanics after dual-boost, conversion and cooldown baseline.
 
 ## P0 Scope (Recommended)
 
@@ -137,6 +139,12 @@ Acceptance:
 - Add conversion-friendly points KPIs in `/modstats` and web dashboard.
 - Track users with positive points balance vs unique redeemers in 7-day window.
 - Split redeemers by utility path (feedback boost vs guarantor boost).
+
+### PR-57: Points Utility v2.2 Redemption Cooldown Guardrail
+
+- Add configurable global cooldown between boost redemptions.
+- Enforce cooldown across both boost utilities (feedback and guarantor).
+- Surface cooldown policy in `/points` response text.
 
 ## Non-Goals for Sprint 32
 

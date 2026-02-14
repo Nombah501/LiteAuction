@@ -10,7 +10,13 @@ from app.config import settings
 from app.db.enums import FeedbackStatus, FeedbackType, PointsEventType
 from app.db.models import FeedbackItem, User
 from app.services.outbox_service import enqueue_feedback_issue_event
-from app.services.points_service import feedback_reward_dedupe_key, grant_points, get_user_points_balance, spend_points
+from app.services.points_service import (
+    feedback_reward_dedupe_key,
+    get_points_redemption_cooldown_remaining_seconds,
+    get_user_points_balance,
+    grant_points,
+    spend_points,
+)
 
 
 @dataclass(slots=True)
@@ -297,6 +303,15 @@ async def redeem_feedback_priority_boost(
     policy = await get_feedback_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if policy.remaining_today <= 0:
         return FeedbackPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
+
+    cooldown_remaining = await get_points_redemption_cooldown_remaining_seconds(
+        session,
+        user_id=submitter_user_id,
+        cooldown_seconds=settings.points_redemption_cooldown_seconds,
+        now=now,
+    )
+    if cooldown_remaining > 0:
+        return FeedbackPriorityBoostResult(False, f"Следующий буст доступен через {cooldown_remaining} сек")
 
     cost = policy.cost_points
     spend_result = await spend_points(

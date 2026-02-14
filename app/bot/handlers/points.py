@@ -5,6 +5,7 @@ from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from app.config import settings
 from app.db.enums import PointsEventType
 from app.db.models import PointsLedgerEntry
 from app.db.session import SessionFactory
@@ -63,6 +64,7 @@ def _render_points_text(
             f"{guarantor_boost_policy.used_today}/{guarantor_boost_policy.daily_limit} "
             f"(осталось {guarantor_boost_policy.remaining_today})"
         ),
+        f"Глобальный кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
     ]
     if not entries:
         lines.append("Начислений пока нет")

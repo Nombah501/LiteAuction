@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     feedback_suggestion_reward_points: int = 20
     feedback_priority_boost_cost_points: int = 25
     feedback_priority_boost_daily_limit: int = 2
+    points_redemption_cooldown_seconds: int = 60
     guarantor_intake_min_length: int = 10
     guarantor_intake_cooldown_seconds: int = 180
     guarantor_priority_boost_cost_points: int = 40
