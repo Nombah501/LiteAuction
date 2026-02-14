@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.responses import HTMLResponse
@@ -8,8 +8,8 @@ from starlette.requests import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import AuctionStatus, ModerationAction, PointsEventType
-from app.db.models import Auction, ModerationLog, PointsLedgerEntry, TradeFeedback, User
+from app.db.enums import AuctionStatus, FeedbackStatus, FeedbackType, ModerationAction, PointsEventType
+from app.db.models import Auction, FeedbackItem, ModerationLog, PointsLedgerEntry, TradeFeedback, User
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -17,7 +17,7 @@ from app.services.rbac_service import (
     SCOPE_USER_BAN,
 )
 from app.web.auth import AdminAuthContext
-from app.web.main import action_adjust_user_points, manage_user
+from app.web.main import action_adjust_user_points, dashboard, manage_user
 
 
 def _make_request(path: str, query: str = "", *, method: str = "GET") -> Request:
@@ -102,8 +102,106 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     assert "Риск-факторы:</b> -" in body
     assert "Начислено всего:</b> +30" in body
     assert "Списано всего:</b> -5" in body
+    assert "Бустов фидбека:</b> 0" in body
+    assert "Списано на бусты:</b> -0" in body
     assert "Награда за фидбек" in body
     assert "Ручная корректировка" in body
+
+
+@pytest.mark.asyncio
+async def test_manage_user_shows_feedback_boost_totals(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=93805, username="boosted_user")
+            session.add(user)
+            await session.flush()
+
+            session.add(
+                FeedbackItem(
+                    type=FeedbackType.SUGGESTION,
+                    status=FeedbackStatus.IN_REVIEW,
+                    submitter_user_id=user.id,
+                    content="boosted once",
+                    reward_points=0,
+                    priority_boost_points_spent=25,
+                    priority_boosted_at=datetime.now(UTC),
+                )
+            )
+            user_id = user.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+
+    request = _make_request(f"/manage/user/{user_id}")
+    response = await manage_user(request, user_id=user_id)
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "Бустов фидбека:</b> 1" in body
+    assert "Списано на бусты:</b> -25" in body
+
+
+@pytest.mark.asyncio
+async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            recent_user = User(tg_user_id=93806, username="points_recent")
+            old_user = User(tg_user_id=93807, username="points_old")
+            session.add_all([recent_user, old_user])
+            await session.flush()
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=recent_user.id,
+                    amount=30,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="dashboard:points:earned",
+                    reason="seed",
+                    payload=None,
+                    created_at=datetime.now(UTC),
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=recent_user.id,
+                    amount=-10,
+                    event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST,
+                    dedupe_key="dashboard:points:boost",
+                    reason="seed",
+                    payload=None,
+                    created_at=datetime.now(UTC),
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=old_user.id,
+                    amount=5,
+                    event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                    dedupe_key="dashboard:points:old",
+                    reason="seed",
+                    payload=None,
+                    created_at=datetime.now(UTC) - timedelta(days=8),
+                )
+            )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+
+    request = _make_request("/")
+    response = await dashboard(request)
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "Points utility" in body
+    assert "Активные points-пользователи (7д):</b> 1" in body
+    assert "Points начислено (24ч):</b> +30" in body
+    assert "Points списано (24ч):</b> -10" in body
+    assert "Бустов фидбека (24ч):</b> 1" in body
 
 
 @pytest.mark.asyncio

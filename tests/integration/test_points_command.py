@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.handlers.points import command_points
-from app.db.enums import PointsEventType
+from app.db.enums import FeedbackType, PointsEventType
+from app.services.feedback_service import create_feedback
 from app.services.points_service import grant_points
 
 
@@ -62,8 +65,45 @@ async def test_points_command_shows_balance_and_history(monkeypatch, integration
     assert "Ваш баланс: 25 points" in reply_text
     assert "Всего начислено: +30" in reply_text
     assert "Всего списано: -5" in reply_text
+    assert "Буст фидбека: /boostfeedback <feedback_id>" in reply_text
+    assert "Лимит бустов сегодня:" in reply_text
     assert "Последние операции (до 5):" in reply_text
     assert "-5" in reply_text
+
+
+@pytest.mark.asyncio
+async def test_points_command_shows_boost_usage_status(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.points.SessionFactory", session_factory)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 20)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 2)
+
+    message = _DummyMessage(from_user_id=93631)
+
+    async with session_factory() as session:
+        async with session.begin():
+            from app.services.user_service import upsert_user
+
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            created = await create_feedback(
+                session,
+                submitter_user_id=user.id,
+                feedback_type=FeedbackType.SUGGESTION,
+                content="Покажите статус буста в /points",
+            )
+            assert created.item is not None
+            created.item.priority_boost_points_spent = 20
+            created.item.priority_boosted_at = datetime.now(UTC)
+            await session.flush()
+
+    await command_points(message)
+
+    assert message.answers
+    reply_text = message.answers[-1]
+    assert "стоимость: 20 points" in reply_text
+    assert "Лимит бустов сегодня: 1/2 (осталось 1)" in reply_text
 
 
 @pytest.mark.asyncio
