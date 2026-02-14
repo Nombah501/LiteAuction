@@ -25,10 +25,11 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #51: docs sync for sprint status and RC-2 notes.
   - PR #52: trade feedback moderation ergonomics.
   - PR #53: points utility v1 feedback priority boost.
+  - PR #54: points utility v1.1 visibility slices.
 - In progress:
-  - Points utility visibility slices in bot/web moderation surfaces.
+  - Second points redeem mechanic for guarantor queue priority.
 - Next:
-  - Additional redeem mechanics after boost baseline.
+  - Additional redeem mechanics after dual-boost baseline.
 
 ## P0 Scope (Recommended)
 
@@ -124,6 +125,12 @@ Acceptance:
 - Add points utility KPIs to web and bot moderation stats output.
 - Add per-user boost usage counters on `/manage/user/{id}`.
 - Add user-facing `/points` policy hints for boost cost and remaining daily limit.
+
+### PR-55: Points Utility v2 Guarantor Priority Boost
+
+- Add second redeem path: `/boostguarant <request_id>` for own open guarantor request.
+- Add ledger event and anti-abuse limits/cost config for guarantor boosts.
+- Extend points filtering and labels in bot/web for guarantor boost spends.
 
 ## Non-Goals for Sprint 32
 

@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.enums import GuarantorRequestStatus
+from app.db.enums import GuarantorRequestStatus, PointsEventType
 from app.db.models import GuarantorRequest, User
+from app.services.points_service import get_user_points_balance, spend_points
 
 
 @dataclass(slots=True)
@@ -31,6 +32,22 @@ class GuarantorRequestView:
     item: GuarantorRequest
     submitter: User | None
     moderator: User | None
+
+
+@dataclass(slots=True)
+class GuarantorPriorityBoostResult:
+    ok: bool
+    message: str
+    item: GuarantorRequest | None = None
+    changed: bool = False
+
+
+@dataclass(slots=True)
+class GuarantorPriorityBoostPolicy:
+    cost_points: int
+    daily_limit: int
+    used_today: int
+    remaining_today: int
 
 
 def _normalize_details(details: str) -> str:
@@ -122,6 +139,8 @@ def render_guarantor_request_text(view: GuarantorRequestView) -> str:
 
     if item.resolution_note:
         lines.append(f"Решение: {item.resolution_note}")
+    if item.priority_boost_points_spent > 0 and item.priority_boosted_at is not None:
+        lines.append(f"Приоритет: boosted ({item.priority_boost_points_spent} points) at {item.priority_boosted_at}")
     if item.resolved_at is not None:
         lines.append(f"Закрыто: {item.resolved_at}")
     return "\n".join(lines)
@@ -217,3 +236,81 @@ async def has_assigned_guarantor_request(
 
     stmt = stmt.order_by(GuarantorRequest.updated_at.desc()).limit(1)
     return await session.scalar(stmt) is not None
+
+
+async def get_guarantor_priority_boost_policy(
+    session: AsyncSession,
+    *,
+    submitter_user_id: int,
+    now: datetime | None = None,
+) -> GuarantorPriorityBoostPolicy:
+    current_time = now or datetime.now(UTC)
+    day_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    daily_limit = max(settings.guarantor_priority_boost_daily_limit, 1)
+    cost_points = max(settings.guarantor_priority_boost_cost_points, 1)
+    used_today = int(
+        await session.scalar(
+            select(func.count(GuarantorRequest.id)).where(
+                GuarantorRequest.submitter_user_id == submitter_user_id,
+                GuarantorRequest.priority_boosted_at.is_not(None),
+                GuarantorRequest.priority_boosted_at >= day_start,
+            )
+        )
+        or 0
+    )
+    remaining_today = max(daily_limit - used_today, 0)
+    return GuarantorPriorityBoostPolicy(
+        cost_points=cost_points,
+        daily_limit=daily_limit,
+        used_today=used_today,
+        remaining_today=remaining_today,
+    )
+
+
+async def redeem_guarantor_priority_boost(
+    session: AsyncSession,
+    *,
+    request_id: int,
+    submitter_user_id: int,
+) -> GuarantorPriorityBoostResult:
+    item = await session.scalar(select(GuarantorRequest).where(GuarantorRequest.id == request_id).with_for_update())
+    if item is None:
+        return GuarantorPriorityBoostResult(False, "Запрос не найден")
+
+    if item.submitter_user_id != submitter_user_id:
+        return GuarantorPriorityBoostResult(False, "Можно бустить только свои запросы")
+
+    status = GuarantorRequestStatus(item.status)
+    if status != GuarantorRequestStatus.NEW:
+        return GuarantorPriorityBoostResult(False, "Буст доступен только для открытых запросов")
+
+    if item.priority_boosted_at is not None:
+        return GuarantorPriorityBoostResult(True, "Приоритет уже повышен", item=item, changed=False)
+
+    now = datetime.now(UTC)
+    policy = await get_guarantor_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
+    if policy.remaining_today <= 0:
+        return GuarantorPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
+
+    cost = policy.cost_points
+    spend_result = await spend_points(
+        session,
+        user_id=submitter_user_id,
+        amount=cost,
+        event_type=PointsEventType.GUARANTOR_PRIORITY_BOOST,
+        dedupe_key=f"boostgr:{request_id}:{submitter_user_id}",
+        reason=f"Буст запроса гаранта #{request_id}",
+        payload={"guarantor_request_id": request_id, "utility": "guarantor_priority_boost", "cost": cost},
+    )
+    if not spend_result.ok:
+        current_balance = await get_user_points_balance(session, user_id=submitter_user_id)
+        return GuarantorPriorityBoostResult(
+            False,
+            f"Недостаточно points для буста (нужно {cost}, доступно {current_balance})",
+        )
+
+    item.priority_boost_points_spent = cost
+    item.priority_boosted_at = now
+    item.updated_at = now
+    return GuarantorPriorityBoostResult(True, "Приоритет запроса повышен", item=item, changed=True)

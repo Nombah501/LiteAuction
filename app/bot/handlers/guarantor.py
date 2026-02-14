@@ -15,6 +15,7 @@ from app.services.guarantor_service import (
     assign_guarantor_request,
     create_guarantor_request,
     load_guarantor_request_view,
+    redeem_guarantor_priority_boost,
     reject_guarantor_request,
     render_guarantor_request_text,
     set_guarantor_request_queue_message,
@@ -101,6 +102,63 @@ async def command_guarant(message: Message, state: FSMContext, bot: Bot) -> None
 
     await state.set_state(GuarantorIntakeStates.waiting_request_text)
     await message.answer("Опишите запрос на гаранта одним сообщением. Для отмены используйте /cancel")
+
+
+@router.message(Command("boostguarant"), F.chat.type == ChatType.PRIVATE)
+async def command_boost_guarant(message: Message, bot: Bot) -> None:
+    if message.from_user is None or message.text is None:
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        await message.answer("Формат: /boostguarant <request_id>")
+        return
+
+    request_id = int(parts[1])
+    queue_chat_id: int | None = None
+    queue_message_id: int | None = None
+    queue_text = ""
+    queue_status: GuarantorRequestStatus | None = None
+    result_message = ""
+    result_changed = False
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            submitter = await upsert_user(session, message.from_user, mark_private_started=True)
+            result = await redeem_guarantor_priority_boost(
+                session,
+                request_id=request_id,
+                submitter_user_id=submitter.id,
+            )
+            if not result.ok or result.item is None:
+                await message.answer(result.message)
+                return
+
+            result_message = result.message
+            result_changed = result.changed
+            view = await load_guarantor_request_view(session, request_id)
+            if view is not None:
+                queue_chat_id = view.item.queue_chat_id
+                queue_message_id = view.item.queue_message_id
+                queue_text = render_guarantor_request_text(view)
+                queue_status = GuarantorRequestStatus(view.item.status)
+
+    if queue_chat_id is not None and queue_message_id is not None and queue_status is not None:
+        try:
+            await bot.edit_message_text(
+                chat_id=queue_chat_id,
+                message_id=queue_message_id,
+                text=queue_text,
+                reply_markup=guarantor_actions_keyboard(request_id=request_id, status=queue_status),
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+    if result_changed:
+        await message.answer(f"{result_message}. Модераторы получат обновленную карточку.")
+        return
+
+    await message.answer(result_message)
 
 
 @router.message(GuarantorIntakeStates.waiting_request_text, F.text)

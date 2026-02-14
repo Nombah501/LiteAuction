@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     feedback_priority_boost_daily_limit: int = 2
     guarantor_intake_min_length: int = 10
     guarantor_intake_cooldown_seconds: int = 180
+    guarantor_priority_boost_cost_points: int = 40
+    guarantor_priority_boost_daily_limit: int = 1
     publish_high_risk_requires_guarantor: bool = True
     publish_guarantor_assignment_max_age_days: int = 30
     github_automation_enabled: bool = False

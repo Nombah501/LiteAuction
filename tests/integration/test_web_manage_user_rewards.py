@@ -205,6 +205,42 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
 
 
 @pytest.mark.asyncio
+async def test_manage_user_points_filter_supports_guarantor_boost(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=93808, username="gboost_filter")
+            session.add(user)
+            await session.flush()
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=user.id,
+                    amount=-11,
+                    event_type=PointsEventType.GUARANTOR_PRIORITY_BOOST,
+                    dedupe_key="web:gboost:1",
+                    reason="gboost reason",
+                    payload=None,
+                )
+            )
+            user_id = user.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+
+    request = _make_request(f"/manage/user/{user_id}", query="points_page=1&points_filter=gboost")
+    response = await manage_user(request, user_id=user_id, points_page=1, points_filter="gboost")
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "Фильтр:</b> gboost" in body
+    assert "Списание за приоритет гаранта" in body
+    assert "gboost reason" in body
+
+
+@pytest.mark.asyncio
 async def test_manage_user_points_filter_and_paging(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 
