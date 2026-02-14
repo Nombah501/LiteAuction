@@ -310,6 +310,8 @@ async def redeem_guarantor_priority_boost(
         return GuarantorPriorityBoostResult(True, "Приоритет уже повышен", item=item, changed=False)
 
     now = datetime.now(UTC)
+    if not settings.points_redemption_enabled:
+        return GuarantorPriorityBoostResult(False, "Редимпшены points временно отключены")
     policy = await get_guarantor_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if not policy.enabled:
         return GuarantorPriorityBoostResult(False, "Буст гаранта временно отключен")
