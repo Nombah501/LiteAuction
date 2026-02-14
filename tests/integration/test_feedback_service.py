@@ -9,6 +9,7 @@ from app.db.models import FeedbackItem, IntegrationOutbox, PointsLedgerEntry, Us
 from app.services.feedback_service import (
     approve_feedback,
     create_feedback,
+    redeem_feedback_priority_boost,
     reject_feedback,
     take_feedback_in_review,
 )
@@ -121,3 +122,118 @@ async def test_feedback_create_respects_type_cooldown(monkeypatch, integration_e
     assert first.ok is True
     assert second.ok is False
     assert "Слишком часто" in second.message
+
+
+@pytest.mark.asyncio
+async def test_feedback_priority_boost_spends_points_and_marks_item(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 25)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 2)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93021, username="boost_submitter")
+            session.add(submitter)
+            await session.flush()
+
+            created = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.SUGGESTION,
+                content="Добавьте буст за points",
+            )
+            assert created.ok is True
+            assert created.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=40,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:boost:points",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            boosted = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=created.item.id,
+                submitter_user_id=submitter.id,
+            )
+            assert boosted.ok is True
+            assert boosted.changed is True
+            assert boosted.item is not None
+            assert boosted.item.priority_boost_points_spent == 25
+            assert boosted.item.priority_boosted_at is not None
+
+    async with session_factory() as session:
+        item = await session.scalar(select(FeedbackItem).where(FeedbackItem.submitter_user_id == submitter.id))
+        spend_row = await session.scalar(
+            select(PointsLedgerEntry).where(PointsLedgerEntry.event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST)
+        )
+
+    assert item is not None
+    assert item.priority_boost_points_spent == 25
+    assert spend_row is not None
+    assert spend_row.amount == -25
+    assert spend_row.user_id == submitter.id
+
+
+@pytest.mark.asyncio
+async def test_feedback_priority_boost_daily_limit(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 1)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93031, username="boost_limit_submitter")
+            session.add(submitter)
+            await session.flush()
+
+            feedback_a = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.BUG,
+                content="bug one details",
+            )
+            feedback_b = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.SUGGESTION,
+                content="suggest two details",
+            )
+            assert feedback_a.item is not None and feedback_b.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=100,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:boost:limit",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            first = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=feedback_a.item.id,
+                submitter_user_id=submitter.id,
+            )
+            second = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=feedback_b.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert first.ok is True
+    assert second.ok is False
+    assert "дневной лимит" in second.message.lower()

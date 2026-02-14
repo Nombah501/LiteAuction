@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import PointsEventType
-from app.db.models import PointsLedgerEntry
+from app.db.models import PointsLedgerEntry, User
 
 
 @dataclass(slots=True)
@@ -23,6 +23,16 @@ class UserPointsSummary:
     total_earned: int
     total_spent: int
     operations_count: int
+
+
+@dataclass(slots=True)
+class PointsSpendResult:
+    ok: bool
+    message: str
+    changed: bool
+    entry: PointsLedgerEntry | None
+    balance_before: int
+    balance_after: int
 
 
 def feedback_reward_dedupe_key(feedback_id: int) -> str:
@@ -145,3 +155,97 @@ async def count_user_points_entries(
         stmt = stmt.where(PointsLedgerEntry.event_type == event_type)
     count = await session.scalar(stmt)
     return int(count or 0)
+
+
+async def spend_points(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    amount: int,
+    event_type: PointsEventType,
+    dedupe_key: str,
+    reason: str,
+    payload: dict | None = None,
+) -> PointsSpendResult:
+    spend_amount = abs(int(amount))
+    if spend_amount <= 0:
+        return PointsSpendResult(
+            ok=False,
+            message="Сумма списания должна быть больше 0",
+            changed=False,
+            entry=None,
+            balance_before=0,
+            balance_after=0,
+        )
+
+    user_exists = await session.scalar(select(User.id).where(User.id == user_id).with_for_update())
+    if user_exists is None:
+        return PointsSpendResult(
+            ok=False,
+            message="Пользователь не найден",
+            changed=False,
+            entry=None,
+            balance_before=0,
+            balance_after=0,
+        )
+
+    balance_before = await get_user_points_balance(session, user_id=user_id)
+    if balance_before < spend_amount:
+        return PointsSpendResult(
+            ok=False,
+            message="Недостаточно points",
+            changed=False,
+            entry=None,
+            balance_before=balance_before,
+            balance_after=balance_before,
+        )
+
+    grant_result = await grant_points(
+        session,
+        user_id=user_id,
+        amount=-spend_amount,
+        event_type=event_type,
+        dedupe_key=dedupe_key,
+        reason=reason,
+        payload=payload,
+    )
+    if not grant_result.changed and grant_result.entry is None:
+        return PointsSpendResult(
+            ok=False,
+            message="Списание не удалось",
+            changed=False,
+            entry=None,
+            balance_before=balance_before,
+            balance_after=balance_before,
+        )
+
+    if not grant_result.changed and grant_result.entry is not None:
+        amount_value = int(grant_result.entry.amount)
+        if amount_value < 0:
+            balance_after = balance_before + amount_value
+            return PointsSpendResult(
+                ok=True,
+                message="Списание уже применено",
+                changed=False,
+                entry=grant_result.entry,
+                balance_before=balance_before,
+                balance_after=balance_after,
+            )
+        return PointsSpendResult(
+            ok=False,
+            message="Конфликт dedupe_key",
+            changed=False,
+            entry=grant_result.entry,
+            balance_before=balance_before,
+            balance_after=balance_before,
+        )
+
+    balance_after = balance_before - spend_amount
+    return PointsSpendResult(
+        ok=True,
+        message="Points списаны",
+        changed=True,
+        entry=grant_result.entry,
+        balance_before=balance_before,
+        balance_after=balance_after,
+    )

@@ -643,6 +643,8 @@ def _normalize_points_filter_query(raw: str | None) -> PointsEventType | None:
         return PointsEventType.FEEDBACK_APPROVED
     if value in {"manual", "manual_adjustment"}:
         return PointsEventType.MANUAL_ADJUSTMENT
+    if value in {"boost", "feedback_priority_boost", "priority"}:
+        return PointsEventType.FEEDBACK_PRIORITY_BOOST
     raise HTTPException(status_code=400, detail="Invalid points filter")
 
 
@@ -651,12 +653,16 @@ def _points_filter_query_value(filter_value: PointsEventType | None) -> str:
         return "all"
     if filter_value == PointsEventType.FEEDBACK_APPROVED:
         return "feedback"
+    if filter_value == PointsEventType.FEEDBACK_PRIORITY_BOOST:
+        return "boost"
     return "manual"
 
 
 def _points_event_label(event_type: PointsEventType) -> str:
     if event_type == PointsEventType.FEEDBACK_APPROVED:
         return "Награда за фидбек"
+    if event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST:
+        return "Списание за приоритет фидбека"
     return "Ручная корректировка"
 
 
@@ -1742,6 +1748,7 @@ async def manage_user(
             f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'all')))}'>all</a>",
             f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'feedback')))}'>feedback</a>",
             f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'manual')))}'>manual</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'boost')))}'>boost</a>",
         )
     )
 

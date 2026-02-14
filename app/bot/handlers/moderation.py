@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Literal, cast
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
@@ -263,10 +264,12 @@ def _parse_positive_int(raw: str, *, minimum: int, maximum: int) -> int | None:
 def _event_label(event_type: PointsEventType) -> str:
     if event_type == PointsEventType.FEEDBACK_APPROVED:
         return "Награда за фидбек"
+    if event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST:
+        return "Списание за приоритет фидбека"
     return "Ручная корректировка"
 
 
-def _parse_points_filter(raw: str | None) -> PointsEventType | None | str:
+def _parse_points_filter(raw: str | None) -> PointsEventType | None | Literal["invalid"]:
     if raw is None:
         return None
     lowered = raw.strip().lower()
@@ -276,6 +279,8 @@ def _parse_points_filter(raw: str | None) -> PointsEventType | None | str:
         return PointsEventType.FEEDBACK_APPROVED
     if lowered in {"manual", "manual_adjustment"}:
         return PointsEventType.MANUAL_ADJUSTMENT
+    if lowered in {"boost", "priority", "feedback_priority_boost"}:
+        return PointsEventType.FEEDBACK_PRIORITY_BOOST
     return "invalid"
 
 
@@ -284,6 +289,8 @@ def _points_filter_label(event_type: PointsEventType | None) -> str:
         return "all"
     if event_type == PointsEventType.FEEDBACK_APPROVED:
         return "feedback"
+    if event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST:
+        return "boost"
     return "manual"
 
 
@@ -534,7 +541,7 @@ async def mod_help(message: Message) -> None:
                 "/modpoints <tg_user_id>",
                 "/modpoints <tg_user_id> <limit>",
                 "/modpoints <tg_user_id> <amount> <reason>",
-                "/modpoints_history <tg_user_id> [page] [all|feedback|manual]",
+                "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost]",
             ]
         )
 
@@ -757,8 +764,8 @@ async def mod_points_history(message: Message) -> None:
         "Формат:\n"
         "/modpoints_history <tg_user_id>\n"
         "/modpoints_history <tg_user_id> <page>\n"
-        "/modpoints_history <tg_user_id> <all|feedback|manual>\n"
-        "/modpoints_history <tg_user_id> <page> <all|feedback|manual>"
+        "/modpoints_history <tg_user_id> <all|feedback|manual|boost>\n"
+        "/modpoints_history <tg_user_id> <page> <all|feedback|manual|boost>"
     )
 
     parts = message.text.split()
@@ -798,7 +805,7 @@ async def mod_points_history(message: Message) -> None:
     if filter_value == "invalid":
         await message.answer(usage_text)
         return
-    filter_event_type = filter_value
+    filter_event_type = cast(PointsEventType | None, filter_value)
 
     async with SessionFactory() as session:
         target = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id))
