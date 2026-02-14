@@ -12,6 +12,7 @@ from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus, PointsEventType
 from app.db.models import Appeal, Complaint, FraudSignal
 from app.services.points_service import (
+    get_points_event_redemption_cooldown_remaining_seconds,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_balance,
     spend_points,
@@ -45,6 +46,8 @@ class AppealPriorityBoostPolicy:
     daily_limit: int
     used_today: int
     remaining_today: int
+    cooldown_seconds: int
+    cooldown_remaining_seconds: int
 
 
 def parse_appeal_ref(appeal_ref: str) -> tuple[AppealSourceType, int | None]:
@@ -319,6 +322,7 @@ async def get_appeal_priority_boost_policy(
 
     daily_limit = max(settings.appeal_priority_boost_daily_limit, 1)
     cost_points = max(settings.appeal_priority_boost_cost_points, 1)
+    cooldown_seconds = max(settings.appeal_priority_boost_cooldown_seconds, 0)
     used_today = int(
         await session.scalar(
             select(func.count(Appeal.id)).where(
@@ -330,12 +334,21 @@ async def get_appeal_priority_boost_policy(
         or 0
     )
     remaining_today = max(daily_limit - used_today, 0)
+    cooldown_remaining_seconds = await get_points_event_redemption_cooldown_remaining_seconds(
+        session,
+        user_id=appellant_user_id,
+        event_types=(PointsEventType.APPEAL_PRIORITY_BOOST,),
+        cooldown_seconds=cooldown_seconds,
+        now=current_time,
+    )
     return AppealPriorityBoostPolicy(
         enabled=settings.appeal_priority_boost_enabled,
         cost_points=cost_points,
         daily_limit=daily_limit,
         used_today=used_today,
         remaining_today=remaining_today,
+        cooldown_seconds=cooldown_seconds,
+        cooldown_remaining_seconds=cooldown_remaining_seconds,
     )
 
 
@@ -363,6 +376,11 @@ async def redeem_appeal_priority_boost(
     policy = await get_appeal_priority_boost_policy(session, appellant_user_id=appellant_user_id, now=now)
     if not policy.enabled:
         return AppealPriorityBoostResult(False, "Буст апелляции временно отключен")
+    if policy.cooldown_remaining_seconds > 0:
+        return AppealPriorityBoostResult(
+            False,
+            f"Повторный буст апелляции доступен через {policy.cooldown_remaining_seconds} сек",
+        )
     if policy.remaining_today <= 0:
         return AppealPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
 

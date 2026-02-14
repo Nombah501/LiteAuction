@@ -86,10 +86,13 @@ async def test_points_command_shows_boost_usage_status(monkeypatch, integration_
     monkeypatch.setattr("app.bot.handlers.points.SessionFactory", session_factory)
     monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 20)
     monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 2)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 30)
     monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 40)
     monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cooldown_seconds", 60)
     monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 20)
     monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 2)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 90)
 
     message = _DummyMessage(from_user_id=93631)
 
@@ -130,10 +133,13 @@ async def test_points_command_shows_boost_usage_status(monkeypatch, integration_
     reply_text = message.answers[-1]
     assert "Буст фидбека: /boostfeedback <feedback_id> (стоимость: 20 points)" in reply_text
     assert "Лимит фидбек-бустов сегодня: 1/2 (осталось 1)" in reply_text
+    assert "Кулдаун фидбек-буста: 30 сек" in reply_text
     assert "Буст гаранта: /boostguarant <request_id> (стоимость: 40 points)" in reply_text
     assert "Лимит бустов гаранта сегодня: 1/1 (осталось 0)" in reply_text
+    assert "Кулдаун буста гаранта: 60 сек" in reply_text
     assert "Буст апелляции: /boostappeal <appeal_id> (стоимость: 20 points)" in reply_text
     assert "Лимит бустов апелляций сегодня: 1/2 (осталось 1)" in reply_text
+    assert "Кулдаун буста апелляции: 90 сек" in reply_text
 
 
 @pytest.mark.asyncio
@@ -182,6 +188,9 @@ async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch
     monkeypatch.setattr(settings, "feedback_priority_boost_enabled", False)
     monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", True)
     monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 120)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cooldown_seconds", 45)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 15)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 3600)
 
     message = _DummyMessage(from_user_id=93641)
@@ -208,6 +217,9 @@ async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch
     assert "Статус фидбек-буста: временно отключен" in reply_text
     assert "Статус буста гаранта: доступен" in reply_text
     assert "Статус буста апелляции: доступен" in reply_text
+    assert "Кулдаун фидбек-буста: 120 сек" in reply_text
+    assert "Кулдаун буста гаранта: 45 сек" in reply_text
+    assert "Кулдаун буста апелляции: 15 сек" in reply_text
     assert "До следующего буста:" in reply_text
 
 

@@ -285,3 +285,33 @@ async def get_points_redemption_cooldown_remaining_seconds(
         return 0
 
     return max(math.ceil(safe_cooldown - elapsed_seconds), 0)
+
+
+async def get_points_event_redemption_cooldown_remaining_seconds(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    event_types: tuple[PointsEventType, ...],
+    cooldown_seconds: int,
+    now: datetime | None = None,
+) -> int:
+    safe_cooldown = max(int(cooldown_seconds), 0)
+    if safe_cooldown <= 0 or not event_types:
+        return 0
+
+    current_time = now or datetime.now(UTC)
+    last_redemption_at = await session.scalar(
+        select(func.max(PointsLedgerEntry.created_at)).where(
+            PointsLedgerEntry.user_id == user_id,
+            PointsLedgerEntry.amount < 0,
+            PointsLedgerEntry.event_type.in_(event_types),
+        )
+    )
+    if last_redemption_at is None:
+        return 0
+
+    elapsed_seconds = (current_time - last_redemption_at).total_seconds()
+    if elapsed_seconds >= safe_cooldown:
+        return 0
+
+    return max(math.ceil(safe_cooldown - elapsed_seconds), 0)

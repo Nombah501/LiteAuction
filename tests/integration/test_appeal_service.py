@@ -414,3 +414,59 @@ async def test_appeal_priority_boost_disabled_by_policy(monkeypatch, integration
     assert stored.priority_boosted_at is None
     assert stored.priority_boost_points_spent == 0
     assert spend_row is None
+
+
+@pytest.mark.asyncio
+async def test_appeal_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 3600)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=88631, username="appeal_utility_cooldown")
+            session.add(appellant)
+            await session.flush()
+
+            appeal_a = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_utility_cooldown_a",
+            )
+            appeal_b = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_utility_cooldown_b",
+            )
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=appellant.id,
+                    amount=50,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:appeal:utility:cooldown",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            first = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal_a.id,
+                appellant_user_id=appellant.id,
+            )
+            second = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal_b.id,
+                appellant_user_id=appellant.id,
+            )
+
+    assert first.ok is True
+    assert second.ok is False
+    assert "повторный буст апелляции" in second.message.lower()

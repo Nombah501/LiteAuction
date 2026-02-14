@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
@@ -69,6 +71,10 @@ def _render_points_text(
             f"(осталось {feedback_boost_policy.remaining_today})"
         ),
         f"Статус фидбек-буста: {'доступен' if feedback_boost_policy.enabled else 'временно отключен'}",
+        (
+            f"Кулдаун фидбек-буста: {feedback_boost_policy.cooldown_seconds} сек "
+            f"(осталось {feedback_boost_policy.cooldown_remaining_seconds})"
+        ),
         f"Буст гаранта: /boostguarant <request_id> (стоимость: {guarantor_boost_policy.cost_points} points)",
         (
             "Лимит бустов гаранта сегодня: "
@@ -76,6 +82,10 @@ def _render_points_text(
             f"(осталось {guarantor_boost_policy.remaining_today})"
         ),
         f"Статус буста гаранта: {'доступен' if guarantor_boost_policy.enabled else 'временно отключен'}",
+        (
+            f"Кулдаун буста гаранта: {guarantor_boost_policy.cooldown_seconds} сек "
+            f"(осталось {guarantor_boost_policy.cooldown_remaining_seconds})"
+        ),
         f"Буст апелляции: /boostappeal <appeal_id> (стоимость: {appeal_boost_policy.cost_points} points)",
         (
             "Лимит бустов апелляций сегодня: "
@@ -83,6 +93,10 @@ def _render_points_text(
             f"(осталось {appeal_boost_policy.remaining_today})"
         ),
         f"Статус буста апелляции: {'доступен' if appeal_boost_policy.enabled else 'временно отключен'}",
+        (
+            f"Кулдаун буста апелляции: {appeal_boost_policy.cooldown_seconds} сек "
+            f"(осталось {appeal_boost_policy.cooldown_remaining_seconds})"
+        ),
         f"Глобальный кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
         (
             f"До следующего буста: {cooldown_remaining_seconds} сек"
@@ -120,15 +134,29 @@ async def command_points(message: Message) -> None:
     async with SessionFactory() as session:
         async with session.begin():
             user = await upsert_user(session, message.from_user, mark_private_started=True)
+            now = datetime.now(UTC)
             summary = await get_user_points_summary(session, user_id=user.id)
             entries = await list_user_points_entries(session, user_id=user.id, limit=limit)
-            feedback_boost_policy = await get_feedback_priority_boost_policy(session, submitter_user_id=user.id)
-            guarantor_boost_policy = await get_guarantor_priority_boost_policy(session, submitter_user_id=user.id)
-            appeal_boost_policy = await get_appeal_priority_boost_policy(session, appellant_user_id=user.id)
+            feedback_boost_policy = await get_feedback_priority_boost_policy(
+                session,
+                submitter_user_id=user.id,
+                now=now,
+            )
+            guarantor_boost_policy = await get_guarantor_priority_boost_policy(
+                session,
+                submitter_user_id=user.id,
+                now=now,
+            )
+            appeal_boost_policy = await get_appeal_priority_boost_policy(
+                session,
+                appellant_user_id=user.id,
+                now=now,
+            )
             cooldown_remaining_seconds = await get_points_redemption_cooldown_remaining_seconds(
                 session,
                 user_id=user.id,
                 cooldown_seconds=settings.points_redemption_cooldown_seconds,
+                now=now,
             )
 
     await message.answer(

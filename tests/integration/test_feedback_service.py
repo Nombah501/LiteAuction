@@ -293,3 +293,63 @@ async def test_feedback_priority_boost_disabled_by_policy(monkeypatch, integrati
     assert item.priority_boosted_at is None
     assert item.priority_boost_points_spent == 0
     assert spend_row is None
+
+
+@pytest.mark.asyncio
+async def test_feedback_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 3600)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+    monkeypatch.setattr(settings, "feedback_intake_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93051, username="feedback_utility_cooldown")
+            session.add(submitter)
+            await session.flush()
+
+            feedback_a = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.BUG,
+                content="Feedback A for cooldown",
+            )
+            feedback_b = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.SUGGESTION,
+                content="Feedback B for cooldown",
+            )
+            assert feedback_a.item is not None and feedback_b.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=50,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:feedback:utility:cooldown",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            first = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=feedback_a.item.id,
+                submitter_user_id=submitter.id,
+            )
+            second = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=feedback_b.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert first.ok is True
+    assert second.ok is False
+    assert "повторный буст фидбека" in second.message.lower()

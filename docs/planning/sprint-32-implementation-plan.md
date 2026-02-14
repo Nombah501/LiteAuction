@@ -30,8 +30,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #56: points utility v2.1 conversion metrics.
   - PR #57: points utility v2.2 redemption cooldown guardrail.
   - PR #58: points utility v2.3 appeal priority boost.
-- In progress:
   - PR #59: points utility v2.4 operator boost toggles and policy visibility.
+- In progress:
+  - PR #60: points utility v2.5 per-utility boost cooldown policies.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -159,6 +160,12 @@ Acceptance:
 - Add operator-controlled on/off toggles for each redeem path (`feedback`, `guarantor`, `appeal`).
 - Enforce toggles in redeem services with explicit user-facing disabled message.
 - Surface current per-path policy (on/off, cost, daily limit) and global cooldown in `/points` and admin manage-user view.
+
+### PR-60: Points Utility v2.5 Per-Utility Cooldowns
+
+- Add per-utility cooldown settings for feedback/guarantor/appeal boosts.
+- Enforce utility-specific cooldowns in redeem services alongside existing global cooldown guardrail.
+- Surface per-utility cooldown config and remaining wait in `/points` and admin manage-user view.
 
 ## Non-Goals for Sprint 32
 
