@@ -16,6 +16,7 @@ from app.services.feedback_service import FeedbackPriorityBoostPolicy, get_feedb
 from app.services.guarantor_service import GuarantorPriorityBoostPolicy, get_guarantor_priority_boost_policy
 from app.services.points_service import (
     UserPointsSummary,
+    get_points_redemption_account_age_remaining_seconds,
     get_points_redemptions_spent_today,
     get_points_redemptions_used_today,
     get_points_redemption_cooldown_remaining_seconds,
@@ -63,6 +64,7 @@ def _render_points_text(
     redemptions_used_today: int,
     redemptions_spent_today: int,
     cooldown_remaining_seconds: int,
+    account_age_remaining_seconds: int,
 ) -> str:
     global_daily_limit = max(settings.points_redemption_daily_limit, 0)
     global_remaining_today = max(global_daily_limit - redemptions_used_today, 0)
@@ -120,7 +122,16 @@ def _render_points_text(
         ),
         f"Глобальный статус редимпшенов: {'доступны' if settings.points_redemption_enabled else 'временно отключены'}",
         f"Минимальный остаток после буста: {max(settings.points_redemption_min_balance, 0)} points",
+        (
+            "Минимальный возраст аккаунта для буста: "
+            f"{max(settings.points_redemption_min_account_age_seconds, 0)} сек"
+        ),
         f"Глобальный кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
+        (
+            f"До доступа к бустам по возрасту аккаунта: {account_age_remaining_seconds} сек"
+            if account_age_remaining_seconds > 0
+            else "Ограничение по возрасту аккаунта: выполнено"
+        ),
         (
             f"До следующего буста: {cooldown_remaining_seconds} сек"
             if cooldown_remaining_seconds > 0
@@ -191,6 +202,12 @@ async def command_points(message: Message) -> None:
                 cooldown_seconds=settings.points_redemption_cooldown_seconds,
                 now=now,
             )
+            account_age_remaining_seconds = await get_points_redemption_account_age_remaining_seconds(
+                session,
+                user_id=user.id,
+                min_account_age_seconds=settings.points_redemption_min_account_age_seconds,
+                now=now,
+            )
 
     await message.answer(
         _render_points_text(
@@ -203,5 +220,6 @@ async def command_points(message: Message) -> None:
             redemptions_used_today=redemptions_used_today,
             redemptions_spent_today=redemptions_spent_today,
             cooldown_remaining_seconds=cooldown_remaining_seconds,
+            account_age_remaining_seconds=account_age_remaining_seconds,
         )
     )

@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     points_redemption_daily_limit: int = 0
     points_redemption_daily_spend_cap: int = 0
     points_redemption_min_balance: int = 0
+    points_redemption_min_account_age_seconds: int = 0
     appeal_priority_boost_enabled: bool = True
     appeal_priority_boost_cost_points: int = 20
     appeal_priority_boost_daily_limit: int = 1

@@ -36,8 +36,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #62: points utility v2.7 global daily redemption cap.
   - PR #63: points utility v2.8 global daily redemption spend cap.
   - PR #64: points utility v2.9 minimum retained balance guardrail.
-- In progress:
   - PR #65: points utility v3.0 global redemption kill-switch.
+- In progress:
+  - PR #66: points utility v3.1 minimum account age for redemptions.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -201,6 +202,12 @@ Acceptance:
 - Add configurable global on/off toggle for points redemptions.
 - Enforce kill-switch before utility-specific redemption checks for `feedback`, `guarantor`, and `appeal` boosts.
 - Surface global redemption status in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
+
+### PR-66: Points Utility v3.1 Minimum Account Age Guardrail
+
+- Add configurable minimum account age gate for boost redemptions.
+- Enforce account-age guardrail across `feedback`, `guarantor`, and `appeal` boost redemptions.
+- Surface account-age policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
 
 ## Non-Goals for Sprint 32
 

@@ -12,6 +12,7 @@ from app.db.models import FeedbackItem, User
 from app.services.outbox_service import enqueue_feedback_issue_event
 from app.services.points_service import (
     feedback_reward_dedupe_key,
+    get_points_redemption_account_age_remaining_seconds,
     get_points_event_redemption_cooldown_remaining_seconds,
     get_points_redemptions_spent_today,
     get_points_redemptions_used_today,
@@ -308,6 +309,17 @@ async def redeem_feedback_priority_boost(
     now = datetime.now(UTC)
     if not settings.points_redemption_enabled:
         return FeedbackPriorityBoostResult(False, "Редимпшены points временно отключены")
+    account_age_remaining = await get_points_redemption_account_age_remaining_seconds(
+        session,
+        user_id=submitter_user_id,
+        min_account_age_seconds=settings.points_redemption_min_account_age_seconds,
+        now=now,
+    )
+    if account_age_remaining > 0:
+        return FeedbackPriorityBoostResult(
+            False,
+            f"Бусты станут доступны через {account_age_remaining} сек после регистрации",
+        )
     policy = await get_feedback_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if not policy.enabled:
         return FeedbackPriorityBoostResult(False, "Буст фидбека временно отключен")
