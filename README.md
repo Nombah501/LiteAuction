@@ -24,6 +24,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Telegram Login auth for web admin and dispute timeline pages
 - Web moderation actions with role-based permissions
 - Risk/trust indicators on admin user, auction, appeal, and signal views
+- Post-trade feedback foundation with bot intake and admin moderation view
 - Fine-grained web RBAC scopes (`auction`, `bid`, `user-ban`, `role-manage`)
 - Telegram moderation RBAC synced with scope model + `/role` commands
 - Web CSRF protection and confirm-step for dangerous moderation actions

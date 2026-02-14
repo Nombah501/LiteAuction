@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import AuctionStatus
-from app.db.models import Auction, TradeFeedback
+from app.db.models import Auction, TradeFeedback, User
 
 
 @dataclass(slots=True)
@@ -26,6 +26,21 @@ class TradeFeedbackModerationResult:
     message: str
     item: TradeFeedback | None = None
     changed: bool = False
+
+
+@dataclass(slots=True, frozen=True)
+class TradeFeedbackSummary:
+    total_received: int
+    visible_received: int
+    hidden_received: int
+    average_visible_rating: float | None
+
+
+@dataclass(slots=True, frozen=True)
+class TradeFeedbackReceivedView:
+    item: TradeFeedback
+    author: User
+    auction: Auction
 
 
 def _normalize_comment(comment: str | None) -> str | None:
@@ -119,3 +134,49 @@ async def set_trade_feedback_visibility(
     item.moderated_at = now
     item.updated_at = now
     return TradeFeedbackModerationResult(True, "Статус отзыва обновлен", item=item, changed=True)
+
+
+async def get_trade_feedback_summary(
+    session: AsyncSession,
+    *,
+    target_user_id: int,
+) -> TradeFeedbackSummary:
+    rows = (
+        await session.execute(
+            select(TradeFeedback.rating, TradeFeedback.status).where(TradeFeedback.target_user_id == target_user_id)
+        )
+    ).all()
+
+    total_received = len(rows)
+    visible_ratings = [int(rating) for rating, status in rows if status == "VISIBLE"]
+    visible_received = len(visible_ratings)
+    hidden_received = total_received - visible_received
+    average_visible_rating = None
+    if visible_ratings:
+        average_visible_rating = sum(visible_ratings) / len(visible_ratings)
+
+    return TradeFeedbackSummary(
+        total_received=total_received,
+        visible_received=visible_received,
+        hidden_received=hidden_received,
+        average_visible_rating=average_visible_rating,
+    )
+
+
+async def list_received_trade_feedback(
+    session: AsyncSession,
+    *,
+    target_user_id: int,
+    limit: int = 10,
+) -> list[TradeFeedbackReceivedView]:
+    author_user = User
+    stmt = (
+        select(TradeFeedback, author_user, Auction)
+        .join(author_user, author_user.id == TradeFeedback.author_user_id)
+        .join(Auction, Auction.id == TradeFeedback.auction_id)
+        .where(TradeFeedback.target_user_id == target_user_id)
+        .order_by(TradeFeedback.created_at.desc(), TradeFeedback.id.desc())
+        .limit(max(limit, 1))
+    )
+    rows = (await session.execute(stmt)).all()
+    return [TradeFeedbackReceivedView(item=item, author=author, auction=auction) for item, author, auction in rows]
