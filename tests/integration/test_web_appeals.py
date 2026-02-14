@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction
-from app.db.models import Appeal, Auction, FraudSignal, ModerationLog, User
+from app.db.models import Appeal, Auction, Complaint, FraudSignal, ModerationLog, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
 from app.web.main import action_reject_appeal, action_resolve_appeal, action_review_appeal, appeals
@@ -92,9 +92,91 @@ async def test_appeals_page_filters_status_and_source(monkeypatch, integration_e
 
     body = bytes(response.body).decode("utf-8")
     assert response.status_code == 200
+    assert "Риск апеллянта" in body
     assert "risk_701" in body
     assert "complaint_702" not in body
     assert "manual_703" not in body
+
+
+@pytest.mark.asyncio
+async def test_appeals_page_shows_appellant_risk_indicator(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            risky = User(tg_user_id=99501, username="appeal_risky")
+            safe = User(tg_user_id=99502, username="appeal_safe")
+            reporter = User(tg_user_id=99503, username="appeal_reporter")
+            session.add_all([risky, safe, reporter])
+            await session.flush()
+
+            auction = Auction(
+                seller_user_id=safe.id,
+                description="appeal risk lot",
+                photo_file_id="photo",
+                start_price=100,
+                buyout_price=None,
+                min_step=5,
+                duration_hours=24,
+                status=AuctionStatus.ACTIVE,
+            )
+            session.add(auction)
+            await session.flush()
+
+            session.add_all(
+                [
+                    Complaint(
+                        auction_id=auction.id,
+                        reporter_user_id=reporter.id,
+                        target_user_id=risky.id,
+                        reason=f"complaint-{idx}",
+                        status="OPEN",
+                    )
+                    for idx in range(3)
+                ]
+            )
+            session.add(
+                FraudSignal(
+                    auction_id=auction.id,
+                    user_id=risky.id,
+                    bid_id=None,
+                    score=86,
+                    reasons={"rules": [{"code": "TEST", "detail": "risk", "score": 86}]},
+                    status="OPEN",
+                )
+            )
+
+            session.add_all(
+                [
+                    Appeal(
+                        appeal_ref="manual_risky_appellant",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=risky.id,
+                        status=AppealStatus.OPEN,
+                    ),
+                    Appeal(
+                        appeal_ref="manual_safe_appellant",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=safe.id,
+                        status=AppealStatus.OPEN,
+                    ),
+                ]
+            )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+
+    request = _make_request("/appeals")
+    response = await appeals(request, status="open", source="all", overdue="all", escalated="all", page=0, q="manual_")
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "manual_risky_appellant" in body
+    assert "manual_safe_appellant" in body
+    assert "HIGH (" in body
+    assert "LOW (0)" in body
 
 
 @pytest.mark.asyncio
