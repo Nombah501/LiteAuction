@@ -118,6 +118,7 @@ def _render_points_text(
             if global_daily_spend_cap > 0
             else "Глобальный лимит списания на бусты: без ограничений"
         ),
+        f"Минимальный остаток после буста: {max(settings.points_redemption_min_balance, 0)} points",
         f"Глобальный кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
         (
             f"До следующего буста: {cooldown_remaining_seconds} сек"

@@ -34,8 +34,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #60: points utility v2.5 per-utility boost cooldown policies.
   - PR #61: points utility v2.6 policy visibility parity in modstats/dashboard.
   - PR #62: points utility v2.7 global daily redemption cap.
-- In progress:
   - PR #63: points utility v2.8 global daily redemption spend cap.
+- In progress:
+  - PR #64: points utility v2.9 minimum retained balance guardrail.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -187,6 +188,12 @@ Acceptance:
 - Add configurable global daily spend cap for boost redemptions (`feedback`, `guarantor`, `appeal`).
 - Enforce spend cap alongside existing per-utility limits, global daily redemption cap, and cooldown guardrails.
 - Surface global daily spend cap policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
+
+### PR-64: Points Utility v2.9 Minimum Retained Balance Guardrail
+
+- Add configurable minimum retained points balance after boost redemption.
+- Enforce retained-balance guardrail across `feedback`, `guarantor`, and `appeal` boost redemptions.
+- Surface retained-balance policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
 
 ## Non-Goals for Sprint 32
 

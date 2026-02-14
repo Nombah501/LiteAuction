@@ -105,6 +105,7 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 2)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 50)
+    monkeypatch.setattr(settings, "points_redemption_min_balance", 12)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 75)
 
     request = _make_request(f"/manage/user/{user_id}")
@@ -126,6 +127,7 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     assert "Политика буста апелляций:</b> on | cost 13 | limit 4/day | cooldown 33s" in body
     assert "Глобальный дневной лимит редимпшена:</b> 0/2 (осталось 2)" in body
     assert "Глобальный лимит списания на бусты:</b> 0/50 points (осталось 50)" in body
+    assert "Минимальный остаток после буста:</b> 12 points" in body
     assert "Глобальный кулдаун редимпшена:</b> 75 сек" in body
     assert "Награда за фидбек" in body
     assert "Ручная корректировка" in body
@@ -232,6 +234,7 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 5)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 80)
+    monkeypatch.setattr(settings, "points_redemption_min_balance", 20)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 77)
 
     request = _make_request("/")
@@ -256,6 +259,7 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     assert "Policy appeal:</b> on | cost 20 | limit 1/day | cooldown 33s" in body
     assert "Global redemption daily limit:</b> 5/day" in body
     assert "Global redemption daily spend cap:</b> 80 points/day" in body
+    assert "Min balance after redemption:</b> 20 points" in body
     assert "Global redemption cooldown:</b> 77s" in body
 
 

@@ -75,6 +75,7 @@ async def test_points_command_shows_balance_and_history(monkeypatch, integration
     assert "Лимит бустов апелляций сегодня:" in reply_text
     assert "Глобальный лимит бустов в день:" in reply_text
     assert "Глобальный лимит списания на бусты:" in reply_text
+    assert "Минимальный остаток после буста:" in reply_text
     assert "Глобальный кулдаун между бустами:" in reply_text
     assert "Последние операции (до 5):" in reply_text
     assert "-5" in reply_text
@@ -195,6 +196,7 @@ async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 15)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 2)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 50)
+    monkeypatch.setattr(settings, "points_redemption_min_balance", 15)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 3600)
 
     message = _DummyMessage(from_user_id=93641)
@@ -226,6 +228,7 @@ async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch
     assert "Кулдаун буста апелляции: 15 сек" in reply_text
     assert "Глобальный лимит бустов в день: 1/2 (осталось 1)" in reply_text
     assert "Глобальный лимит списания на бусты: 10/50 points (осталось 40)" in reply_text
+    assert "Минимальный остаток после буста: 15 points" in reply_text
     assert "До следующего буста:" in reply_text
 
 

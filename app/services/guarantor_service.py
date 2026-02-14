@@ -360,6 +360,15 @@ async def redeem_guarantor_priority_boost(
         return GuarantorPriorityBoostResult(False, f"Следующий буст доступен через {cooldown_remaining} сек")
 
     cost = policy.cost_points
+    min_balance = max(settings.points_redemption_min_balance, 0)
+    if min_balance > 0:
+        current_balance = await get_user_points_balance(session, user_id=submitter_user_id)
+        if current_balance - cost < min_balance:
+            return GuarantorPriorityBoostResult(
+                False,
+                f"Нужно сохранить минимум {min_balance} points после буста (доступно {current_balance})",
+            )
+
     spend_result = await spend_points(
         session,
         user_id=submitter_user_id,
