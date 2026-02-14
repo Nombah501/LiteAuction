@@ -8,8 +8,8 @@ from starlette.requests import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import ModerationAction, PointsEventType
-from app.db.models import ModerationLog, PointsLedgerEntry, User
+from app.db.enums import AuctionStatus, ModerationAction, PointsEventType
+from app.db.models import Auction, ModerationLog, PointsLedgerEntry, TradeFeedback, User
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -154,6 +154,84 @@ async def test_manage_user_points_filter_and_paging(monkeypatch, integration_eng
     assert "manual-0" in body
     assert "manual-10" not in body
     assert "points_page=1&amp;points_filter=manual" in body
+
+
+@pytest.mark.asyncio
+async def test_manage_user_shows_trade_feedback_reputation(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            target = User(tg_user_id=93871, username="seller_target")
+            author_visible = User(tg_user_id=93872, username="winner_visible")
+            author_hidden = User(tg_user_id=93873, username="winner_hidden")
+            session.add_all([target, author_visible, author_hidden])
+            await session.flush()
+
+            auction_visible = Auction(
+                seller_user_id=target.id,
+                winner_user_id=author_visible.id,
+                description="visible feedback auction",
+                photo_file_id="photo",
+                start_price=100,
+                buyout_price=None,
+                min_step=5,
+                duration_hours=24,
+                status=AuctionStatus.ENDED,
+            )
+            auction_hidden = Auction(
+                seller_user_id=target.id,
+                winner_user_id=author_hidden.id,
+                description="hidden feedback auction",
+                photo_file_id="photo",
+                start_price=120,
+                buyout_price=None,
+                min_step=5,
+                duration_hours=24,
+                status=AuctionStatus.BOUGHT_OUT,
+            )
+            session.add_all([auction_visible, auction_hidden])
+            await session.flush()
+
+            session.add_all(
+                [
+                    TradeFeedback(
+                        auction_id=auction_visible.id,
+                        author_user_id=author_visible.id,
+                        target_user_id=target.id,
+                        rating=5,
+                        comment="Отличная сделка",
+                        status="VISIBLE",
+                    ),
+                    TradeFeedback(
+                        auction_id=auction_hidden.id,
+                        author_user_id=author_hidden.id,
+                        target_user_id=target.id,
+                        rating=2,
+                        comment="Скрытый отзыв",
+                        status="HIDDEN",
+                    ),
+                ]
+            )
+            target_user_id = target.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+
+    request = _make_request(f"/manage/user/{target_user_id}")
+    response = await manage_user(request, user_id=target_user_id)
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "Репутация по сделкам" in body
+    assert "Отзывов получено:</b> 2" in body
+    assert "Видимых отзывов:</b> 1" in body
+    assert "Скрытых отзывов:</b> 1" in body
+    assert "Средняя оценка (видимые):</b> 5.0" in body
+    assert "Отличная сделка" in body
+    assert "Скрытый отзыв" in body
+    assert "Открыть отзывы пользователя в модерации" in body
 
 
 @pytest.mark.asyncio

@@ -71,7 +71,11 @@ from app.services.points_service import (
     list_user_points_entries,
 )
 from app.services.risk_eval_service import UserRiskSnapshot, evaluate_user_risk_snapshot, format_risk_reason_label
-from app.services.trade_feedback_service import set_trade_feedback_visibility
+from app.services.trade_feedback_service import (
+    get_trade_feedback_summary,
+    list_received_trade_feedback,
+    set_trade_feedback_visibility,
+)
 from app.web.auth import (
     AdminAuthContext,
     build_admin_session_cookie,
@@ -1520,6 +1524,9 @@ async def manage_user(
             event_type=points_filter_value,
         )
 
+        trade_feedback_summary = await get_trade_feedback_summary(session, target_user_id=user.id)
+        trade_feedback_received = await list_received_trade_feedback(session, target_user_id=user.id, limit=10)
+
     can_ban_users = auth.can(SCOPE_USER_BAN)
     can_manage_roles = auth.can(SCOPE_ROLE_MANAGE)
     csrf_input = _csrf_hidden_input(request, auth)
@@ -1618,6 +1625,25 @@ async def manage_user(
     if not points_rows:
         points_rows = "<tr><td colspan='4'><span class='empty-state'>Нет операций</span></td></tr>"
 
+    trade_feedback_rows = "".join(
+        "<tr>"
+        f"<td>{view.item.id}</td>"
+        f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{view.auction.id}'))}'>{escape(str(view.auction.id))}</a></td>"
+        f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{view.author.id}'))}'>{escape(f'@{view.author.username}' if view.author.username else str(view.author.tg_user_id))}</a></td>"
+        f"<td>{view.item.rating}/5</td>"
+        f"<td>{'Виден' if view.item.status == 'VISIBLE' else 'Скрыт'}</td>"
+        f"<td>{escape((view.item.comment or '-')[:180])}</td>"
+        f"<td>{escape(_fmt_ts(view.item.created_at))}</td>"
+        "</tr>"
+        for view in trade_feedback_received
+    )
+    if not trade_feedback_rows:
+        trade_feedback_rows = "<tr><td colspan='7'><span class='empty-state'>Нет отзывов</span></td></tr>"
+
+    average_trade_rating_text = "-"
+    if trade_feedback_summary.average_visible_rating is not None:
+        average_trade_rating_text = f"{trade_feedback_summary.average_visible_rating:.1f}"
+
     def _points_manage_path(target_page: int, filter_query: str) -> str:
         query = urlencode({"points_page": str(target_page), "points_filter": filter_query})
         return f"/manage/user/{user.id}?{query}"
@@ -1688,6 +1714,10 @@ async def manage_user(
         f"<div class='kpi'><b>Начислено всего:</b> +{points_summary.total_earned}</div>"
         f"<div class='kpi'><b>Списано всего:</b> -{points_summary.total_spent}</div>"
         f"<div class='kpi'><b>Points операций:</b> {points_summary.operations_count}</div>"
+        f"<div class='kpi'><b>Отзывов получено:</b> {trade_feedback_summary.total_received}</div>"
+        f"<div class='kpi'><b>Видимых отзывов:</b> {trade_feedback_summary.visible_received}</div>"
+        f"<div class='kpi'><b>Скрытых отзывов:</b> {trade_feedback_summary.hidden_received}</div>"
+        f"<div class='kpi'><b>Средняя оценка (видимые):</b> {average_trade_rating_text}</div>"
         f"<div class='card'>{controls}</div>"
         "<h2>Rewards / points</h2>"
         f"{points_adjust_form}"
@@ -1697,6 +1727,10 @@ async def manage_user(
         "<table><thead><tr><th>Created</th><th>Amount</th><th>Type</th><th>Reason</th></tr></thead>"
         f"<tbody>{points_rows}</tbody></table>"
         f"{points_pager}"
+        "<h2>Репутация по сделкам</h2>"
+        "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Оценка</th><th>Статус</th><th>Комментарий</th><th>Создано</th></tr></thead>"
+        f"<tbody>{trade_feedback_rows}</tbody></table>"
+        f"<p><a href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&q={user.tg_user_id}'))}'>Открыть отзывы пользователя в модерации</a></p>"
         "<h2>Последние жалобы на пользователя</h2>"
         "<table><thead><tr><th>ID</th><th>Auction</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
         f"<tbody>{complaints_rows}</tbody></table>"
