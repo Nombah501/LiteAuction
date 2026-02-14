@@ -340,6 +340,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 80)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 15)
     monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 3600)
+    monkeypatch.setattr(settings, "points_redemption_min_earned_points", 45)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 77)
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
@@ -400,6 +401,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     assert "global daily spend cap: 80 points/day" in text
     assert "min balance after redemption: 15 points" in text
     assert "min account age for redemption: 3600s" in text
+    assert "min earned points for redemption: 45 points" in text
     assert "global cooldown: 77s" in text
 
 

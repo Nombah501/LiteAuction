@@ -108,6 +108,7 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 50)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 12)
     monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 3600)
+    monkeypatch.setattr(settings, "points_redemption_min_earned_points", 40)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 75)
 
     request = _make_request(f"/manage/user/{user_id}")
@@ -132,6 +133,7 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     assert "Глобальный лимит списания на бусты:</b> 0/50 points (осталось 50)" in body
     assert "Минимальный остаток после буста:</b> 12 points" in body
     assert "Мин. возраст аккаунта для буста:</b> 3600 сек" in body
+    assert "Мин. начислено points для буста:</b> 40 points" in body
     assert "Глобальный кулдаун редимпшена:</b> 75 сек" in body
     assert "Награда за фидбек" in body
     assert "Ручная корректировка" in body
@@ -241,6 +243,7 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 80)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 20)
     monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 120)
+    monkeypatch.setattr(settings, "points_redemption_min_earned_points", 55)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 77)
 
     request = _make_request("/")
@@ -268,6 +271,7 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     assert "Global redemption daily spend cap:</b> 80 points/day" in body
     assert "Min balance after redemption:</b> 20 points" in body
     assert "Min account age for redemption:</b> 120s" in body
+    assert "Min earned points for redemption:</b> 55 points" in body
     assert "Global redemption cooldown:</b> 77s" in body
 
 

@@ -519,6 +519,64 @@ async def test_appeal_priority_boost_requires_min_account_age(monkeypatch, integ
 
 
 @pytest.mark.asyncio
+async def test_appeal_priority_boost_requires_min_earned_points(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "points_redemption_enabled", True)
+    monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 0)
+    monkeypatch.setattr(settings, "points_redemption_min_earned_points", 30)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=88624, username="appeal_min_earned")
+            session.add(appellant)
+            await session.flush()
+
+            appeal = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_min_earned_points",
+            )
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=appellant.id,
+                    amount=20,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:appeal:boost:min_earned_points",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            result = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal.id,
+                appellant_user_id=appellant.id,
+            )
+
+    assert result.ok is False
+    assert "нужно заработать минимум" in result.message.lower()
+
+    async with session_factory() as session:
+        stored = await session.scalar(select(Appeal).where(Appeal.id == appeal.id))
+        spend_row = await session.scalar(
+            select(PointsLedgerEntry).where(PointsLedgerEntry.event_type == PointsEventType.APPEAL_PRIORITY_BOOST)
+        )
+
+    assert stored is not None
+    assert stored.priority_boosted_at is None
+    assert stored.priority_boost_points_spent == 0
+    assert spend_row is None
+
+
+@pytest.mark.asyncio
 async def test_appeal_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
     from app.config import settings
 

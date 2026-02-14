@@ -893,6 +893,7 @@ async def dashboard(request: Request) -> Response:
         f"{global_daily_spend_cap_line}"
         f"<div class='kpi'><b>Min balance after redemption:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
         f"<div class='kpi'><b>Min account age for redemption:</b> {max(settings.points_redemption_min_account_age_seconds, 0)}s</div>"
+        f"<div class='kpi'><b>Min earned points for redemption:</b> {max(settings.points_redemption_min_earned_points, 0)} points</div>"
         f"<div class='kpi'><b>Global redemption cooldown:</b> {max(settings.points_redemption_cooldown_seconds, 0)}s</div>"
         "<hr>"
         "<ul>"
@@ -1920,6 +1921,14 @@ async def manage_user(
         min_account_age_text = (
             f"{min_account_age_required} сек (осталось {min_account_age_remaining})"
         )
+    min_earned_points_required = max(settings.points_redemption_min_earned_points, 0)
+    min_earned_points_remaining = max(min_earned_points_required - points_summary.total_earned, 0)
+    min_earned_points_text = f"{min_earned_points_required} points"
+    if min_earned_points_required > 0:
+        min_earned_points_text = (
+            f"{min_earned_points_required} points (начислено {points_summary.total_earned}, "
+            f"осталось {min_earned_points_remaining})"
+        )
 
     body = (
         f"<h1>Управление пользователем {user.id}</h1>"
@@ -1953,6 +1962,7 @@ async def manage_user(
         f"<div class='kpi'><b>Глобальный лимит списания на бусты:</b> {global_daily_spend_text}</div>"
         f"<div class='kpi'><b>Минимальный остаток после буста:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
         f"<div class='kpi'><b>Мин. возраст аккаунта для буста:</b> {min_account_age_text}</div>"
+        f"<div class='kpi'><b>Мин. начислено points для буста:</b> {min_earned_points_text}</div>"
         f"<div class='kpi'><b>Глобальный кулдаун редимпшена:</b> {max(settings.points_redemption_cooldown_seconds, 0)} сек</div>"
         f"<div class='kpi'><b>Отзывов получено:</b> {trade_feedback_summary.total_received}</div>"
         f"<div class='kpi'><b>Видимых отзывов:</b> {trade_feedback_summary.visible_received}</div>"

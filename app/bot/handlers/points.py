@@ -70,6 +70,8 @@ def _render_points_text(
     global_remaining_today = max(global_daily_limit - redemptions_used_today, 0)
     global_daily_spend_cap = max(settings.points_redemption_daily_spend_cap, 0)
     global_spend_remaining_today = max(global_daily_spend_cap - redemptions_spent_today, 0)
+    min_earned_points = max(settings.points_redemption_min_earned_points, 0)
+    min_earned_points_remaining = max(min_earned_points - summary.total_earned, 0)
 
     lines = [
         f"Ваш баланс: {summary.balance} points",
@@ -126,11 +128,17 @@ def _render_points_text(
             "Минимальный возраст аккаунта для буста: "
             f"{max(settings.points_redemption_min_account_age_seconds, 0)} сек"
         ),
+        f"Минимум заработанных points для буста: {min_earned_points} points",
         f"Глобальный кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
         (
             f"До доступа к бустам по возрасту аккаунта: {account_age_remaining_seconds} сек"
             if account_age_remaining_seconds > 0
             else "Ограничение по возрасту аккаунта: выполнено"
+        ),
+        (
+            f"До допуска по заработанным points: {min_earned_points_remaining} points"
+            if min_earned_points_remaining > 0
+            else "Ограничение по заработанным points: выполнено"
         ),
         (
             f"До следующего буста: {cooldown_remaining_seconds} сек"
