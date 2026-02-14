@@ -38,8 +38,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #64: points utility v2.9 minimum retained balance guardrail.
   - PR #65: points utility v3.0 global redemption kill-switch.
   - PR #66: points utility v3.1 minimum account age guardrail.
-- In progress:
   - PR #67: points utility v3.2 minimum earned points guardrail.
+- In progress:
+  - PR #68: points utility v3.3 weekly spend cap guardrail.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -215,6 +216,12 @@ Acceptance:
 - Add configurable minimum earned points gate for boost redemptions.
 - Enforce earned-points guardrail across `feedback`, `guarantor`, and `appeal` boost redemptions.
 - Surface earned-points policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
+
+### PR-68: Points Utility v3.3 Weekly Spend Cap Guardrail
+
+- Add configurable global weekly spend cap for boost redemptions.
+- Enforce weekly spend cap across `feedback`, `guarantor`, and `appeal` boost redemptions.
+- Surface weekly spend cap policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
 
 ## Non-Goals for Sprint 32
 
