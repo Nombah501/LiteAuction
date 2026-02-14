@@ -10,6 +10,7 @@ from app.config import settings
 from app.db.enums import GuarantorRequestStatus, PointsEventType
 from app.db.models import GuarantorRequest, User
 from app.services.points_service import (
+    get_points_redemption_account_age_remaining_seconds,
     get_points_event_redemption_cooldown_remaining_seconds,
     get_points_redemptions_spent_today,
     get_points_redemptions_used_today,
@@ -312,6 +313,17 @@ async def redeem_guarantor_priority_boost(
     now = datetime.now(UTC)
     if not settings.points_redemption_enabled:
         return GuarantorPriorityBoostResult(False, "Редимпшены points временно отключены")
+    account_age_remaining = await get_points_redemption_account_age_remaining_seconds(
+        session,
+        user_id=submitter_user_id,
+        min_account_age_seconds=settings.points_redemption_min_account_age_seconds,
+        now=now,
+    )
+    if account_age_remaining > 0:
+        return GuarantorPriorityBoostResult(
+            False,
+            f"Бусты станут доступны через {account_age_remaining} сек после регистрации",
+        )
     policy = await get_guarantor_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if not policy.enabled:
         return GuarantorPriorityBoostResult(False, "Буст гаранта временно отключен")

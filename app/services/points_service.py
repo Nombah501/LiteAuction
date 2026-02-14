@@ -317,6 +317,31 @@ async def get_points_event_redemption_cooldown_remaining_seconds(
     return max(math.ceil(safe_cooldown - elapsed_seconds), 0)
 
 
+async def get_points_redemption_account_age_remaining_seconds(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    min_account_age_seconds: int,
+    now: datetime | None = None,
+) -> int:
+    safe_min_age = max(int(min_account_age_seconds), 0)
+    if safe_min_age <= 0:
+        return 0
+
+    current_time = now or datetime.now(UTC)
+    created_at = await session.scalar(select(User.created_at).where(User.id == user_id))
+    if created_at is None:
+        return 0
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+
+    elapsed_seconds = (current_time - created_at).total_seconds()
+    if elapsed_seconds >= safe_min_age:
+        return 0
+
+    return max(math.ceil(safe_min_age - elapsed_seconds), 0)
+
+
 async def get_points_redemptions_used_today(
     session: AsyncSession,
     *,

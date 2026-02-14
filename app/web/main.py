@@ -68,6 +68,7 @@ from app.services.moderation_service import (
 )
 from app.services.points_service import (
     count_user_points_entries,
+    get_points_redemption_account_age_remaining_seconds,
     get_points_redemptions_spent_today,
     get_points_redemptions_used_today,
     get_user_points_summary,
@@ -891,6 +892,7 @@ async def dashboard(request: Request) -> Response:
         f"{global_daily_limit_line}"
         f"{global_daily_spend_cap_line}"
         f"<div class='kpi'><b>Min balance after redemption:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
+        f"<div class='kpi'><b>Min account age for redemption:</b> {max(settings.points_redemption_min_account_age_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Global redemption cooldown:</b> {max(settings.points_redemption_cooldown_seconds, 0)}s</div>"
         "<hr>"
         "<ul>"
@@ -1717,6 +1719,12 @@ async def manage_user(
             user_id=user.id,
             now=now,
         )
+        min_account_age_remaining = await get_points_redemption_account_age_remaining_seconds(
+            session,
+            user_id=user.id,
+            min_account_age_seconds=settings.points_redemption_min_account_age_seconds,
+            now=now,
+        )
 
         trade_feedback_summary = await get_trade_feedback_summary(session, target_user_id=user.id)
         trade_feedback_received = await list_received_trade_feedback(session, target_user_id=user.id, limit=10)
@@ -1906,6 +1914,12 @@ async def manage_user(
             f"{redemptions_spent_today}/{global_daily_spend_cap} points "
             f"(осталось {global_daily_spend_remaining})"
         )
+    min_account_age_required = max(settings.points_redemption_min_account_age_seconds, 0)
+    min_account_age_text = f"{min_account_age_required} сек"
+    if min_account_age_required > 0:
+        min_account_age_text = (
+            f"{min_account_age_required} сек (осталось {min_account_age_remaining})"
+        )
 
     body = (
         f"<h1>Управление пользователем {user.id}</h1>"
@@ -1938,6 +1952,7 @@ async def manage_user(
         f"<div class='kpi'><b>Глобальный дневной лимит редимпшена:</b> {global_daily_limit_text}</div>"
         f"<div class='kpi'><b>Глобальный лимит списания на бусты:</b> {global_daily_spend_text}</div>"
         f"<div class='kpi'><b>Минимальный остаток после буста:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
+        f"<div class='kpi'><b>Мин. возраст аккаунта для буста:</b> {min_account_age_text}</div>"
         f"<div class='kpi'><b>Глобальный кулдаун редимпшена:</b> {max(settings.points_redemption_cooldown_seconds, 0)} сек</div>"
         f"<div class='kpi'><b>Отзывов получено:</b> {trade_feedback_summary.total_received}</div>"
         f"<div class='kpi'><b>Видимых отзывов:</b> {trade_feedback_summary.visible_received}</div>"
