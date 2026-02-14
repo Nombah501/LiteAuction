@@ -163,6 +163,13 @@ def _parse_trade_feedback_status(raw: str) -> str:
     raise HTTPException(status_code=400, detail="Invalid trade feedback status filter")
 
 
+def _parse_trade_feedback_moderated_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "only", "none"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid trade feedback moderated filter")
+
+
 def _parse_trade_feedback_min_rating(raw: str) -> int | None:
     value = raw.strip()
     if not value:
@@ -1065,11 +1072,13 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
 async def trade_feedback(
     request: Request,
     status: str = "visible",
+    moderated: str = "all",
     page: int = 0,
     q: str = "",
     min_rating: str = "",
     author_tg: str = "",
     target_tg: str = "",
+    moderator_tg: str = "",
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -1079,10 +1088,12 @@ async def trade_feedback(
     page_size = 30
     offset = page * page_size
     status_value = _parse_trade_feedback_status(status)
+    moderated_value = _parse_trade_feedback_moderated_filter(moderated)
     query_value = q.strip()
     min_rating_value = _parse_trade_feedback_min_rating(min_rating)
     author_tg_value = _parse_optional_tg_user_id(author_tg)
     target_tg_value = _parse_optional_tg_user_id(target_tg)
+    moderator_tg_value = _parse_optional_tg_user_id(moderator_tg)
 
     author_user = aliased(User)
     target_user = aliased(User)
@@ -1099,6 +1110,11 @@ async def trade_feedback(
     if status_value != "all":
         stmt = stmt.where(TradeFeedback.status == status_value.upper())
 
+    if moderated_value == "only":
+        stmt = stmt.where(TradeFeedback.moderated_at.is_not(None))
+    elif moderated_value == "none":
+        stmt = stmt.where(TradeFeedback.moderated_at.is_(None))
+
     if min_rating_value is not None:
         stmt = stmt.where(TradeFeedback.rating >= min_rating_value)
 
@@ -1107,6 +1123,9 @@ async def trade_feedback(
 
     if target_tg_value is not None:
         stmt = stmt.where(target_user.tg_user_id == target_tg_value)
+
+    if moderator_tg_value is not None:
+        stmt = stmt.where(moderator_user.tg_user_id == moderator_tg_value)
 
     if query_value:
         auction_uuid: uuid.UUID | None = None
@@ -1150,6 +1169,7 @@ async def trade_feedback(
 
     base_query = {
         "status": status_value,
+        "moderated": moderated_value,
         "q": query_value,
     }
     if min_rating_value is not None:
@@ -1158,6 +1178,8 @@ async def trade_feedback(
         base_query["author_tg"] = str(author_tg_value)
     if target_tg_value is not None:
         base_query["target_tg"] = str(target_tg_value)
+    if moderator_tg_value is not None:
+        base_query["moderator_tg"] = str(moderator_tg_value)
 
     def _trade_feedback_path(*, page_value: int | None = None, **extra: str) -> str:
         query = dict(base_query)
@@ -1175,8 +1197,15 @@ async def trade_feedback(
         author_label = f"@{author.username}" if author.username else str(author.tg_user_id)
         target_label = f"@{target.username}" if target.username else str(target.tg_user_id)
         moderator_label = "-"
+        moderator_cell = "-"
         if moderator is not None:
             moderator_label = f"@{moderator.username}" if moderator.username else str(moderator.tg_user_id)
+            moderator_cell = (
+                f"<a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderator_tg=str(moderator.tg_user_id))))}'>"
+                f"{escape(moderator_label)}</a>"
+            )
+
+        moderation_note = escape((item.moderation_note or "-")[:160])
 
         status_label = "Виден" if item.status == "VISIBLE" else "Скрыт"
         action_form = "-"
@@ -1208,7 +1237,8 @@ async def trade_feedback(
             f"<td>{item.rating}/5</td>"
             f"<td>{escape((item.comment or '-')[:180])}</td>"
             f"<td>{status_label}</td>"
-            f"<td>{escape(moderator_label)}</td>"
+            f"<td>{moderator_cell}</td>"
+            f"<td>{moderation_note}</td>"
             f"<td>{escape(_fmt_ts(item.created_at))}</td>"
             f"<td>{escape(_fmt_ts(item.moderated_at))}</td>"
             f"<td>{action_form}</td>"
@@ -1216,7 +1246,7 @@ async def trade_feedback(
         )
 
     if not table_rows:
-        table_rows = "<tr><td colspan='11'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='12'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=page - 1)))}'>← Назад</a>"
@@ -1232,6 +1262,7 @@ async def trade_feedback(
     min_rating_text = "all" if min_rating_value is None else str(min_rating_value)
     author_filter_text = "all" if author_tg_value is None else str(author_tg_value)
     target_filter_text = "all" if target_tg_value is None else str(target_tg_value)
+    moderator_filter_text = "all" if moderator_tg_value is None else str(moderator_tg_value)
 
     body = (
         "<h1>Отзывы по сделкам</h1>"
@@ -1240,9 +1271,11 @@ async def trade_feedback(
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/trade-feedback'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
+        f"<input type='hidden' name='moderated' value='{escape(moderated_value)}'>"
         f"<input type='hidden' name='min_rating' value='{escape(min_rating_text if min_rating_text != 'all' else '')}'>"
         f"<input type='hidden' name='author_tg' value='{escape(author_filter_text if author_filter_text != 'all' else '')}'>"
         f"<input type='hidden' name='target_tg' value='{escape(target_filter_text if target_filter_text != 'all' else '')}'>"
+        f"<input type='hidden' name='moderator_tg' value='{escape(moderator_filter_text if moderator_filter_text != 'all' else '')}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='id / auction_id / username / tg id' style='width:320px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
@@ -1254,8 +1287,12 @@ async def trade_feedback(
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='')))}'>all</a> "
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='4')))}'>4+</a> "
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='5')))}'>5</a></p>"
-        f"<p>Автор TG: {escape(author_filter_text)} | Получатель TG: {escape(target_filter_text)}</p>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
+        f"<p>Модерация: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='all')))}'>all</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='only')))}'>только модерированные</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='none')))}'>без модерации</a></p>"
+        f"<p>Автор TG: {escape(author_filter_text)} | Получатель TG: {escape(target_filter_text)} | Модератор TG: {escape(moderator_filter_text)}</p>"
+        "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Примечание</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
@@ -2044,7 +2081,9 @@ async def manage_user(
         "<h2>Репутация по сделкам</h2>"
         "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Оценка</th><th>Статус</th><th>Комментарий</th><th>Создано</th></tr></thead>"
         f"<tbody>{trade_feedback_rows}</tbody></table>"
-        f"<p><a href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&q={user.tg_user_id}'))}'>Открыть отзывы пользователя в модерации</a></p>"
+        f"<p><a href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&target_tg={user.tg_user_id}'))}'>Отзывы о пользователе (все)</a> | "
+        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status=hidden&target_tg={user.tg_user_id}'))}'>Отзывы о пользователе (скрытые)</a> | "
+        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&author_tg={user.tg_user_id}'))}'>Отзывы, оставленные пользователем</a></p>"
         "<h2>Последние жалобы на пользователя</h2>"
         "<table><thead><tr><th>ID</th><th>Auction</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
         f"<tbody>{complaints_rows}</tbody></table>"
