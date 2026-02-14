@@ -12,6 +12,21 @@ Inputs:
 
 Reduce complaint pressure and improve trust transparency without introducing heavy user friction.
 
+## Execution Status (Current)
+
+- Done:
+  - PR #44: user risk snapshot indicators in admin.
+  - PR #45: high-risk guarantor publish gate.
+  - PR #46: appeals SLA states and escalation markers.
+  - PR #47: trust indicators on admin users and auctions lists.
+  - PR #48: trust indicators on appeals and fraud signals lists.
+  - PR #49: post-trade feedback foundation (bot intake + web moderation list).
+  - PR #50: manage user reputation summary based on trade feedback.
+- In progress:
+  - Reputation layer hardening (moderation ergonomics + reporting slices).
+- Next:
+  - Points utility/redemption first usable scenario.
+
 ## P0 Scope (Recommended)
 
 Implement shortlist items 1-3 first:
@@ -20,9 +35,9 @@ Implement shortlist items 1-3 first:
 2. Dispute SLA transparency and auto-escalation markers.
 3. Lightweight trust signals in admin/user-facing surfaces.
 
-## PR Sequence (Small Scoped)
+## Implemented Sequence
 
-### PR-43: Risk Flag Foundation
+### PR-44: Risk Flag Foundation
 
 - Add deterministic risk evaluation helper (auction + user context).
 - Persist evaluation payload in moderation-friendly format.
@@ -33,7 +48,7 @@ Acceptance:
 - Risk score and reasons visible in admin flow.
 - Integration tests for low/high-risk classification and payload stability.
 
-### PR-44: High-Risk Guarantor Gate
+### PR-45: High-Risk Guarantor Gate
 
 - Enforce guarantor requirement for high-risk auction paths.
 - Add explicit user-facing reason when action is blocked.
@@ -44,7 +59,7 @@ Acceptance:
 - High-risk paths blocked without guarantor.
 - Override requires scoped actor and is logged.
 
-### PR-45: Dispute SLA Surfacing
+### PR-46: Dispute SLA Surfacing
 
 - Display SLA deadline and escalation status in admin dispute views.
 - Add proactive escalation marker when deadline is near/past.
@@ -55,7 +70,7 @@ Acceptance:
 - SLA and escalation state visible in web panel.
 - Integration tests for on-time and overdue states.
 
-### PR-46: Trust Signal Surface
+### PR-47 + PR-48: Trust Signal Surface Expansion
 
 - Add lightweight trust badge/summary fields on manage user and auction-related admin views.
 - Source trust indicators from existing complaint/ban/moderation signals.
@@ -65,6 +80,41 @@ Acceptance:
 
 - Trust summary consistently renders for users with and without history.
 - Explanations remain stable under test fixtures.
+
+### PR-49: Post-Trade Feedback Foundation
+
+- Add `trade_feedback` domain table and migration.
+- Add bot intake command `/tradefeedback <auction_id> <1..5> [comment]`.
+- Add web moderation queue `/trade-feedback` with hide/unhide actions.
+
+Acceptance:
+
+- Feedback is accepted only for seller/winner on completed auctions.
+- Web moderation list supports filtering/search and visibility actions.
+
+### PR-50: Manage User Reputation Summary
+
+- Add reputation KPI block on `/manage/user/{id}`.
+- Show recent received feedback with status context.
+- Link profile-level view to moderation queue.
+
+Acceptance:
+
+- Reputation summary renders for users with and without feedback history.
+- Integration coverage validates summary math and table rendering.
+
+## Next Sequence (Planned)
+
+### PR-51: Reputation Moderation Ergonomics
+
+- Add faster moderation filters (rating thresholds, hidden-only shortcuts, actor-based drilldown).
+- Add moderation audit payload standardization for feedback visibility actions.
+
+### PR-52: Points Utility v1
+
+- Introduce first redeemable utility path for points.
+- Add anti-abuse limits and ledger-safe spend semantics.
+- Add basic user-facing usage docs and moderator controls.
 
 ## Non-Goals for Sprint 32
 
