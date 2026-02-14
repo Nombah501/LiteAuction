@@ -338,6 +338,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     monkeypatch.setattr(settings, "points_redemption_enabled", False)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 5)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 80)
+    monkeypatch.setattr(settings, "points_redemption_weekly_spend_cap", 240)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 15)
     monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 3600)
     monkeypatch.setattr(settings, "points_redemption_min_earned_points", 45)
@@ -399,6 +400,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     assert "redemptions: off" in text
     assert "global daily limit: 5/day" in text
     assert "global daily spend cap: 80 points/day" in text
+    assert "global weekly spend cap: 240 points/week" in text
     assert "min balance after redemption: 15 points" in text
     assert "min account age for redemption: 3600s" in text
     assert "min earned points for redemption: 45 points" in text

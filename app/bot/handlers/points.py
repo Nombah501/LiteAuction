@@ -18,6 +18,7 @@ from app.services.points_service import (
     UserPointsSummary,
     get_points_redemption_account_age_remaining_seconds,
     get_points_redemptions_spent_today,
+    get_points_redemptions_spent_this_week,
     get_points_redemptions_used_today,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_summary,
@@ -63,6 +64,7 @@ def _render_points_text(
     appeal_boost_policy: AppealPriorityBoostPolicy,
     redemptions_used_today: int,
     redemptions_spent_today: int,
+    redemptions_spent_this_week: int,
     cooldown_remaining_seconds: int,
     account_age_remaining_seconds: int,
 ) -> str:
@@ -70,6 +72,8 @@ def _render_points_text(
     global_remaining_today = max(global_daily_limit - redemptions_used_today, 0)
     global_daily_spend_cap = max(settings.points_redemption_daily_spend_cap, 0)
     global_spend_remaining_today = max(global_daily_spend_cap - redemptions_spent_today, 0)
+    global_weekly_spend_cap = max(settings.points_redemption_weekly_spend_cap, 0)
+    global_spend_remaining_week = max(global_weekly_spend_cap - redemptions_spent_this_week, 0)
     min_earned_points = max(settings.points_redemption_min_earned_points, 0)
     min_earned_points_remaining = max(min_earned_points - summary.total_earned, 0)
 
@@ -121,6 +125,12 @@ def _render_points_text(
             f"(осталось {global_spend_remaining_today})"
             if global_daily_spend_cap > 0
             else "Глобальный лимит списания на бусты: без ограничений"
+        ),
+        (
+            f"Глобальный недельный лимит списания: {redemptions_spent_this_week}/{global_weekly_spend_cap} points "
+            f"(осталось {global_spend_remaining_week})"
+            if global_weekly_spend_cap > 0
+            else "Глобальный недельный лимит списания: без ограничений"
         ),
         f"Глобальный статус редимпшенов: {'доступны' if settings.points_redemption_enabled else 'временно отключены'}",
         f"Минимальный остаток после буста: {max(settings.points_redemption_min_balance, 0)} points",
@@ -204,6 +214,11 @@ async def command_points(message: Message) -> None:
                 user_id=user.id,
                 now=now,
             )
+            redemptions_spent_this_week = await get_points_redemptions_spent_this_week(
+                session,
+                user_id=user.id,
+                now=now,
+            )
             cooldown_remaining_seconds = await get_points_redemption_cooldown_remaining_seconds(
                 session,
                 user_id=user.id,
@@ -227,6 +242,7 @@ async def command_points(message: Message) -> None:
             appeal_boost_policy=appeal_boost_policy,
             redemptions_used_today=redemptions_used_today,
             redemptions_spent_today=redemptions_spent_today,
+            redemptions_spent_this_week=redemptions_spent_this_week,
             cooldown_remaining_seconds=cooldown_remaining_seconds,
             account_age_remaining_seconds=account_age_remaining_seconds,
         )

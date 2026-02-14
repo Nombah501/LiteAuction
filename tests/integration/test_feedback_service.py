@@ -459,6 +459,81 @@ async def test_feedback_priority_boost_requires_min_earned_points(monkeypatch, i
 
 
 @pytest.mark.asyncio
+async def test_feedback_priority_boost_respects_weekly_spend_cap(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "points_redemption_enabled", True)
+    monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 0)
+    monkeypatch.setattr(settings, "points_redemption_min_earned_points", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 0)
+    monkeypatch.setattr(settings, "points_redemption_weekly_spend_cap", 10)
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 0)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93045, username="boost_weekly_cap_submitter")
+            session.add(submitter)
+            await session.flush()
+
+            created = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.BUG,
+                content="Проверка недельного лимита списаний на бусты",
+            )
+            assert created.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=100,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:feedback:boost:weekly_cap:balance",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=-10,
+                    event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST,
+                    dedupe_key="seed:feedback:boost:weekly_cap:spent",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            result = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=created.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert result.ok is False
+    assert "недельный лимит" in result.message.lower()
+
+    async with session_factory() as session:
+        item = await session.scalar(select(FeedbackItem).where(FeedbackItem.submitter_user_id == submitter.id))
+        new_spend = await session.scalar(
+            select(PointsLedgerEntry).where(
+                PointsLedgerEntry.dedupe_key == f"boostfb:{created.item.id}:{submitter.id}"
+            )
+        )
+
+    assert item is not None
+    assert item.priority_boosted_at is None
+    assert item.priority_boost_points_spent == 0
+    assert new_spend is None
+
+
+@pytest.mark.asyncio
 async def test_feedback_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
     from app.config import settings
 

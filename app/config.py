@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     points_redemption_cooldown_seconds: int = 60
     points_redemption_daily_limit: int = 0
     points_redemption_daily_spend_cap: int = 0
+    points_redemption_weekly_spend_cap: int = 0
     points_redemption_min_balance: int = 0
     points_redemption_min_account_age_seconds: int = 0
     points_redemption_min_earned_points: int = 0

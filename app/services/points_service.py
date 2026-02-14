@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import math
 
 from sqlalchemy import case, func, select
@@ -378,3 +378,23 @@ async def get_points_redemptions_spent_today(
         )
     )
     return int(spent_today or 0)
+
+
+async def get_points_redemptions_spent_this_week(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    now: datetime | None = None,
+) -> int:
+    current_time = now or datetime.now(UTC)
+    day_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = day_start - timedelta(days=day_start.weekday())
+    spent_this_week = await session.scalar(
+        select(func.coalesce(func.sum(-PointsLedgerEntry.amount), 0)).where(
+            PointsLedgerEntry.user_id == user_id,
+            PointsLedgerEntry.amount < 0,
+            PointsLedgerEntry.event_type.in_(BOOST_REDEMPTION_EVENT_TYPES),
+            PointsLedgerEntry.created_at >= week_start,
+        )
+    )
+    return int(spent_this_week or 0)
