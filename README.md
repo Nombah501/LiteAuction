@@ -390,7 +390,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 
 High-risk sellers cannot publish drafts until a guarantor request is assigned by moderation.
 
-Trade feedback moderation list is available in admin web: `/trade-feedback`.
+Trade feedback moderation list is available in admin web: `/trade-feedback` (status/rating/actor filters).
 
 - Include moderation queue destination in env (recommended):
 
