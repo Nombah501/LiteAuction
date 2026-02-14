@@ -501,6 +501,11 @@ async def _render_mod_stats_text() -> str:
         global_weekly_spend_cap_text = (
             f"- global weekly spend cap: {settings.points_redemption_weekly_spend_cap} points/week\n"
         )
+    global_monthly_spend_cap_text = "- global monthly spend cap: unlimited\n"
+    if settings.points_redemption_monthly_spend_cap > 0:
+        global_monthly_spend_cap_text = (
+            f"- global monthly spend cap: {settings.points_redemption_monthly_spend_cap} points/month\n"
+        )
 
     return (
         "Статистика модерации\n"
@@ -552,6 +557,7 @@ async def _render_mod_stats_text() -> str:
         f"{global_weekly_limit_text}"
         f"{global_daily_spend_cap_text}"
         f"{global_weekly_spend_cap_text}"
+        f"{global_monthly_spend_cap_text}"
         f"- min balance after redemption: {max(settings.points_redemption_min_balance, 0)} points\n"
         f"- min account age for redemption: {max(settings.points_redemption_min_account_age_seconds, 0)}s\n"
         f"- min earned points for redemption: {max(settings.points_redemption_min_earned_points, 0)} points\n"
