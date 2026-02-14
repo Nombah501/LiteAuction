@@ -199,6 +199,10 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     assert response.status_code == 200
     assert "Points utility" in body
     assert "Активные points-пользователи (7д):</b> 1" in body
+    assert "Пользователи с положительным балансом:</b> 2" in body
+    assert "Редимеры points (7д):</b> 1 (50.0%)" in body
+    assert "Редимеры фидбек-буста (7д):</b> 1" in body
+    assert "Редимеры буста гаранта (7д):</b> 0" in body
     assert "Points начислено (24ч):</b> +30" in body
     assert "Points списано (24ч):</b> -10" in body
     assert "Бустов фидбека (24ч):</b> 1" in body

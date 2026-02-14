@@ -30,6 +30,10 @@ class ModerationDashboardSnapshot:
     users_converted_after_hint: int
     users_pending_after_hint: int
     points_active_users_7d: int
+    points_users_with_positive_balance: int
+    points_redeemers_7d: int
+    points_feedback_boost_redeemers_7d: int
+    points_guarantor_boost_redeemers_7d: int
     points_earned_24h: int
     points_spent_24h: int
     feedback_boost_redeems_24h: int
@@ -134,6 +138,39 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
             select(func.count(func.distinct(PointsLedgerEntry.user_id))).where(PointsLedgerEntry.created_at >= seven_days)
         )
     ) or 0
+    users_with_positive_balance_subq = (
+        select(PointsLedgerEntry.user_id)
+        .group_by(PointsLedgerEntry.user_id)
+        .having(func.sum(PointsLedgerEntry.amount) > 0)
+        .subquery()
+    )
+    points_users_with_positive_balance = (
+        await session.scalar(select(func.count()).select_from(users_with_positive_balance_subq))
+    ) or 0
+    points_redeemers_7d = (
+        await session.scalar(
+            select(func.count(func.distinct(PointsLedgerEntry.user_id))).where(
+                PointsLedgerEntry.created_at >= seven_days,
+                PointsLedgerEntry.amount < 0,
+            )
+        )
+    ) or 0
+    points_feedback_boost_redeemers_7d = (
+        await session.scalar(
+            select(func.count(func.distinct(PointsLedgerEntry.user_id))).where(
+                PointsLedgerEntry.created_at >= seven_days,
+                PointsLedgerEntry.event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST,
+            )
+        )
+    ) or 0
+    points_guarantor_boost_redeemers_7d = (
+        await session.scalar(
+            select(func.count(func.distinct(PointsLedgerEntry.user_id))).where(
+                PointsLedgerEntry.created_at >= seven_days,
+                PointsLedgerEntry.event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST,
+            )
+        )
+    ) or 0
     points_earned_24h = (
         await session.scalar(
             select(func.coalesce(func.sum(PointsLedgerEntry.amount), 0)).where(
@@ -178,6 +215,10 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
         users_converted_after_hint=int(users_converted_after_hint),
         users_pending_after_hint=int(users_pending_after_hint),
         points_active_users_7d=int(points_active_users_7d),
+        points_users_with_positive_balance=int(points_users_with_positive_balance),
+        points_redeemers_7d=int(points_redeemers_7d),
+        points_feedback_boost_redeemers_7d=int(points_feedback_boost_redeemers_7d),
+        points_guarantor_boost_redeemers_7d=int(points_guarantor_boost_redeemers_7d),
         points_earned_24h=int(points_earned_24h),
         points_spent_24h=int(points_spent_24h),
         feedback_boost_redeems_24h=int(feedback_boost_redeems_24h),
