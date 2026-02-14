@@ -15,6 +15,7 @@ from app.services.points_service import (
     get_points_redemptions_spent_today,
     get_points_redemptions_spent_this_week,
     get_points_redemptions_used_today,
+    get_points_redemptions_used_this_week,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_balance,
     get_user_points_summary,
@@ -361,6 +362,19 @@ async def redeem_guarantor_priority_boost(
             return GuarantorPriorityBoostResult(
                 False,
                 f"Достигнут глобальный дневной лимит бустов ({global_daily_limit})",
+            )
+
+    global_weekly_limit = max(settings.points_redemption_weekly_limit, 0)
+    if global_weekly_limit > 0:
+        used_this_week = await get_points_redemptions_used_this_week(
+            session,
+            user_id=submitter_user_id,
+            now=now,
+        )
+        if used_this_week >= global_weekly_limit:
+            return GuarantorPriorityBoostResult(
+                False,
+                f"Достигнут глобальный недельный лимит бустов ({global_weekly_limit})",
             )
 
     global_daily_spend_cap = max(settings.points_redemption_daily_spend_cap, 0)
