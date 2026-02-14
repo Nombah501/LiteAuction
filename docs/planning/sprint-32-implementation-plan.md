@@ -41,12 +41,13 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #67: points utility v3.2 minimum earned points guardrail.
   - PR #68: points utility v3.3 weekly spend cap guardrail.
   - PR #69: points utility v3.4 weekly redemption cap guardrail.
-- PR #70: points utility v3.5 monthly spend cap guardrail.
+  - PR #70: points utility v3.5 monthly spend cap guardrail.
+  - PR #71: integration DB safety hardening + docs sync.
 - In progress:
-  - None (ready for next incremental redeem-mechanics slice).
+  - None.
 - Next:
-  - PR #71 candidate: points utility v3.6 monthly redemption cap guardrail.
-  - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
+  - Switch feature stream from points mechanics to trust/moderation product increments.
+  - Candidate PR #72: moderation ergonomics pass on trade feedback queue and manage-user trust context.
 
 ## Functional Coverage Snapshot (After PR-70)
 
@@ -57,7 +58,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
 - Policy visibility parity: `/points`, `/modstats`, web dashboard, `/manage/user/{id}`.
 - Integration coverage includes positive and negative paths for all listed global guardrails.
 
-## Remaining Gaps / Not Yet Implemented
+## Deferred Points Backlog (Non-Critical)
+
+Points stream is intentionally paused until there is proven product value uplift for redemptions.
 
 - Global monthly redemption count cap (count-based, parity with monthly spend cap).
 - Per-utility global spend/count caps (separate from per-utility daily limits and cooldowns).

@@ -78,7 +78,6 @@ jobs:
       BOT_TOKEN: test-token
       RUN_INTEGRATION_TESTS: "1"
       TEST_DATABASE_URL: postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_test
-      DATABASE_URL: postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,6 +94,8 @@ jobs:
           python -m pip install ".[dev]"
 
       - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
         run: alembic upgrade head
 
       - name: Run DB integration tests
