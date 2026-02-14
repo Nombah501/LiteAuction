@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from app.bot.keyboards.auction import start_private_keyboard
 from app.db.session import SessionFactory
-from app.services.appeal_service import create_appeal_from_ref
+from app.services.appeal_service import create_appeal_from_ref, redeem_appeal_priority_boost
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.user_service import upsert_user
 
@@ -32,6 +32,17 @@ def _appeal_acceptance_text(appeal_id: int) -> str:
     )
 
 
+def _extract_boost_appeal_id(text: str | None) -> int | None:
+    raw = (text or "").strip()
+    parts = raw.split(maxsplit=1)
+    if len(parts) != 2:
+        return None
+    candidate = parts[1].strip()
+    if not candidate.isdigit():
+        return None
+    return int(candidate)
+
+
 async def _notify_moderators_about_appeal(
     bot: Bot,
     message: Message,
@@ -52,6 +63,60 @@ async def _notify_moderators_about_appeal(
     )
 
     await send_section_message(bot, section=ModerationTopicSection.APPEALS, text=text)
+
+
+async def _notify_moderators_about_appeal_boost(
+    bot: Bot,
+    message: Message,
+    *,
+    appeal_id: int,
+) -> None:
+    if message.from_user is None:
+        return
+
+    username = f"@{message.from_user.username}" if message.from_user.username else "-"
+    text = (
+        "⚡ Буст апелляции\n"
+        f"ID апелляции: {appeal_id}\n"
+        f"TG user id: {message.from_user.id}\n"
+        f"Юзернейм: {username}"
+    )
+    await send_section_message(bot, section=ModerationTopicSection.APPEALS, text=text)
+
+
+@router.message(Command("boostappeal"), F.chat.type == ChatType.PRIVATE)
+async def command_boost_appeal(message: Message, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+
+    appeal_id = _extract_boost_appeal_id(message.text)
+    if appeal_id is None:
+        await message.answer("Формат: /boostappeal <appeal_id>")
+        return
+
+    result_message = ""
+    result_changed = False
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            result = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal_id,
+                appellant_user_id=user.id,
+            )
+            if not result.ok:
+                await message.answer(result.message)
+                return
+
+            result_message = result.message
+            result_changed = result.changed
+
+    if result_changed:
+        await _notify_moderators_about_appeal_boost(bot, message, appeal_id=appeal_id)
+        await message.answer(f"{result_message}. Модераторы получили уведомление.")
+        return
+
+    await message.answer(result_message)
 
 
 @router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)

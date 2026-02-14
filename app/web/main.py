@@ -648,6 +648,8 @@ def _normalize_points_filter_query(raw: str | None) -> PointsEventType | None:
         return PointsEventType.FEEDBACK_PRIORITY_BOOST
     if value in {"gboost", "guarantor_priority_boost", "guarant_boost"}:
         return PointsEventType.GUARANTOR_PRIORITY_BOOST
+    if value in {"aboost", "appeal_priority_boost", "appeal_boost"}:
+        return PointsEventType.APPEAL_PRIORITY_BOOST
     raise HTTPException(status_code=400, detail="Invalid points filter")
 
 
@@ -660,6 +662,8 @@ def _points_filter_query_value(filter_value: PointsEventType | None) -> str:
         return "boost"
     if filter_value == PointsEventType.GUARANTOR_PRIORITY_BOOST:
         return "gboost"
+    if filter_value == PointsEventType.APPEAL_PRIORITY_BOOST:
+        return "aboost"
     return "manual"
 
 
@@ -670,6 +674,8 @@ def _points_event_label(event_type: PointsEventType) -> str:
         return "Списание за приоритет фидбека"
     if event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST:
         return "Списание за приоритет гаранта"
+    if event_type == PointsEventType.APPEAL_PRIORITY_BOOST:
+        return "Списание за приоритет апелляции"
     return "Ручная корректировка"
 
 
@@ -858,9 +864,11 @@ async def dashboard(request: Request) -> Response:
         f"<div class='kpi'><b>Редимеры points (7д):</b> {snapshot.points_redeemers_7d} ({_pct(snapshot.points_redeemers_7d, snapshot.points_users_with_positive_balance)})</div>"
         f"<div class='kpi'><b>Редимеры фидбек-буста (7д):</b> {snapshot.points_feedback_boost_redeemers_7d}</div>"
         f"<div class='kpi'><b>Редимеры буста гаранта (7д):</b> {snapshot.points_guarantor_boost_redeemers_7d}</div>"
+        f"<div class='kpi'><b>Редимеры буста апелляции (7д):</b> {snapshot.points_appeal_boost_redeemers_7d}</div>"
         f"<div class='kpi'><b>Points начислено (24ч):</b> +{snapshot.points_earned_24h}</div>"
         f"<div class='kpi'><b>Points списано (24ч):</b> -{snapshot.points_spent_24h}</div>"
         f"<div class='kpi'><b>Бустов фидбека (24ч):</b> {snapshot.feedback_boost_redeems_24h}</div>"
+        f"<div class='kpi'><b>Бустов апелляций (24ч):</b> {snapshot.appeal_boost_redeems_24h}</div>"
         "<hr>"
         "<ul>"
         f"<li><a href='{escape(_path_with_auth(request, '/complaints?status=OPEN'))}'>Открытые жалобы</a></li>"
@@ -1785,6 +1793,7 @@ async def manage_user(
             f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'manual')))}'>manual</a>",
             f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'boost')))}'>boost</a>",
             f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'gboost')))}'>gboost</a>",
+            f"<a class='chip' href='{escape(_path_with_auth(request, _points_manage_path(1, 'aboost')))}'>aboost</a>",
         )
     )
 
@@ -2247,7 +2256,11 @@ async def appeals(
                 )
             )
 
-    stmt = stmt.order_by(Appeal.created_at.desc(), Appeal.id.desc()).offset(offset).limit(page_size + 1)
+    stmt = (
+        stmt.order_by(Appeal.priority_boosted_at.desc().nullslast(), Appeal.created_at.desc(), Appeal.id.desc())
+        .offset(offset)
+        .limit(page_size + 1)
+    )
 
     async with SessionFactory() as session:
         rows = (await session.execute(stmt)).all()
@@ -2287,6 +2300,8 @@ async def appeals(
             status_label += " ⏰"
         if appeal.escalated_at is not None or int(appeal.escalation_level or 0) > 0:
             status_label += " ⚠"
+        if appeal.priority_boosted_at is not None:
+            status_label += " ⚡"
         sla_state_label = _appeal_sla_state_label(appeal, now=now)
         escalation_marker = _appeal_escalation_marker(appeal)
         if appeal_status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:

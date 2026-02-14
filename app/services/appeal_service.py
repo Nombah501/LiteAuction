@@ -4,13 +4,18 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus
+from app.db.enums import AppealSourceType, AppealStatus, PointsEventType
 from app.db.models import Appeal, Complaint, FraudSignal
+from app.services.points_service import (
+    get_points_redemption_cooldown_remaining_seconds,
+    get_user_points_balance,
+    spend_points,
+)
 
 
 @dataclass(slots=True)
@@ -23,6 +28,22 @@ class AppealResolveResult:
 @dataclass(slots=True)
 class AppealEscalationResult:
     escalated: list[Appeal]
+
+
+@dataclass(slots=True)
+class AppealPriorityBoostResult:
+    ok: bool
+    message: str
+    appeal: Appeal | None = None
+    changed: bool = False
+
+
+@dataclass(slots=True)
+class AppealPriorityBoostPolicy:
+    cost_points: int
+    daily_limit: int
+    used_today: int
+    remaining_today: int
 
 
 def parse_appeal_ref(appeal_ref: str) -> tuple[AppealSourceType, int | None]:
@@ -284,3 +305,90 @@ async def reject_appeal(
         status=AppealStatus.REJECTED,
         note=note,
     )
+
+
+async def get_appeal_priority_boost_policy(
+    session: AsyncSession,
+    *,
+    appellant_user_id: int,
+    now: datetime | None = None,
+) -> AppealPriorityBoostPolicy:
+    current_time = now or datetime.now(UTC)
+    day_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    daily_limit = max(settings.appeal_priority_boost_daily_limit, 1)
+    cost_points = max(settings.appeal_priority_boost_cost_points, 1)
+    used_today = int(
+        await session.scalar(
+            select(func.count(Appeal.id)).where(
+                Appeal.appellant_user_id == appellant_user_id,
+                Appeal.priority_boosted_at.is_not(None),
+                Appeal.priority_boosted_at >= day_start,
+            )
+        )
+        or 0
+    )
+    remaining_today = max(daily_limit - used_today, 0)
+    return AppealPriorityBoostPolicy(
+        cost_points=cost_points,
+        daily_limit=daily_limit,
+        used_today=used_today,
+        remaining_today=remaining_today,
+    )
+
+
+async def redeem_appeal_priority_boost(
+    session: AsyncSession,
+    *,
+    appeal_id: int,
+    appellant_user_id: int,
+) -> AppealPriorityBoostResult:
+    appeal = await load_appeal(session, appeal_id, for_update=True)
+    if appeal is None:
+        return AppealPriorityBoostResult(False, "Апелляция не найдена")
+
+    if appeal.appellant_user_id != appellant_user_id:
+        return AppealPriorityBoostResult(False, "Можно бустить только свои апелляции")
+
+    status = AppealStatus(appeal.status)
+    if status not in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
+        return AppealPriorityBoostResult(False, "Буст доступен только для активных апелляций")
+
+    if appeal.priority_boosted_at is not None:
+        return AppealPriorityBoostResult(True, "Приоритет уже повышен", appeal=appeal, changed=False)
+
+    now = datetime.now(UTC)
+    policy = await get_appeal_priority_boost_policy(session, appellant_user_id=appellant_user_id, now=now)
+    if policy.remaining_today <= 0:
+        return AppealPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
+
+    cooldown_remaining = await get_points_redemption_cooldown_remaining_seconds(
+        session,
+        user_id=appellant_user_id,
+        cooldown_seconds=settings.points_redemption_cooldown_seconds,
+        now=now,
+    )
+    if cooldown_remaining > 0:
+        return AppealPriorityBoostResult(False, f"Следующий буст доступен через {cooldown_remaining} сек")
+
+    cost = policy.cost_points
+    spend_result = await spend_points(
+        session,
+        user_id=appellant_user_id,
+        amount=cost,
+        event_type=PointsEventType.APPEAL_PRIORITY_BOOST,
+        dedupe_key=f"boostap:{appeal_id}:{appellant_user_id}",
+        reason=f"Буст апелляции #{appeal_id}",
+        payload={"appeal_id": appeal_id, "utility": "appeal_priority_boost", "cost": cost},
+    )
+    if not spend_result.ok:
+        current_balance = await get_user_points_balance(session, user_id=appellant_user_id)
+        return AppealPriorityBoostResult(
+            False,
+            f"Недостаточно points для буста (нужно {cost}, доступно {current_balance})",
+        )
+
+    appeal.priority_boost_points_spent = cost
+    appeal.priority_boosted_at = now
+    appeal.updated_at = now
+    return AppealPriorityBoostResult(True, "Приоритет апелляции повышен", appeal=appeal, changed=True)

@@ -156,6 +156,8 @@ def _render_appeal_text(
         lines.append(f"SLA дедлайн: {appeal.sla_deadline_at}")
     if appeal.escalated_at is not None:
         lines.append(f"Эскалирована: {appeal.escalated_at}")
+    if appeal.priority_boost_points_spent > 0 and appeal.priority_boosted_at is not None:
+        lines.append(f"Приоритет: boosted ({appeal.priority_boost_points_spent} points) at {appeal.priority_boosted_at}")
     if appeal.resolution_note:
         lines.append(f"Решение: {appeal.resolution_note}")
     if resolver is not None:
@@ -172,7 +174,7 @@ async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
             await session.execute(
                 select(Appeal)
                 .where(Appeal.status.in_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]))
-                .order_by(Appeal.created_at.desc(), Appeal.id.desc())
+                .order_by(Appeal.priority_boosted_at.desc().nullslast(), Appeal.created_at.desc(), Appeal.id.desc())
                 .offset(offset)
                 .limit(PANEL_PAGE_SIZE + 1)
             )
@@ -183,13 +185,15 @@ async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
     now = datetime.now(UTC)
     items = []
     for item in visible:
+        boost_prefix = "⚡ " if item.priority_boosted_at is not None else ""
         overdue_prefix = "⏰ " if _appeal_is_overdue(item, now=now) else ""
-        items.append((item.id, f"{overdue_prefix}Апелляция #{item.id} | {item.status} | {item.appeal_ref}"))
+        items.append((item.id, f"{boost_prefix}{overdue_prefix}Апелляция #{item.id} | {item.status} | {item.appeal_ref}"))
 
     text_lines = [f"Активные апелляции, стр. {page + 1}"]
     for item in visible:
+        boost_suffix = " | boosted" if item.priority_boosted_at is not None else ""
         overdue_suffix = " | overdue" if _appeal_is_overdue(item, now=now) else ""
-        text_lines.append(f"- #{item.id} | status={item.status} | ref={item.appeal_ref}{overdue_suffix}")
+        text_lines.append(f"- #{item.id} | status={item.status} | ref={item.appeal_ref}{boost_suffix}{overdue_suffix}")
     if not visible:
         text_lines.append("- нет записей")
 
@@ -268,6 +272,8 @@ def _event_label(event_type: PointsEventType) -> str:
         return "Списание за приоритет фидбека"
     if event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST:
         return "Списание за приоритет гаранта"
+    if event_type == PointsEventType.APPEAL_PRIORITY_BOOST:
+        return "Списание за приоритет апелляции"
     return "Ручная корректировка"
 
 
@@ -285,6 +291,8 @@ def _parse_points_filter(raw: str | None) -> PointsEventType | None | Literal["i
         return PointsEventType.FEEDBACK_PRIORITY_BOOST
     if lowered in {"gboost", "guarantor_priority_boost", "guarant_boost"}:
         return PointsEventType.GUARANTOR_PRIORITY_BOOST
+    if lowered in {"aboost", "appeal_priority_boost", "appeal_boost"}:
+        return PointsEventType.APPEAL_PRIORITY_BOOST
     return "invalid"
 
 
@@ -297,6 +305,8 @@ def _points_filter_label(event_type: PointsEventType | None) -> str:
         return "boost"
     if event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST:
         return "gboost"
+    if event_type == PointsEventType.APPEAL_PRIORITY_BOOST:
+        return "aboost"
     return "manual"
 
 
@@ -501,9 +511,11 @@ async def _render_mod_stats_text() -> str:
         f"- Редимеры points (7д): {snapshot.points_redeemers_7d} ({points_redeem_conv})\n"
         f"- Редимеры фидбек-буста (7д): {snapshot.points_feedback_boost_redeemers_7d}\n"
         f"- Редимеры буста гаранта (7д): {snapshot.points_guarantor_boost_redeemers_7d}\n"
+        f"- Редимеры буста апелляции (7д): {snapshot.points_appeal_boost_redeemers_7d}\n"
         f"- Points начислено (24ч): +{snapshot.points_earned_24h}\n"
         f"- Points списано (24ч): -{snapshot.points_spent_24h}\n"
-        f"- Бустов фидбека (24ч): {snapshot.feedback_boost_redeems_24h}"
+        f"- Бустов фидбека (24ч): {snapshot.feedback_boost_redeems_24h}\n"
+        f"- Бустов апелляций (24ч): {snapshot.appeal_boost_redeems_24h}"
     )
 
 
@@ -562,7 +574,7 @@ async def mod_help(message: Message) -> None:
                 "/modpoints <tg_user_id>",
                 "/modpoints <tg_user_id> <limit>",
                 "/modpoints <tg_user_id> <amount> <reason>",
-                "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost]",
+                "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost|aboost]",
             ]
         )
 
@@ -785,8 +797,8 @@ async def mod_points_history(message: Message) -> None:
         "Формат:\n"
         "/modpoints_history <tg_user_id>\n"
         "/modpoints_history <tg_user_id> <page>\n"
-        "/modpoints_history <tg_user_id> <all|feedback|manual|boost|gboost>\n"
-        "/modpoints_history <tg_user_id> <page> <all|feedback|manual|boost|gboost>"
+        "/modpoints_history <tg_user_id> <all|feedback|manual|boost|gboost|aboost>\n"
+        "/modpoints_history <tg_user_id> <page> <all|feedback|manual|boost|gboost|aboost>"
     )
 
     parts = message.text.split()

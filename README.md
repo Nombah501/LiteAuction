@@ -46,7 +46,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Bugfix wave 2 improvements for callback retry safety and denied-scope back navigation
 - Visual foundation refresh for admin web layout, controls, and responsive readability
 - Final visual polish and release-readiness checklist with consolidated QA evidence template
-- Section-based moderation topic routing and user feedback/guarantor intake commands (`/bug`, `/suggest`, `/guarant`, `/boostfeedback`, `/boostguarant`)
+- Section-based moderation topic routing and user feedback/guarantor intake commands (`/bug`, `/suggest`, `/guarant`, `/boostfeedback`, `/boostguarant`, `/boostappeal`)
 - Rewards ledger foundation with idempotent points accrual, advanced `/points`, moderator `/modpoints` + `/modpoints_history`, and admin user-page rewards widget
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 
@@ -346,7 +346,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_te
 /modpoints <tg_user_id>
 /modpoints <tg_user_id> <limit>
 /modpoints <tg_user_id> <amount> <reason>
-/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost]
+/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost|aboost]
 ```
 
 - Adjust user reward balance from admin web (requires `role:manage` scope):
@@ -385,6 +385,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 /guarant <запрос на гаранта>
 /boostfeedback <feedback_id>
 /boostguarant <request_id>
+/boostappeal <appeal_id>
 /tradefeedback <auction_id> <1..5> [комментарий]
 /points
 /points <1..20>
@@ -421,6 +422,8 @@ FEEDBACK_SUGGESTION_REWARD_POINTS=20
 FEEDBACK_PRIORITY_BOOST_COST_POINTS=25
 FEEDBACK_PRIORITY_BOOST_DAILY_LIMIT=2
 POINTS_REDEMPTION_COOLDOWN_SECONDS=60
+APPEAL_PRIORITY_BOOST_COST_POINTS=20
+APPEAL_PRIORITY_BOOST_DAILY_LIMIT=1
 GUARANTOR_INTAKE_MIN_LENGTH=10
 GUARANTOR_INTAKE_COOLDOWN_SECONDS=180
 GUARANTOR_PRIORITY_BOOST_COST_POINTS=40

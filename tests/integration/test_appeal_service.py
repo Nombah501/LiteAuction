@@ -6,13 +6,14 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import AppealSourceType, AppealStatus
-from app.db.models import Appeal, User
+from app.db.enums import AppealSourceType, AppealStatus, PointsEventType
+from app.db.models import Appeal, PointsLedgerEntry, User
 from app.services.appeal_service import (
     create_appeal_from_ref,
     escalate_overdue_appeals,
     mark_appeal_in_review,
     parse_appeal_ref,
+    redeem_appeal_priority_boost,
     reject_appeal,
     resolve_appeal,
 )
@@ -246,3 +247,115 @@ async def test_escalate_overdue_appeals_is_one_time(integration_engine) -> None:
     assert by_ref["manual_fresh_open"].escalated_at is None
     assert by_ref["manual_resolved_due"].escalation_level == 0
     assert by_ref["manual_resolved_due"].escalated_at is None
+
+
+@pytest.mark.asyncio
+async def test_appeal_priority_boost_spends_points_and_marks_item(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 20)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=88601, username="appeal_boost_user")
+            session.add(appellant)
+            await session.flush()
+
+            appeal = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_boost_one",
+            )
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=appellant.id,
+                    amount=30,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:appeal:boost:points",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            boosted = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal.id,
+                appellant_user_id=appellant.id,
+            )
+
+    assert boosted.ok is True
+    assert boosted.changed is True
+    assert boosted.appeal is not None
+    assert boosted.appeal.priority_boost_points_spent == 20
+    assert boosted.appeal.priority_boosted_at is not None
+
+    async with session_factory() as session:
+        stored = await session.scalar(select(Appeal).where(Appeal.id == appeal.id))
+        spend = await session.scalar(
+            select(PointsLedgerEntry).where(PointsLedgerEntry.event_type == PointsEventType.APPEAL_PRIORITY_BOOST)
+        )
+
+    assert stored is not None
+    assert stored.priority_boost_points_spent == 20
+    assert spend is not None
+    assert spend.amount == -20
+    assert spend.user_id == stored.appellant_user_id
+
+
+@pytest.mark.asyncio
+async def test_appeal_priority_boost_daily_limit(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=88611, username="appeal_boost_limit")
+            session.add(appellant)
+            await session.flush()
+
+            appeal_a = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_boost_limit_a",
+            )
+            appeal_b = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_boost_limit_b",
+            )
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=appellant.id,
+                    amount=50,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:appeal:boost:limit",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            first = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal_a.id,
+                appellant_user_id=appellant.id,
+            )
+            second = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal_b.id,
+                appellant_user_id=appellant.id,
+            )
+
+    assert first.ok is True
+    assert second.ok is False
+    assert "дневной лимит" in second.message.lower()
