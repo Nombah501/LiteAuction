@@ -43,11 +43,11 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #69: points utility v3.4 weekly redemption cap guardrail.
   - PR #70: points utility v3.5 monthly spend cap guardrail.
   - PR #71: integration DB safety hardening + docs sync.
+  - PR #72: CI/test-db hardening and points stream pause.
 - In progress:
-  - None.
+  - PR #73: moderation ergonomics pass on trade feedback queue and manage-user trust context.
 - Next:
-  - Switch feature stream from points mechanics to trust/moderation product increments.
-  - Candidate PR #72: moderation ergonomics pass on trade feedback queue and manage-user trust context.
+  - Continue trust/moderation feature stream after PR #73.
 
 ## Functional Coverage Snapshot (After PR-70)
 
@@ -258,6 +258,12 @@ Acceptance:
 - Add configurable global monthly spend cap for boost redemptions.
 - Enforce monthly spend cap across `feedback`, `guarantor`, and `appeal` boost redemptions.
 - Surface monthly spend cap policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
+
+### PR-73: Trade Feedback Moderation Ergonomics + Manage-User Trust Links
+
+- Add trade feedback moderation filters by moderation state (`all`/`only`/`none`) and moderator TG user.
+- Surface moderation note in trade feedback table for faster review context.
+- Add manage-user quick links to open trade feedback moderation queue by received/hidden/authored views.
 
 ## Non-Goals for Sprint 32
 

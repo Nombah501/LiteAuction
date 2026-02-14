@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import uuid
 
 import pytest
@@ -271,11 +272,94 @@ async def test_trade_feedback_page_filters_by_rating_and_actor(monkeypatch, inte
 
 
 @pytest.mark.asyncio
+async def test_trade_feedback_page_filters_by_moderator_and_moderated_state(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    auction_id = uuid.uuid4()
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=99731, username="seller_moderation")
+            winner = User(tg_user_id=99732, username="winner_moderation")
+            moderator = User(tg_user_id=99733, username="moderator_moderation")
+            session.add_all([seller, winner, moderator])
+            await session.flush()
+
+            session.add(
+                Auction(
+                    id=auction_id,
+                    seller_user_id=seller.id,
+                    winner_user_id=winner.id,
+                    description="ended lot",
+                    photo_file_id="photo",
+                    start_price=100,
+                    buyout_price=None,
+                    min_step=5,
+                    duration_hours=24,
+                    status=AuctionStatus.ENDED,
+                )
+            )
+            session.add_all(
+                [
+                    TradeFeedback(
+                        auction_id=auction_id,
+                        author_user_id=seller.id,
+                        target_user_id=winner.id,
+                        rating=5,
+                        comment="still visible",
+                        status="VISIBLE",
+                    ),
+                    TradeFeedback(
+                        auction_id=auction_id,
+                        author_user_id=winner.id,
+                        target_user_id=seller.id,
+                        rating=2,
+                        comment="moderated hidden",
+                        status="HIDDEN",
+                        moderator_user_id=moderator.id,
+                        moderation_note="abusive",
+                        moderated_at=datetime.now(UTC),
+                    ),
+                ]
+            )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+
+    request = _make_request("/trade-feedback")
+    response = await trade_feedback(
+        request,
+        status="all",
+        moderated="only",
+        page=0,
+        q="",
+        moderator_tg="99733",
+    )
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "moderated hidden" in body
+    assert "still visible" not in body
+    assert "abusive" in body
+    assert "Модератор TG: 99733" in body
+
+
+@pytest.mark.asyncio
 async def test_trade_feedback_page_rejects_invalid_min_rating(monkeypatch) -> None:
     monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/trade-feedback")
     with pytest.raises(HTTPException) as exc:
         await trade_feedback(request, status="all", page=0, q="", min_rating="9")
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_trade_feedback_page_rejects_invalid_moderated_filter(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+
+    request = _make_request("/trade-feedback")
+    with pytest.raises(HTTPException) as exc:
+        await trade_feedback(request, status="all", moderated="broken", page=0, q="")
 
     assert exc.value.status_code == 400

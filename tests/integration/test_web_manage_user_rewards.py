@@ -484,7 +484,9 @@ async def test_manage_user_shows_trade_feedback_reputation(monkeypatch, integrat
     assert "Средняя оценка (видимые):</b> 5.0" in body
     assert "Отличная сделка" in body
     assert "Скрытый отзыв" in body
-    assert "Открыть отзывы пользователя в модерации" in body
+    assert "Отзывы о пользователе (все)" in body
+    assert "Отзывы о пользователе (скрытые)" in body
+    assert "Отзывы, оставленные пользователем" in body
 
 
 @pytest.mark.asyncio
