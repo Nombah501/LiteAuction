@@ -16,6 +16,7 @@ from app.services.feedback_service import FeedbackPriorityBoostPolicy, get_feedb
 from app.services.guarantor_service import GuarantorPriorityBoostPolicy, get_guarantor_priority_boost_policy
 from app.services.points_service import (
     UserPointsSummary,
+    get_points_redemptions_used_today,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_summary,
     list_user_points_entries,
@@ -58,8 +59,12 @@ def _render_points_text(
     feedback_boost_policy: FeedbackPriorityBoostPolicy,
     guarantor_boost_policy: GuarantorPriorityBoostPolicy,
     appeal_boost_policy: AppealPriorityBoostPolicy,
+    redemptions_used_today: int,
     cooldown_remaining_seconds: int,
 ) -> str:
+    global_daily_limit = max(settings.points_redemption_daily_limit, 0)
+    global_remaining_today = max(global_daily_limit - redemptions_used_today, 0)
+
     lines = [
         f"Ваш баланс: {summary.balance} points",
         f"Всего начислено: +{summary.total_earned}",
@@ -96,6 +101,12 @@ def _render_points_text(
         (
             f"Кулдаун буста апелляции: {appeal_boost_policy.cooldown_seconds} сек "
             f"(осталось {appeal_boost_policy.cooldown_remaining_seconds})"
+        ),
+        (
+            f"Глобальный лимит бустов в день: {redemptions_used_today}/{global_daily_limit} "
+            f"(осталось {global_remaining_today})"
+            if global_daily_limit > 0
+            else "Глобальный лимит бустов в день: без ограничений"
         ),
         f"Глобальный кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
         (
@@ -152,6 +163,11 @@ async def command_points(message: Message) -> None:
                 appellant_user_id=user.id,
                 now=now,
             )
+            redemptions_used_today = await get_points_redemptions_used_today(
+                session,
+                user_id=user.id,
+                now=now,
+            )
             cooldown_remaining_seconds = await get_points_redemption_cooldown_remaining_seconds(
                 session,
                 user_id=user.id,
@@ -167,6 +183,7 @@ async def command_points(message: Message) -> None:
             feedback_boost_policy=feedback_boost_policy,
             guarantor_boost_policy=guarantor_boost_policy,
             appeal_boost_policy=appeal_boost_policy,
+            redemptions_used_today=redemptions_used_today,
             cooldown_remaining_seconds=cooldown_remaining_seconds,
         )
     )

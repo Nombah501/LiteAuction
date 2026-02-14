@@ -485,6 +485,9 @@ async def _render_mod_stats_text() -> str:
         points_redeem_conv = (
             f"{(snapshot.points_redeemers_7d / snapshot.points_users_with_positive_balance) * 100:.1f}%"
         )
+    global_daily_limit_text = "- global daily limit: unlimited\n"
+    if settings.points_redemption_daily_limit > 0:
+        global_daily_limit_text = f"- global daily limit: {settings.points_redemption_daily_limit}/day\n"
 
     return (
         "Статистика модерации\n"
@@ -531,6 +534,7 @@ async def _render_mod_stats_text() -> str:
         f"cost {settings.appeal_priority_boost_cost_points} | "
         f"limit {settings.appeal_priority_boost_daily_limit}/day | "
         f"cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s\n"
+        f"{global_daily_limit_text}"
         f"- global cooldown: {max(settings.points_redemption_cooldown_seconds, 0)}s"
     )
 
