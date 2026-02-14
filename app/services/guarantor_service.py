@@ -10,6 +10,7 @@ from app.config import settings
 from app.db.enums import GuarantorRequestStatus, PointsEventType
 from app.db.models import GuarantorRequest, User
 from app.services.points_service import (
+    get_points_event_redemption_cooldown_remaining_seconds,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_balance,
     spend_points,
@@ -53,6 +54,8 @@ class GuarantorPriorityBoostPolicy:
     daily_limit: int
     used_today: int
     remaining_today: int
+    cooldown_seconds: int
+    cooldown_remaining_seconds: int
 
 
 def _normalize_details(details: str) -> str:
@@ -254,6 +257,7 @@ async def get_guarantor_priority_boost_policy(
 
     daily_limit = max(settings.guarantor_priority_boost_daily_limit, 1)
     cost_points = max(settings.guarantor_priority_boost_cost_points, 1)
+    cooldown_seconds = max(settings.guarantor_priority_boost_cooldown_seconds, 0)
     used_today = int(
         await session.scalar(
             select(func.count(GuarantorRequest.id)).where(
@@ -265,12 +269,21 @@ async def get_guarantor_priority_boost_policy(
         or 0
     )
     remaining_today = max(daily_limit - used_today, 0)
+    cooldown_remaining_seconds = await get_points_event_redemption_cooldown_remaining_seconds(
+        session,
+        user_id=submitter_user_id,
+        event_types=(PointsEventType.GUARANTOR_PRIORITY_BOOST,),
+        cooldown_seconds=cooldown_seconds,
+        now=current_time,
+    )
     return GuarantorPriorityBoostPolicy(
         enabled=settings.guarantor_priority_boost_enabled,
         cost_points=cost_points,
         daily_limit=daily_limit,
         used_today=used_today,
         remaining_today=remaining_today,
+        cooldown_seconds=cooldown_seconds,
+        cooldown_remaining_seconds=cooldown_remaining_seconds,
     )
 
 
@@ -298,6 +311,11 @@ async def redeem_guarantor_priority_boost(
     policy = await get_guarantor_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if not policy.enabled:
         return GuarantorPriorityBoostResult(False, "Буст гаранта временно отключен")
+    if policy.cooldown_remaining_seconds > 0:
+        return GuarantorPriorityBoostResult(
+            False,
+            f"Повторный буст гаранта доступен через {policy.cooldown_remaining_seconds} сек",
+        )
     if policy.remaining_today <= 0:
         return GuarantorPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
 

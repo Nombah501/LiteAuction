@@ -267,3 +267,61 @@ async def test_guarantor_priority_boost_disabled_by_policy(monkeypatch, integrat
     assert item.priority_boosted_at is None
     assert item.priority_boost_points_spent == 0
     assert spend_row is None
+
+
+@pytest.mark.asyncio
+async def test_guarantor_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cooldown_seconds", 3600)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+    monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93351, username="guarant_utility_cooldown")
+            session.add(submitter)
+            await session.flush()
+
+            request_a = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Guarantor request A",
+            )
+            request_b = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Guarantor request B",
+            )
+            assert request_a.item is not None and request_b.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=50,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:guarant:utility:cooldown",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            first = await redeem_guarantor_priority_boost(
+                session,
+                request_id=request_a.item.id,
+                submitter_user_id=submitter.id,
+            )
+            second = await redeem_guarantor_priority_boost(
+                session,
+                request_id=request_b.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert first.ok is True
+    assert second.ok is False
+    assert "повторный буст гаранта" in second.message.lower()

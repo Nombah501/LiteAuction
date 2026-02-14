@@ -94,12 +94,15 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     monkeypatch.setattr(settings, "feedback_priority_boost_enabled", False)
     monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 21)
     monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 11)
     monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", True)
     monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 34)
     monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 2)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cooldown_seconds", 22)
     monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
     monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 13)
     monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 4)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 75)
 
     request = _make_request(f"/manage/user/{user_id}")
@@ -116,9 +119,9 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     assert "Списано всего:</b> -5" in body
     assert "Бустов фидбека:</b> 0" in body
     assert "Списано на бусты:</b> -0" in body
-    assert "Политика фидбек-буста:</b> off | cost 21 | limit 3/day" in body
-    assert "Политика буста гаранта:</b> on | cost 34 | limit 2/day" in body
-    assert "Политика буста апелляций:</b> on | cost 13 | limit 4/day" in body
+    assert "Политика фидбек-буста:</b> off | cost 21 | limit 3/day | cooldown 11s" in body
+    assert "Политика буста гаранта:</b> on | cost 34 | limit 2/day | cooldown 22s" in body
+    assert "Политика буста апелляций:</b> on | cost 13 | limit 4/day | cooldown 33s" in body
     assert "Глобальный кулдаун редимпшена:</b> 75 сек" in body
     assert "Награда за фидбек" in body
     assert "Ручная корректировка" in body

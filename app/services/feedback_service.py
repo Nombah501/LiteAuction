@@ -12,6 +12,7 @@ from app.db.models import FeedbackItem, User
 from app.services.outbox_service import enqueue_feedback_issue_event
 from app.services.points_service import (
     feedback_reward_dedupe_key,
+    get_points_event_redemption_cooldown_remaining_seconds,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_balance,
     grant_points,
@@ -49,6 +50,8 @@ class FeedbackPriorityBoostPolicy:
     daily_limit: int
     used_today: int
     remaining_today: int
+    cooldown_seconds: int
+    cooldown_remaining_seconds: int
 
 
 @dataclass(slots=True)
@@ -304,6 +307,11 @@ async def redeem_feedback_priority_boost(
     policy = await get_feedback_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if not policy.enabled:
         return FeedbackPriorityBoostResult(False, "Буст фидбека временно отключен")
+    if policy.cooldown_remaining_seconds > 0:
+        return FeedbackPriorityBoostResult(
+            False,
+            f"Повторный буст фидбека доступен через {policy.cooldown_remaining_seconds} сек",
+        )
     if policy.remaining_today <= 0:
         return FeedbackPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
 
@@ -350,6 +358,7 @@ async def get_feedback_priority_boost_policy(
 
     daily_limit = max(settings.feedback_priority_boost_daily_limit, 1)
     cost_points = max(settings.feedback_priority_boost_cost_points, 1)
+    cooldown_seconds = max(settings.feedback_priority_boost_cooldown_seconds, 0)
     used_today = int(
         await session.scalar(
             select(func.count(FeedbackItem.id)).where(
@@ -361,6 +370,13 @@ async def get_feedback_priority_boost_policy(
         or 0
     )
     remaining_today = max(daily_limit - used_today, 0)
+    cooldown_remaining_seconds = await get_points_event_redemption_cooldown_remaining_seconds(
+        session,
+        user_id=submitter_user_id,
+        event_types=(PointsEventType.FEEDBACK_PRIORITY_BOOST,),
+        cooldown_seconds=cooldown_seconds,
+        now=current_time,
+    )
 
     return FeedbackPriorityBoostPolicy(
         enabled=settings.feedback_priority_boost_enabled,
@@ -368,4 +384,6 @@ async def get_feedback_priority_boost_policy(
         daily_limit=daily_limit,
         used_today=used_today,
         remaining_today=remaining_today,
+        cooldown_seconds=cooldown_seconds,
+        cooldown_remaining_seconds=cooldown_remaining_seconds,
     )
