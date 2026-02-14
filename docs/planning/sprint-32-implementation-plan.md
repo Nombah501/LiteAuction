@@ -41,10 +41,29 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #67: points utility v3.2 minimum earned points guardrail.
   - PR #68: points utility v3.3 weekly spend cap guardrail.
   - PR #69: points utility v3.4 weekly redemption cap guardrail.
+- PR #70: points utility v3.5 monthly spend cap guardrail.
 - In progress:
-  - PR #70: points utility v3.5 monthly spend cap guardrail.
+  - None (ready for next incremental redeem-mechanics slice).
 - Next:
+  - PR #71 candidate: points utility v3.6 monthly redemption cap guardrail.
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
+
+## Functional Coverage Snapshot (After PR-70)
+
+- Redeem paths: `feedback`, `guarantor`, `appeal`.
+- Global gates: redemption on/off, cooldown, min retained balance, min account age, min earned points.
+- Global volume caps: daily + weekly redemption count caps.
+- Global spend caps: daily + weekly + monthly spend caps.
+- Policy visibility parity: `/points`, `/modstats`, web dashboard, `/manage/user/{id}`.
+- Integration coverage includes positive and negative paths for all listed global guardrails.
+
+## Remaining Gaps / Not Yet Implemented
+
+- Global monthly redemption count cap (count-based, parity with monthly spend cap).
+- Per-utility global spend/count caps (separate from per-utility daily limits and cooldowns).
+- Configurable period semantics (fixed UTC calendar windows are used now).
+- Operator runtime policy editing UI/API (current model is env-driven config + deploy cycle).
+- Boundary-focused integration scenarios for week/month rollover timestamps.
 
 ## P0 Scope (Recommended)
 

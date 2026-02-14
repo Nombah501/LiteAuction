@@ -321,10 +321,14 @@ python -m venv .venv
 - Run DB integration tests (use a dedicated test database):
 
 ```bash
+docker compose exec -T db psql -U auction -d postgres -c "CREATE DATABASE auction_test OWNER auction;" || true
+DB_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' liteauction-db)
 RUN_INTEGRATION_TESTS=1 \
-TEST_DATABASE_URL=postgresql+asyncpg://auction:auction@127.0.0.1:5432/auction_test \
+TEST_DATABASE_URL="postgresql+asyncpg://auction:auction@${DB_IP}:5432/auction_test" \
 .venv/bin/python -m pytest -q tests/integration
 ```
+
+Integration tests refuse to run unless `TEST_DATABASE_URL` is set and points to a database name containing `test`.
 
 - Open moderation command list in bot private chat:
 
@@ -394,6 +398,15 @@ Use it as a reply to a message that contains premium/custom emoji.
 High-risk sellers cannot publish drafts until a guarantor request is assigned by moderation.
 
 Trade feedback moderation list is available in admin web: `/trade-feedback` (status/rating/actor filters).
+
+Current points redemption guardrails:
+
+- Global kill-switch for all redemptions.
+- Global cooldown between redemptions.
+- Global redemption count caps: daily, weekly.
+- Global redemption spend caps: daily, weekly, monthly.
+- Global account gates: minimum retained balance, minimum account age, minimum earned points.
+- Policy visibility in `/points`, `/modstats`, dashboard, and `/manage/user/{id}`.
 
 - Include moderation queue destination in env (recommended):
 
