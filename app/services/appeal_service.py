@@ -375,6 +375,8 @@ async def redeem_appeal_priority_boost(
         return AppealPriorityBoostResult(True, "Приоритет уже повышен", appeal=appeal, changed=False)
 
     now = datetime.now(UTC)
+    if not settings.points_redemption_enabled:
+        return AppealPriorityBoostResult(False, "Редимпшены points временно отключены")
     policy = await get_appeal_priority_boost_policy(session, appellant_user_id=appellant_user_id, now=now)
     if not policy.enabled:
         return AppealPriorityBoostResult(False, "Буст апелляции временно отключен")

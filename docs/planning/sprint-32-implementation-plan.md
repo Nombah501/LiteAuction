@@ -35,8 +35,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #61: points utility v2.6 policy visibility parity in modstats/dashboard.
   - PR #62: points utility v2.7 global daily redemption cap.
   - PR #63: points utility v2.8 global daily redemption spend cap.
-- In progress:
   - PR #64: points utility v2.9 minimum retained balance guardrail.
+- In progress:
+  - PR #65: points utility v3.0 global redemption kill-switch.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -194,6 +195,12 @@ Acceptance:
 - Add configurable minimum retained points balance after boost redemption.
 - Enforce retained-balance guardrail across `feedback`, `guarantor`, and `appeal` boost redemptions.
 - Surface retained-balance policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
+
+### PR-65: Points Utility v3.0 Global Redemption Kill-Switch
+
+- Add configurable global on/off toggle for points redemptions.
+- Enforce kill-switch before utility-specific redemption checks for `feedback`, `guarantor`, and `appeal` boosts.
+- Surface global redemption status in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
 
 ## Non-Goals for Sprint 32
 

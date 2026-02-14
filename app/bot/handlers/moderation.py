@@ -527,6 +527,7 @@ async def _render_mod_stats_text() -> str:
         f"- Бустов апелляций (24ч): {snapshot.appeal_boost_redeems_24h}\n"
         "\n"
         "Points policy\n"
+        f"- redemptions: {'on' if settings.points_redemption_enabled else 'off'}\n"
         f"- feedback: {'on' if settings.feedback_priority_boost_enabled else 'off'} | "
         f"cost {settings.feedback_priority_boost_cost_points} | "
         f"limit {settings.feedback_priority_boost_daily_limit}/day | "

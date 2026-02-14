@@ -417,6 +417,51 @@ async def test_appeal_priority_boost_disabled_by_policy(monkeypatch, integration
 
 
 @pytest.mark.asyncio
+async def test_appeal_priority_boost_disabled_by_global_redemption_toggle(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "points_redemption_enabled", False)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=88622, username="appeal_global_disabled")
+            session.add(appellant)
+            await session.flush()
+
+            appeal = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_global_redemption_disabled",
+            )
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=appellant.id,
+                    amount=20,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:appeal:boost:global_disabled",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            result = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal.id,
+                appellant_user_id=appellant.id,
+            )
+
+    assert result.ok is False
+    assert "редимпшены points временно отключены" in result.message.lower()
+
+
+@pytest.mark.asyncio
 async def test_appeal_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
     from app.config import settings
 

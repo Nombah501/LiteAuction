@@ -270,6 +270,52 @@ async def test_guarantor_priority_boost_disabled_by_policy(monkeypatch, integrat
 
 
 @pytest.mark.asyncio
+async def test_guarantor_priority_boost_disabled_by_global_redemption_toggle(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "points_redemption_enabled", False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93342, username="guarant_global_disabled")
+            session.add(submitter)
+            await session.flush()
+
+            created = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Проверка глобального отключения редимпшенов",
+            )
+            assert created.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=25,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:guarant:boost:global_disabled",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            result = await redeem_guarantor_priority_boost(
+                session,
+                request_id=created.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert result.ok is False
+    assert "редимпшены points временно отключены" in result.message.lower()
+
+
+@pytest.mark.asyncio
 async def test_guarantor_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
     from app.config import settings
 

@@ -306,6 +306,8 @@ async def redeem_feedback_priority_boost(
         return FeedbackPriorityBoostResult(True, "Приоритет уже повышен", item=item, changed=False)
 
     now = datetime.now(UTC)
+    if not settings.points_redemption_enabled:
+        return FeedbackPriorityBoostResult(False, "Редимпшены points временно отключены")
     policy = await get_feedback_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if not policy.enabled:
         return FeedbackPriorityBoostResult(False, "Буст фидбека временно отключен")
