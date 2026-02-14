@@ -60,7 +60,7 @@ from app.services.points_service import (
     grant_points,
     list_user_points_entries,
 )
-from app.services.risk_eval_service import evaluate_user_risk_snapshot, format_risk_reason_label
+from app.services.risk_eval_service import UserRiskSnapshot, evaluate_user_risk_snapshot, format_risk_reason_label
 from app.web.auth import (
     AdminAuthContext,
     build_admin_session_cookie,
@@ -201,6 +201,89 @@ def _appeal_escalation_marker(appeal: Appeal) -> str:
     if appeal.escalated_at is None:
         return f"L{normalized_level}"
     return f"L{normalized_level} ({_fmt_ts(appeal.escalated_at)})"
+
+
+async def _load_user_risk_snapshot_map(
+    session,
+    *,
+    user_ids: list[int],
+    now: datetime | None = None,
+) -> dict[int, UserRiskSnapshot]:
+    unique_user_ids = sorted(set(user_ids))
+    if not unique_user_ids:
+        return {}
+
+    current_time = now or datetime.now(UTC)
+
+    complaint_counts = {
+        int(user_id): int(total)
+        for user_id, total in (
+            await session.execute(
+                select(Complaint.target_user_id, func.count(Complaint.id))
+                .where(Complaint.target_user_id.in_(unique_user_ids))
+                .group_by(Complaint.target_user_id)
+            )
+        ).all()
+    }
+    open_fraud_counts = {
+        int(user_id): int(total)
+        for user_id, total in (
+            await session.execute(
+                select(FraudSignal.user_id, func.count(FraudSignal.id))
+                .where(
+                    FraudSignal.user_id.in_(unique_user_ids),
+                    FraudSignal.status == "OPEN",
+                )
+                .group_by(FraudSignal.user_id)
+            )
+        ).all()
+    }
+    removed_bid_counts = {
+        int(user_id): int(total)
+        for user_id, total in (
+            await session.execute(
+                select(Bid.user_id, func.count(Bid.id))
+                .where(
+                    Bid.user_id.in_(unique_user_ids),
+                    Bid.is_removed.is_(True),
+                )
+                .group_by(Bid.user_id)
+            )
+        ).all()
+    }
+    active_blacklist_user_ids = set(
+        (
+            await session.execute(
+                select(BlacklistEntry.user_id).where(
+                    BlacklistEntry.user_id.in_(unique_user_ids),
+                    BlacklistEntry.is_active.is_(True),
+                    (BlacklistEntry.expires_at.is_(None) | (BlacklistEntry.expires_at > current_time)),
+                )
+            )
+        ).scalars().all()
+    )
+
+    risk_map = {}
+    for user_id in unique_user_ids:
+        risk_map[user_id] = evaluate_user_risk_snapshot(
+            complaints_against=complaint_counts.get(user_id, 0),
+            open_fraud_signals=open_fraud_counts.get(user_id, 0),
+            has_active_blacklist=user_id in active_blacklist_user_ids,
+            removed_bids=removed_bid_counts.get(user_id, 0),
+        )
+    return risk_map
+
+
+def _risk_snapshot_inline_text(risk_snapshot) -> str:
+    return f"{risk_snapshot.level} ({risk_snapshot.score})"
+
+
+def _risk_snapshot_inline_html(risk_snapshot) -> str:
+    label = _risk_snapshot_inline_text(risk_snapshot)
+    if not risk_snapshot.reasons:
+        return escape(label)
+    reasons = ", ".join(format_risk_reason_label(code) for code in risk_snapshot.reasons)
+    return f"<span title='{escape(reasons)}'>{escape(label)}</span>"
 
 
 def _violator_status_label(status: str) -> str:
@@ -866,23 +949,36 @@ async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> R
             )
         ).scalars().all()
 
-    has_next = len(rows) > page_size
-    rows = rows[:page_size]
+        has_next = len(rows) > page_size
+        rows = rows[:page_size]
+        seller_risk_map = await _load_user_risk_snapshot_map(
+            session,
+            user_ids=[item.seller_user_id for item in rows],
+        )
 
-    table_rows = "".join(
-        "<tr>"
-        f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.id}'))}'>{escape(str(item.id))}</a></td>"
-        f"<td>{item.seller_user_id}</td>"
-        f"<td>${item.start_price}</td>"
-        f"<td>${item.buyout_price if item.buyout_price is not None else '-'}</td>"
-        f"<td>{escape(str(item.status))}</td>"
-        f"<td>{escape(_fmt_ts(item.ends_at))}</td>"
-        f"<td><a href='{escape(_path_with_auth(request, f'/manage/auction/{item.id}'))}'>Управлять</a></td>"
-        "</tr>"
-        for item in rows
+    default_risk_snapshot = evaluate_user_risk_snapshot(
+        complaints_against=0,
+        open_fraud_signals=0,
+        has_active_blacklist=False,
+        removed_bids=0,
     )
+    table_rows = ""
+    for item in rows:
+        seller_risk = seller_risk_map.get(item.seller_user_id, default_risk_snapshot)
+        table_rows += (
+            "<tr>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.id}'))}'>{escape(str(item.id))}</a></td>"
+            f"<td>{item.seller_user_id}</td>"
+            f"<td>{_risk_snapshot_inline_html(seller_risk)}</td>"
+            f"<td>${item.start_price}</td>"
+            f"<td>${item.buyout_price if item.buyout_price is not None else '-'}</td>"
+            f"<td>{escape(str(item.status))}</td>"
+            f"<td>{escape(_fmt_ts(item.ends_at))}</td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/manage/auction/{item.id}'))}'>Управлять</a></td>"
+            "</tr>"
+        )
     if not table_rows:
-        table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='8'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, f'/auctions?status={status}&page={page-1}'))}'>← Назад</a>"
@@ -899,7 +995,7 @@ async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> R
         f"<h1>Аукционы ({escape(status)})</h1>"
         f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
         f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
-        "<table><thead><tr><th>ID</th><th>Seller UID</th><th>Start</th><th>Buyout</th><th>Status</th><th>Ends At</th><th>Actions</th></tr></thead>"
+        "<table><thead><tr><th>ID</th><th>Seller UID</th><th>Seller Risk</th><th>Start</th><th>Buyout</th><th>Status</th><th>Ends At</th><th>Actions</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
@@ -1468,6 +1564,7 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         user_ids = [user.id for user in users]
         role_user_ids: set[int] = set()
         banned_user_ids: set[int] = set()
+        risk_by_user_id = await _load_user_risk_snapshot_map(session, user_ids=user_ids, now=now)
 
         if user_ids:
             role_user_ids = set(
@@ -1495,11 +1592,18 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
             )
 
     rows = []
+    default_risk_snapshot = evaluate_user_risk_snapshot(
+        complaints_against=0,
+        open_fraud_signals=0,
+        has_active_blacklist=False,
+        removed_bids=0,
+    )
     for user in users:
         is_allowlist_mod = user.tg_user_id in admin_ids
         is_dynamic_mod = user.id in role_user_ids
         moderator_text = "yes (allowlist)" if is_allowlist_mod else ("yes" if is_dynamic_mod else "no")
         banned_text = "yes" if user.id in banned_user_ids else "no"
+        risk_snapshot = risk_by_user_id.get(user.id, default_risk_snapshot)
 
         rows.append(
             "<tr>"
@@ -1508,6 +1612,7 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
             f"<td>{escape(user.username or '-')}</td>"
             f"<td>{moderator_text}</td>"
             f"<td>{banned_text}</td>"
+            f"<td>{_risk_snapshot_inline_html(risk_snapshot)}</td>"
             f"<td>{escape(_fmt_ts(user.created_at))}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{user.id}'))}'>open</a></td>"
             "</tr>"
@@ -1546,8 +1651,8 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         "<button type='submit'>Поиск</button>"
         "</form>"
         f"{moderator_grant_form}"
-        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Created</th><th>Manage</th></tr></thead>"
-        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=7><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table>"
+        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
+        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=8><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
     return HTMLResponse(_render_page("Manage Users", body))
