@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.bot.handlers.moderation import mod_points, mod_points_history
+from app.bot.handlers.moderation import mod_points, mod_points_history, mod_stats
 from app.db.enums import ModerationAction, PointsEventType
 from app.db.models import ModerationLog, PointsLedgerEntry, User
 from app.services.points_service import get_user_points_balance
@@ -311,3 +313,56 @@ async def test_modpoints_history_denied_for_operator_without_scope(monkeypatch, 
 
     assert message.answers
     assert "Недостаточно прав" in message.answers[-1]
+
+
+@pytest.mark.asyncio
+async def test_modstats_includes_points_utility_block(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    owner_tg_user_id = 93771
+    target_tg_user_id = 93772
+    monkeypatch.setattr(settings, "admin_user_ids", str(owner_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    async with session_factory() as session:
+        async with session.begin():
+            target_user = User(tg_user_id=target_tg_user_id)
+            session.add(target_user)
+            await session.flush()
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=target_user.id,
+                    amount=12,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="stats:points:earned",
+                    reason="seed",
+                    payload=None,
+                    created_at=datetime.now(UTC),
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=target_user.id,
+                    amount=-4,
+                    event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST,
+                    dedupe_key="stats:points:boost",
+                    reason="seed",
+                    payload=None,
+                    created_at=datetime.now(UTC),
+                )
+            )
+
+    message = _DummyMessage(text="/modstats", from_user_id=owner_tg_user_id)
+    await mod_stats(message)
+
+    assert message.answers
+    text = message.answers[-1]
+    assert "Points utility" in text
+    assert "Активные points-пользователи (7д): 1" in text
+    assert "Points начислено (24ч): +12" in text
+    assert "Points списано (24ч): -4" in text
+    assert "Бустов фидбека (24ч): 1" in text

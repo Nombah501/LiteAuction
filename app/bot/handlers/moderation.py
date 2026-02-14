@@ -482,7 +482,13 @@ async def _render_mod_stats_text() -> str:
         f"- С hint: {snapshot.users_with_soft_gate_hint}\n"
         f"- Конверсия после hint: {snapshot.users_converted_after_hint} ({hint_conv})\n"
         f"- Вовлеченные без private /start: {snapshot.users_engaged_without_private_start}\n"
-        f"- Вовлеченные с private /start: {engaged_with_private}"
+        f"- Вовлеченные с private /start: {engaged_with_private}\n"
+        "\n"
+        "Points utility\n"
+        f"- Активные points-пользователи (7д): {snapshot.points_active_users_7d}\n"
+        f"- Points начислено (24ч): +{snapshot.points_earned_24h}\n"
+        f"- Points списано (24ч): -{snapshot.points_spent_24h}\n"
+        f"- Бустов фидбека (24ч): {snapshot.feedback_boost_redeems_24h}"
     )
 
 

@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import AuctionStatus
-from app.db.models import Auction, Bid, BlacklistEntry, Complaint, FraudSignal, User
+from app.db.enums import AuctionStatus, PointsEventType
+from app.db.models import Auction, Bid, BlacklistEntry, Complaint, FraudSignal, PointsLedgerEntry, User
 
 
 @dataclass(slots=True)
@@ -29,12 +29,17 @@ class ModerationDashboardSnapshot:
     users_soft_gate_hint_last_24h: int
     users_converted_after_hint: int
     users_pending_after_hint: int
+    points_active_users_7d: int
+    points_earned_24h: int
+    points_spent_24h: int
+    feedback_boost_redeems_24h: int
 
 
 async def get_moderation_dashboard_snapshot(session: AsyncSession) -> ModerationDashboardSnapshot:
     now = datetime.now(UTC)
     one_hour = now - timedelta(hours=1)
     one_day = now - timedelta(hours=24)
+    seven_days = now - timedelta(days=7)
 
     engaged_users_subq = (
         select(Bid.user_id.label("user_id"))
@@ -124,6 +129,36 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
         )
     ) or 0
 
+    points_active_users_7d = (
+        await session.scalar(
+            select(func.count(func.distinct(PointsLedgerEntry.user_id))).where(PointsLedgerEntry.created_at >= seven_days)
+        )
+    ) or 0
+    points_earned_24h = (
+        await session.scalar(
+            select(func.coalesce(func.sum(PointsLedgerEntry.amount), 0)).where(
+                PointsLedgerEntry.created_at >= one_day,
+                PointsLedgerEntry.amount > 0,
+            )
+        )
+    ) or 0
+    points_spent_24h = (
+        await session.scalar(
+            select(func.coalesce(func.sum(-PointsLedgerEntry.amount), 0)).where(
+                PointsLedgerEntry.created_at >= one_day,
+                PointsLedgerEntry.amount < 0,
+            )
+        )
+    ) or 0
+    feedback_boost_redeems_24h = (
+        await session.scalar(
+            select(func.count(PointsLedgerEntry.id)).where(
+                PointsLedgerEntry.created_at >= one_day,
+                PointsLedgerEntry.event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST,
+            )
+        )
+    ) or 0
+
     return ModerationDashboardSnapshot(
         open_complaints=int(open_complaints),
         open_signals=int(open_signals),
@@ -142,4 +177,8 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
         users_soft_gate_hint_last_24h=int(users_soft_gate_hint_last_24h),
         users_converted_after_hint=int(users_converted_after_hint),
         users_pending_after_hint=int(users_pending_after_hint),
+        points_active_users_7d=int(points_active_users_7d),
+        points_earned_24h=int(points_earned_24h),
+        points_spent_24h=int(points_spent_24h),
+        feedback_boost_redeems_24h=int(feedback_boost_redeems_24h),
     )

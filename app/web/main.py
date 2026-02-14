@@ -27,6 +27,7 @@ from app.db.models import (
     Bid,
     BlacklistEntry,
     Complaint,
+    FeedbackItem,
     FraudSignal,
     TradeFeedback,
     User,
@@ -845,6 +846,12 @@ async def dashboard(request: Request) -> Response:
         f"<div class='kpi'><b>Вовлеченные без private /start:</b> {snapshot.users_engaged_without_private_start}</div>"
         f"<div class='kpi'><b>Вовлеченные с private /start:</b> {engaged_with_private} ({_pct(engaged_with_private, snapshot.users_with_engagement)})</div>"
         "<hr>"
+        "<h2>Points utility</h2>"
+        f"<div class='kpi'><b>Активные points-пользователи (7д):</b> {snapshot.points_active_users_7d}</div>"
+        f"<div class='kpi'><b>Points начислено (24ч):</b> +{snapshot.points_earned_24h}</div>"
+        f"<div class='kpi'><b>Points списано (24ч):</b> -{snapshot.points_spent_24h}</div>"
+        f"<div class='kpi'><b>Бустов фидбека (24ч):</b> {snapshot.feedback_boost_redeems_24h}</div>"
+        "<hr>"
         "<ul>"
         f"<li><a href='{escape(_path_with_auth(request, '/complaints?status=OPEN'))}'>Открытые жалобы</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/signals?status=OPEN'))}'>Открытые фрод-сигналы</a></li>"
@@ -1600,6 +1607,24 @@ async def manage_user(
             offset=(points_page - 1) * points_page_size,
             event_type=points_filter_value,
         )
+        boost_feedback_count = int(
+            await session.scalar(
+                select(func.count(FeedbackItem.id)).where(
+                    FeedbackItem.submitter_user_id == user.id,
+                    FeedbackItem.priority_boosted_at.is_not(None),
+                )
+            )
+            or 0
+        )
+        boost_points_spent_total = int(
+            await session.scalar(
+                select(func.coalesce(func.sum(FeedbackItem.priority_boost_points_spent), 0)).where(
+                    FeedbackItem.submitter_user_id == user.id,
+                    FeedbackItem.priority_boosted_at.is_not(None),
+                )
+            )
+            or 0
+        )
 
         trade_feedback_summary = await get_trade_feedback_summary(session, target_user_id=user.id)
         trade_feedback_received = await list_received_trade_feedback(session, target_user_id=user.id, limit=10)
@@ -1792,6 +1817,8 @@ async def manage_user(
         f"<div class='kpi'><b>Начислено всего:</b> +{points_summary.total_earned}</div>"
         f"<div class='kpi'><b>Списано всего:</b> -{points_summary.total_spent}</div>"
         f"<div class='kpi'><b>Points операций:</b> {points_summary.operations_count}</div>"
+        f"<div class='kpi'><b>Бустов фидбека:</b> {boost_feedback_count}</div>"
+        f"<div class='kpi'><b>Списано на бусты:</b> -{boost_points_spent_total}</div>"
         f"<div class='kpi'><b>Отзывов получено:</b> {trade_feedback_summary.total_received}</div>"
         f"<div class='kpi'><b>Видимых отзывов:</b> {trade_feedback_summary.visible_received}</div>"
         f"<div class='kpi'><b>Скрытых отзывов:</b> {trade_feedback_summary.hidden_received}</div>"

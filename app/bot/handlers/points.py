@@ -8,6 +8,7 @@ from aiogram.types import Message
 from app.db.enums import PointsEventType
 from app.db.models import PointsLedgerEntry
 from app.db.session import SessionFactory
+from app.services.feedback_service import FeedbackPriorityBoostPolicy, get_feedback_priority_boost_policy
 from app.services.points_service import UserPointsSummary, get_user_points_summary, list_user_points_entries
 from app.services.user_service import upsert_user
 
@@ -35,11 +36,23 @@ def _parse_history_limit(raw: str | None) -> int | None:
     return value
 
 
-def _render_points_text(*, summary: UserPointsSummary, entries: list[PointsLedgerEntry], shown_limit: int) -> str:
+def _render_points_text(
+    *,
+    summary: UserPointsSummary,
+    entries: list[PointsLedgerEntry],
+    shown_limit: int,
+    boost_policy: FeedbackPriorityBoostPolicy,
+) -> str:
     lines = [
         f"Ваш баланс: {summary.balance} points",
         f"Всего начислено: +{summary.total_earned}",
         f"Всего списано: -{summary.total_spent}",
+        f"Буст фидбека: /boostfeedback <feedback_id> (стоимость: {boost_policy.cost_points} points)",
+        (
+            "Лимит бустов сегодня: "
+            f"{boost_policy.used_today}/{boost_policy.daily_limit} "
+            f"(осталось {boost_policy.remaining_today})"
+        ),
     ]
     if not entries:
         lines.append("Начислений пока нет")
@@ -73,5 +86,13 @@ async def command_points(message: Message) -> None:
             user = await upsert_user(session, message.from_user, mark_private_started=True)
             summary = await get_user_points_summary(session, user_id=user.id)
             entries = await list_user_points_entries(session, user_id=user.id, limit=limit)
+            boost_policy = await get_feedback_priority_boost_policy(session, submitter_user_id=user.id)
 
-    await message.answer(_render_points_text(summary=summary, entries=entries, shown_limit=limit))
+    await message.answer(
+        _render_points_text(
+            summary=summary,
+            entries=entries,
+            shown_limit=limit,
+            boost_policy=boost_policy,
+        )
+    )

@@ -22,10 +22,13 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #48: trust indicators on appeals and fraud signals lists.
   - PR #49: post-trade feedback foundation (bot intake + web moderation list).
   - PR #50: manage user reputation summary based on trade feedback.
+  - PR #51: docs sync for sprint status and RC-2 notes.
+  - PR #52: trade feedback moderation ergonomics.
+  - PR #53: points utility v1 feedback priority boost.
 - In progress:
-  - Reputation layer hardening (moderation ergonomics + reporting slices).
+  - Points utility visibility slices in bot/web moderation surfaces.
 - Next:
-  - Points utility/redemption first usable scenario.
+  - Additional redeem mechanics after boost baseline.
 
 ## P0 Scope (Recommended)
 
@@ -115,6 +118,12 @@ Acceptance:
 - Introduce first redeemable utility path for points.
 - Add anti-abuse limits and ledger-safe spend semantics.
 - Add basic user-facing usage docs and moderator controls.
+
+### PR-54: Points Utility v1.1 Visibility
+
+- Add points utility KPIs to web and bot moderation stats output.
+- Add per-user boost usage counters on `/manage/user/{id}`.
+- Add user-facing `/points` policy hints for boost cost and remaining daily limit.
 
 ## Non-Goals for Sprint 32
 

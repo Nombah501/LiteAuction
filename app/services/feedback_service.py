@@ -37,6 +37,14 @@ class FeedbackPriorityBoostResult:
 
 
 @dataclass(slots=True)
+class FeedbackPriorityBoostPolicy:
+    cost_points: int
+    daily_limit: int
+    used_today: int
+    remaining_today: int
+
+
+@dataclass(slots=True)
 class FeedbackView:
     item: FeedbackItem
     submitter: User | None
@@ -286,22 +294,11 @@ async def redeem_feedback_priority_boost(
         return FeedbackPriorityBoostResult(True, "Приоритет уже повышен", item=item, changed=False)
 
     now = datetime.now(UTC)
-    daily_limit = max(settings.feedback_priority_boost_daily_limit, 1)
-    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    used_today = int(
-        await session.scalar(
-            select(func.count(FeedbackItem.id)).where(
-                FeedbackItem.submitter_user_id == submitter_user_id,
-                FeedbackItem.priority_boosted_at.is_not(None),
-                FeedbackItem.priority_boosted_at >= day_start,
-            )
-        )
-        or 0
-    )
-    if used_today >= daily_limit:
-        return FeedbackPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({daily_limit})")
+    policy = await get_feedback_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
+    if policy.remaining_today <= 0:
+        return FeedbackPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
 
-    cost = max(settings.feedback_priority_boost_cost_points, 1)
+    cost = policy.cost_points
     spend_result = await spend_points(
         session,
         user_id=submitter_user_id,
@@ -322,3 +319,34 @@ async def redeem_feedback_priority_boost(
     item.priority_boosted_at = now
     item.updated_at = now
     return FeedbackPriorityBoostResult(True, "Приоритет записи повышен", item=item, changed=True)
+
+
+async def get_feedback_priority_boost_policy(
+    session: AsyncSession,
+    *,
+    submitter_user_id: int,
+    now: datetime | None = None,
+) -> FeedbackPriorityBoostPolicy:
+    current_time = now or datetime.now(UTC)
+    day_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    daily_limit = max(settings.feedback_priority_boost_daily_limit, 1)
+    cost_points = max(settings.feedback_priority_boost_cost_points, 1)
+    used_today = int(
+        await session.scalar(
+            select(func.count(FeedbackItem.id)).where(
+                FeedbackItem.submitter_user_id == submitter_user_id,
+                FeedbackItem.priority_boosted_at.is_not(None),
+                FeedbackItem.priority_boosted_at >= day_start,
+            )
+        )
+        or 0
+    )
+    remaining_today = max(daily_limit - used_today, 0)
+
+    return FeedbackPriorityBoostPolicy(
+        cost_points=cost_points,
+        daily_limit=daily_limit,
+        used_today=used_today,
+        remaining_today=remaining_today,
+    )
