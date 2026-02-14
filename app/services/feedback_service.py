@@ -44,6 +44,7 @@ class FeedbackPriorityBoostResult:
 
 @dataclass(slots=True)
 class FeedbackPriorityBoostPolicy:
+    enabled: bool
     cost_points: int
     daily_limit: int
     used_today: int
@@ -301,6 +302,8 @@ async def redeem_feedback_priority_boost(
 
     now = datetime.now(UTC)
     policy = await get_feedback_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
+    if not policy.enabled:
+        return FeedbackPriorityBoostResult(False, "Буст фидбека временно отключен")
     if policy.remaining_today <= 0:
         return FeedbackPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
 
@@ -360,6 +363,7 @@ async def get_feedback_priority_boost_policy(
     remaining_today = max(daily_limit - used_today, 0)
 
     return FeedbackPriorityBoostPolicy(
+        enabled=settings.feedback_priority_boost_enabled,
         cost_points=cost_points,
         daily_limit=daily_limit,
         used_today=used_today,

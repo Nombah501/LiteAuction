@@ -79,13 +79,16 @@ class Settings(BaseSettings):
     feedback_intake_cooldown_seconds: int = 90
     feedback_bug_reward_points: int = 30
     feedback_suggestion_reward_points: int = 20
+    feedback_priority_boost_enabled: bool = True
     feedback_priority_boost_cost_points: int = 25
     feedback_priority_boost_daily_limit: int = 2
     points_redemption_cooldown_seconds: int = 60
+    appeal_priority_boost_enabled: bool = True
     appeal_priority_boost_cost_points: int = 20
     appeal_priority_boost_daily_limit: int = 1
     guarantor_intake_min_length: int = 10
     guarantor_intake_cooldown_seconds: int = 180
+    guarantor_priority_boost_enabled: bool = True
     guarantor_priority_boost_cost_points: int = 40
     guarantor_priority_boost_daily_limit: int = 1
     publish_high_risk_requires_guarantor: bool = True

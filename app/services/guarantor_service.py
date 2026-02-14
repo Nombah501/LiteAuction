@@ -48,6 +48,7 @@ class GuarantorPriorityBoostResult:
 
 @dataclass(slots=True)
 class GuarantorPriorityBoostPolicy:
+    enabled: bool
     cost_points: int
     daily_limit: int
     used_today: int
@@ -265,6 +266,7 @@ async def get_guarantor_priority_boost_policy(
     )
     remaining_today = max(daily_limit - used_today, 0)
     return GuarantorPriorityBoostPolicy(
+        enabled=settings.guarantor_priority_boost_enabled,
         cost_points=cost_points,
         daily_limit=daily_limit,
         used_today=used_today,
@@ -294,6 +296,8 @@ async def redeem_guarantor_priority_boost(
 
     now = datetime.now(UTC)
     policy = await get_guarantor_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
+    if not policy.enabled:
+        return GuarantorPriorityBoostResult(False, "Буст гаранта временно отключен")
     if policy.remaining_today <= 0:
         return GuarantorPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
 

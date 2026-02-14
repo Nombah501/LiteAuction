@@ -209,3 +209,61 @@ async def test_guarantor_priority_boost_daily_limit(monkeypatch, integration_eng
     assert first.ok is True
     assert second.ok is False
     assert "дневной лимит" in second.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_guarantor_priority_boost_disabled_by_policy(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93341, username="guarant_boost_disabled")
+            session.add(submitter)
+            await session.flush()
+
+            created = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Проверка отключенного буста гаранта",
+            )
+            assert created.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=25,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:guarant:boost:disabled",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            result = await redeem_guarantor_priority_boost(
+                session,
+                request_id=created.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert result.ok is False
+    assert "временно отключен" in result.message.lower()
+
+    async with session_factory() as session:
+        item = await session.scalar(
+            select(GuarantorRequest).where(GuarantorRequest.submitter_user_id == submitter.id)
+        )
+        spend_row = await session.scalar(
+            select(PointsLedgerEntry).where(PointsLedgerEntry.event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST)
+        )
+
+    assert item is not None
+    assert item.priority_boosted_at is None
+    assert item.priority_boost_points_spent == 0
+    assert spend_row is None

@@ -29,6 +29,7 @@ from app.db.models import (
     Complaint,
     FeedbackItem,
     FraudSignal,
+    GuarantorRequest,
     TradeFeedback,
     User,
     UserRoleAssignment,
@@ -1634,7 +1635,7 @@ async def manage_user(
             )
             or 0
         )
-        boost_points_spent_total = int(
+        boost_feedback_points_spent_total = int(
             await session.scalar(
                 select(func.coalesce(func.sum(FeedbackItem.priority_boost_points_spent), 0)).where(
                     FeedbackItem.submitter_user_id == user.id,
@@ -1642,6 +1643,47 @@ async def manage_user(
                 )
             )
             or 0
+        )
+        boost_guarantor_count = int(
+            await session.scalar(
+                select(func.count(GuarantorRequest.id)).where(
+                    GuarantorRequest.submitter_user_id == user.id,
+                    GuarantorRequest.priority_boosted_at.is_not(None),
+                )
+            )
+            or 0
+        )
+        boost_guarantor_points_spent_total = int(
+            await session.scalar(
+                select(func.coalesce(func.sum(GuarantorRequest.priority_boost_points_spent), 0)).where(
+                    GuarantorRequest.submitter_user_id == user.id,
+                    GuarantorRequest.priority_boosted_at.is_not(None),
+                )
+            )
+            or 0
+        )
+        boost_appeal_count = int(
+            await session.scalar(
+                select(func.count(Appeal.id)).where(
+                    Appeal.appellant_user_id == user.id,
+                    Appeal.priority_boosted_at.is_not(None),
+                )
+            )
+            or 0
+        )
+        boost_appeal_points_spent_total = int(
+            await session.scalar(
+                select(func.coalesce(func.sum(Appeal.priority_boost_points_spent), 0)).where(
+                    Appeal.appellant_user_id == user.id,
+                    Appeal.priority_boosted_at.is_not(None),
+                )
+            )
+            or 0
+        )
+        boost_points_spent_total = (
+            boost_feedback_points_spent_total
+            + boost_guarantor_points_spent_total
+            + boost_appeal_points_spent_total
         )
 
         trade_feedback_summary = await get_trade_feedback_summary(session, target_user_id=user.id)
@@ -1816,6 +1858,9 @@ async def manage_user(
     roles_text = ", ".join(sorted(role.value for role in user_roles)) if user_roles else "-"
     moderator_text = "yes" if has_moderator_access else "no"
     blacklist_status = "active" if active_blacklist_entry is not None else "no"
+    feedback_boost_policy_status = "on" if settings.feedback_priority_boost_enabled else "off"
+    guarantor_boost_policy_status = "on" if settings.guarantor_priority_boost_enabled else "off"
+    appeal_boost_policy_status = "on" if settings.appeal_priority_boost_enabled else "off"
 
     body = (
         f"<h1>Управление пользователем {user.id}</h1>"
@@ -1838,7 +1883,13 @@ async def manage_user(
         f"<div class='kpi'><b>Списано всего:</b> -{points_summary.total_spent}</div>"
         f"<div class='kpi'><b>Points операций:</b> {points_summary.operations_count}</div>"
         f"<div class='kpi'><b>Бустов фидбека:</b> {boost_feedback_count}</div>"
+        f"<div class='kpi'><b>Бустов гаранта:</b> {boost_guarantor_count}</div>"
+        f"<div class='kpi'><b>Бустов апелляций:</b> {boost_appeal_count}</div>"
         f"<div class='kpi'><b>Списано на бусты:</b> -{boost_points_spent_total}</div>"
+        f"<div class='kpi'><b>Политика фидбек-буста:</b> {feedback_boost_policy_status} | cost {settings.feedback_priority_boost_cost_points} | limit {settings.feedback_priority_boost_daily_limit}/day</div>"
+        f"<div class='kpi'><b>Политика буста гаранта:</b> {guarantor_boost_policy_status} | cost {settings.guarantor_priority_boost_cost_points} | limit {settings.guarantor_priority_boost_daily_limit}/day</div>"
+        f"<div class='kpi'><b>Политика буста апелляций:</b> {appeal_boost_policy_status} | cost {settings.appeal_priority_boost_cost_points} | limit {settings.appeal_priority_boost_daily_limit}/day</div>"
+        f"<div class='kpi'><b>Глобальный кулдаун редимпшена:</b> {max(settings.points_redemption_cooldown_seconds, 0)} сек</div>"
         f"<div class='kpi'><b>Отзывов получено:</b> {trade_feedback_summary.total_received}</div>"
         f"<div class='kpi'><b>Видимых отзывов:</b> {trade_feedback_summary.visible_received}</div>"
         f"<div class='kpi'><b>Скрытых отзывов:</b> {trade_feedback_summary.hidden_received}</div>"
