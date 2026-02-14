@@ -21,7 +21,17 @@ from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType, UserRole
-from app.db.models import Appeal, Auction, Bid, BlacklistEntry, Complaint, FraudSignal, User, UserRoleAssignment
+from app.db.models import (
+    Appeal,
+    Auction,
+    Bid,
+    BlacklistEntry,
+    Complaint,
+    FraudSignal,
+    TradeFeedback,
+    User,
+    UserRoleAssignment,
+)
 from app.db.session import SessionFactory
 from app.services.appeal_service import (
     mark_appeal_in_review,
@@ -61,6 +71,7 @@ from app.services.points_service import (
     list_user_points_entries,
 )
 from app.services.risk_eval_service import UserRiskSnapshot, evaluate_user_risk_snapshot, format_risk_reason_label
+from app.services.trade_feedback_service import set_trade_feedback_visibility
 from app.web.auth import (
     AdminAuthContext,
     build_admin_session_cookie,
@@ -131,6 +142,13 @@ def _parse_appeal_escalated_filter(raw: str) -> str:
     if value in {"all", "only", "none"}:
         return value
     raise HTTPException(status_code=400, detail="Invalid appeals escalated filter")
+
+
+def _parse_trade_feedback_status(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "visible", "hidden"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid trade feedback status filter")
 
 
 def _appeal_source_label(source_type: AppealSourceType, source_id: int | None) -> str:
@@ -803,6 +821,7 @@ async def dashboard(request: Request) -> Response:
         f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=ACTIVE'))}'>Активные аукционы</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=FROZEN'))}'>Замороженные аукционы</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/appeals?status=open&source=all'))}'>Апелляции</a></li>"
+        f"<li><a href='{escape(_path_with_auth(request, '/trade-feedback?status=visible'))}'>Отзывы по сделкам</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>Нарушители</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/manage/users'))}'>Управление пользователями</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/logout'))}'>Выйти</a></li>"
@@ -936,6 +955,156 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
     return HTMLResponse(_render_page("Fraud Signals", body))
+
+
+@app.get("/trade-feedback", response_class=HTMLResponse)
+async def trade_feedback(request: Request, status: str = "visible", page: int = 0, q: str = "") -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    page = max(page, 0)
+    page_size = 30
+    offset = page * page_size
+    status_value = _parse_trade_feedback_status(status)
+    query_value = q.strip()
+
+    author_user = aliased(User)
+    target_user = aliased(User)
+    moderator_user = aliased(User)
+
+    stmt = (
+        select(TradeFeedback, Auction, author_user, target_user, moderator_user)
+        .join(Auction, Auction.id == TradeFeedback.auction_id)
+        .join(author_user, author_user.id == TradeFeedback.author_user_id)
+        .join(target_user, target_user.id == TradeFeedback.target_user_id)
+        .outerjoin(moderator_user, moderator_user.id == TradeFeedback.moderator_user_id)
+    )
+
+    if status_value != "all":
+        stmt = stmt.where(TradeFeedback.status == status_value.upper())
+
+    if query_value:
+        auction_uuid: uuid.UUID | None = None
+        try:
+            auction_uuid = uuid.UUID(query_value)
+        except ValueError:
+            auction_uuid = None
+
+        if query_value.isdigit():
+            q_int = int(query_value)
+            stmt = stmt.where(
+                or_(
+                    TradeFeedback.id == q_int,
+                    author_user.tg_user_id == q_int,
+                    target_user.tg_user_id == q_int,
+                )
+            )
+        elif auction_uuid is not None:
+            stmt = stmt.where(TradeFeedback.auction_id == auction_uuid)
+        else:
+            stmt = stmt.where(
+                or_(
+                    author_user.username.ilike(f"%{query_value}%"),
+                    target_user.username.ilike(f"%{query_value}%"),
+                    TradeFeedback.comment.ilike(f"%{query_value}%"),
+                    TradeFeedback.moderation_note.ilike(f"%{query_value}%"),
+                )
+            )
+
+    stmt = (
+        stmt.order_by(TradeFeedback.created_at.desc(), TradeFeedback.id.desc())
+        .offset(offset)
+        .limit(page_size + 1)
+    )
+
+    async with SessionFactory() as session:
+        rows = (await session.execute(stmt)).all()
+
+    has_next = len(rows) > page_size
+    rows = rows[:page_size]
+
+    csrf_input = _csrf_hidden_input(request, auth)
+    return_to = f"/trade-feedback?status={status_value}&page={page}&q={query_value}"
+    table_rows = ""
+
+    for item, auction, author, target, moderator in rows:
+        author_label = f"@{author.username}" if author.username else str(author.tg_user_id)
+        target_label = f"@{target.username}" if target.username else str(target.tg_user_id)
+        moderator_label = "-"
+        if moderator is not None:
+            moderator_label = f"@{moderator.username}" if moderator.username else str(moderator.tg_user_id)
+
+        status_label = "Виден" if item.status == "VISIBLE" else "Скрыт"
+        action_form = "-"
+        if item.status == "VISIBLE":
+            action_form = (
+                f"<form method='post' action='{escape(_path_with_auth(request, '/actions/trade-feedback/hide'))}'>"
+                f"<input type='hidden' name='feedback_id' value='{item.id}'>"
+                f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
+                f"{csrf_input}"
+                "<input name='reason' placeholder='Причина скрытия' style='width:180px'>"
+                "<button type='submit'>Скрыть</button></form>"
+            )
+        else:
+            action_form = (
+                f"<form method='post' action='{escape(_path_with_auth(request, '/actions/trade-feedback/unhide'))}'>"
+                f"<input type='hidden' name='feedback_id' value='{item.id}'>"
+                f"<input type='hidden' name='return_to' value='{escape(return_to)}'>"
+                f"{csrf_input}"
+                "<input name='reason' placeholder='Причина возврата' style='width:180px'>"
+                "<button type='submit'>Показать</button></form>"
+            )
+
+        table_rows += (
+            "<tr>"
+            f"<td>{item.id}</td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>{escape(str(auction.id))}</a></td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{author.id}'))}'>{escape(author_label)}</a></td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{target.id}'))}'>{escape(target_label)}</a></td>"
+            f"<td>{item.rating}/5</td>"
+            f"<td>{escape((item.comment or '-')[:180])}</td>"
+            f"<td>{status_label}</td>"
+            f"<td>{escape(moderator_label)}</td>"
+            f"<td>{escape(_fmt_ts(item.created_at))}</td>"
+            f"<td>{escape(_fmt_ts(item.moderated_at))}</td>"
+            f"<td>{action_form}</td>"
+            "</tr>"
+        )
+
+    if not table_rows:
+        table_rows = "<tr><td colspan='11'><span class='empty-state'>Нет записей</span></td></tr>"
+
+    prev_link = (
+        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status={status_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
+        if page > 0
+        else ""
+    )
+    next_link = (
+        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status={status_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        if has_next
+        else ""
+    )
+
+    body = (
+        "<h1>Отзывы по сделкам</h1>"
+        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
+        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
+        f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
+        f"<form method='get' action='{escape(_path_with_auth(request, '/trade-feedback'))}'>"
+        f"<input type='hidden' name='status' value='{escape(status_value)}'>"
+        f"<input name='q' value='{escape(query_value)}' placeholder='id / auction_id / username / tg id' style='width:320px'>"
+        "<button type='submit'>Поиск</button>"
+        "</form>"
+        f"<p>Статус: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/trade-feedback?status=visible&q={query_value}'))}'>Видимые</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/trade-feedback?status=hidden&q={query_value}'))}'>Скрытые</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&q={query_value}'))}'>Все</a></p>"
+        "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table>"
+        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+    )
+    return HTMLResponse(_render_page("Trade Feedback", body))
 
 
 @app.get("/auctions", response_class=HTMLResponse)
@@ -2070,6 +2239,70 @@ async def appeals(
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
     return HTMLResponse(_render_page("Апелляции", body))
+
+
+@app.post("/actions/trade-feedback/hide")
+async def action_hide_trade_feedback(
+    request: Request,
+    feedback_id: int = Form(...),
+    reason: str = Form(""),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/trade-feedback?status=visible")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    async with SessionFactory() as session:
+        async with session.begin():
+            result = await set_trade_feedback_visibility(
+                session,
+                feedback_id=feedback_id,
+                visible=False,
+                moderator_user_id=actor_user_id,
+                note=reason,
+            )
+
+    if not result.ok:
+        return _action_error_page(request, result.message, back_to=target)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/trade-feedback/unhide")
+async def action_unhide_trade_feedback(
+    request: Request,
+    feedback_id: int = Form(...),
+    reason: str = Form(""),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/trade-feedback?status=visible")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    async with SessionFactory() as session:
+        async with session.begin():
+            result = await set_trade_feedback_visibility(
+                session,
+                feedback_id=feedback_id,
+                visible=True,
+                moderator_user_id=actor_user_id,
+                note=reason,
+            )
+
+    if not result.ok:
+        return _action_error_page(request, result.message, back_to=target)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
 
 
 @app.post("/actions/auction/freeze")
