@@ -74,6 +74,7 @@ async def test_points_command_shows_balance_and_history(monkeypatch, integration
     assert "Буст апелляции: /boostappeal <appeal_id>" in reply_text
     assert "Лимит бустов апелляций сегодня:" in reply_text
     assert "Глобальный лимит бустов в день:" in reply_text
+    assert "Глобальный лимит бустов в неделю:" in reply_text
     assert "Глобальный лимит списания на бусты:" in reply_text
     assert "Глобальный недельный лимит списания:" in reply_text
     assert "Глобальный статус редимпшенов:" in reply_text
@@ -200,6 +201,7 @@ async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 15)
     monkeypatch.setattr(settings, "points_redemption_enabled", False)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 2)
+    monkeypatch.setattr(settings, "points_redemption_weekly_limit", 3)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 50)
     monkeypatch.setattr(settings, "points_redemption_weekly_spend_cap", 100)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 15)
@@ -235,6 +237,7 @@ async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch
     assert "Кулдаун буста гаранта: 45 сек" in reply_text
     assert "Кулдаун буста апелляции: 15 сек" in reply_text
     assert "Глобальный лимит бустов в день: 1/2 (осталось 1)" in reply_text
+    assert "Глобальный лимит бустов в неделю: 1/3 (осталось 2)" in reply_text
     assert "Глобальный лимит списания на бусты: 10/50 points (осталось 40)" in reply_text
     assert "Глобальный недельный лимит списания: 10/100 points (осталось 90)" in reply_text
     assert "Глобальный статус редимпшенов: временно отключены" in reply_text

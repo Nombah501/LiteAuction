@@ -72,6 +72,7 @@ from app.services.points_service import (
     get_points_redemptions_spent_today,
     get_points_redemptions_spent_this_week,
     get_points_redemptions_used_today,
+    get_points_redemptions_used_this_week,
     get_user_points_summary,
     grant_points,
     list_user_points_entries,
@@ -844,6 +845,11 @@ async def dashboard(request: Request) -> Response:
         global_daily_limit_line = (
             f"<div class='kpi'><b>Global redemption daily limit:</b> {settings.points_redemption_daily_limit}/day</div>"
         )
+    global_weekly_limit_line = "<div class='kpi'><b>Global redemption weekly limit:</b> unlimited</div>"
+    if settings.points_redemption_weekly_limit > 0:
+        global_weekly_limit_line = (
+            f"<div class='kpi'><b>Global redemption weekly limit:</b> {settings.points_redemption_weekly_limit}/week</div>"
+        )
     global_daily_spend_cap_line = "<div class='kpi'><b>Global redemption daily spend cap:</b> unlimited</div>"
     if settings.points_redemption_daily_spend_cap > 0:
         global_daily_spend_cap_line = (
@@ -897,6 +903,7 @@ async def dashboard(request: Request) -> Response:
         f"<div class='kpi'><b>Policy appeal:</b> {'on' if settings.appeal_priority_boost_enabled else 'off'} | cost {settings.appeal_priority_boost_cost_points} | limit {settings.appeal_priority_boost_daily_limit}/day | cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Policy redemptions:</b> {'on' if settings.points_redemption_enabled else 'off'}</div>"
         f"{global_daily_limit_line}"
+        f"{global_weekly_limit_line}"
         f"{global_daily_spend_cap_line}"
         f"{global_weekly_spend_cap_line}"
         f"<div class='kpi'><b>Min balance after redemption:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
@@ -1723,6 +1730,11 @@ async def manage_user(
             user_id=user.id,
             now=now,
         )
+        redemptions_used_this_week = await get_points_redemptions_used_this_week(
+            session,
+            user_id=user.id,
+            now=now,
+        )
         redemptions_spent_today = await get_points_redemptions_spent_today(
             session,
             user_id=user.id,
@@ -1920,6 +1932,13 @@ async def manage_user(
     global_daily_limit_text = "без ограничений"
     if global_daily_limit > 0:
         global_daily_limit_text = f"{redemptions_used_today}/{global_daily_limit} (осталось {global_daily_remaining})"
+    global_weekly_limit = max(settings.points_redemption_weekly_limit, 0)
+    global_weekly_remaining = max(global_weekly_limit - redemptions_used_this_week, 0)
+    global_weekly_limit_text = "без ограничений"
+    if global_weekly_limit > 0:
+        global_weekly_limit_text = (
+            f"{redemptions_used_this_week}/{global_weekly_limit} (осталось {global_weekly_remaining})"
+        )
     global_daily_spend_cap = max(settings.points_redemption_daily_spend_cap, 0)
     global_daily_spend_remaining = max(global_daily_spend_cap - redemptions_spent_today, 0)
     global_daily_spend_text = "без ограничений"
@@ -1980,6 +1999,7 @@ async def manage_user(
         f"<div class='kpi'><b>Политика буста апелляций:</b> {appeal_boost_policy_status} | cost {settings.appeal_priority_boost_cost_points} | limit {settings.appeal_priority_boost_daily_limit}/day | cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Глобальная политика редимпшенов:</b> {'on' if settings.points_redemption_enabled else 'off'}</div>"
         f"<div class='kpi'><b>Глобальный дневной лимит редимпшена:</b> {global_daily_limit_text}</div>"
+        f"<div class='kpi'><b>Глобальный недельный лимит редимпшена:</b> {global_weekly_limit_text}</div>"
         f"<div class='kpi'><b>Глобальный лимит списания на бусты:</b> {global_daily_spend_text}</div>"
         f"<div class='kpi'><b>Глобальный недельный лимит списания на бусты:</b> {global_weekly_spend_text}</div>"
         f"<div class='kpi'><b>Минимальный остаток после буста:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"

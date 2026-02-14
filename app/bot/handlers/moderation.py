@@ -488,6 +488,9 @@ async def _render_mod_stats_text() -> str:
     global_daily_limit_text = "- global daily limit: unlimited\n"
     if settings.points_redemption_daily_limit > 0:
         global_daily_limit_text = f"- global daily limit: {settings.points_redemption_daily_limit}/day\n"
+    global_weekly_limit_text = "- global weekly limit: unlimited\n"
+    if settings.points_redemption_weekly_limit > 0:
+        global_weekly_limit_text = f"- global weekly limit: {settings.points_redemption_weekly_limit}/week\n"
     global_daily_spend_cap_text = "- global daily spend cap: unlimited\n"
     if settings.points_redemption_daily_spend_cap > 0:
         global_daily_spend_cap_text = (
@@ -546,6 +549,7 @@ async def _render_mod_stats_text() -> str:
         f"limit {settings.appeal_priority_boost_daily_limit}/day | "
         f"cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s\n"
         f"{global_daily_limit_text}"
+        f"{global_weekly_limit_text}"
         f"{global_daily_spend_cap_text}"
         f"{global_weekly_spend_cap_text}"
         f"- min balance after redemption: {max(settings.points_redemption_min_balance, 0)} points\n"

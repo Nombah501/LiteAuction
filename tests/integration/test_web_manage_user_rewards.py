@@ -105,6 +105,7 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
     monkeypatch.setattr(settings, "points_redemption_enabled", False)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 2)
+    monkeypatch.setattr(settings, "points_redemption_weekly_limit", 6)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 50)
     monkeypatch.setattr(settings, "points_redemption_weekly_spend_cap", 150)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 12)
@@ -131,6 +132,7 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     assert "Политика буста апелляций:</b> on | cost 13 | limit 4/day | cooldown 33s" in body
     assert "Глобальная политика редимпшенов:</b> off" in body
     assert "Глобальный дневной лимит редимпшена:</b> 0/2 (осталось 2)" in body
+    assert "Глобальный недельный лимит редимпшена:</b> 0/6 (осталось 6)" in body
     assert "Глобальный лимит списания на бусты:</b> 0/50 points (осталось 50)" in body
     assert "Глобальный недельный лимит списания на бусты:</b> 0/150 points (осталось 150)" in body
     assert "Минимальный остаток после буста:</b> 12 points" in body
@@ -242,6 +244,7 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
     monkeypatch.setattr(settings, "points_redemption_enabled", True)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 5)
+    monkeypatch.setattr(settings, "points_redemption_weekly_limit", 15)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 80)
     monkeypatch.setattr(settings, "points_redemption_weekly_spend_cap", 300)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 20)
@@ -271,6 +274,7 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     assert "Policy appeal:</b> on | cost 20 | limit 1/day | cooldown 33s" in body
     assert "Policy redemptions:</b> on" in body
     assert "Global redemption daily limit:</b> 5/day" in body
+    assert "Global redemption weekly limit:</b> 15/week" in body
     assert "Global redemption daily spend cap:</b> 80 points/day" in body
     assert "Global redemption weekly spend cap:</b> 300 points/week" in body
     assert "Min balance after redemption:</b> 20 points" in body

@@ -337,6 +337,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
     monkeypatch.setattr(settings, "points_redemption_enabled", False)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 5)
+    monkeypatch.setattr(settings, "points_redemption_weekly_limit", 12)
     monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 80)
     monkeypatch.setattr(settings, "points_redemption_weekly_spend_cap", 240)
     monkeypatch.setattr(settings, "points_redemption_min_balance", 15)
@@ -399,6 +400,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     assert "appeal: on | cost 20 | limit 1/day | cooldown 33s" in text
     assert "redemptions: off" in text
     assert "global daily limit: 5/day" in text
+    assert "global weekly limit: 12/week" in text
     assert "global daily spend cap: 80 points/day" in text
     assert "global weekly spend cap: 240 points/week" in text
     assert "min balance after redemption: 15 points" in text
