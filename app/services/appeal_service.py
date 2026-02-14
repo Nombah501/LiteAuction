@@ -40,6 +40,7 @@ class AppealPriorityBoostResult:
 
 @dataclass(slots=True)
 class AppealPriorityBoostPolicy:
+    enabled: bool
     cost_points: int
     daily_limit: int
     used_today: int
@@ -330,6 +331,7 @@ async def get_appeal_priority_boost_policy(
     )
     remaining_today = max(daily_limit - used_today, 0)
     return AppealPriorityBoostPolicy(
+        enabled=settings.appeal_priority_boost_enabled,
         cost_points=cost_points,
         daily_limit=daily_limit,
         used_today=used_today,
@@ -359,6 +361,8 @@ async def redeem_appeal_priority_boost(
 
     now = datetime.now(UTC)
     policy = await get_appeal_priority_boost_policy(session, appellant_user_id=appellant_user_id, now=now)
+    if not policy.enabled:
+        return AppealPriorityBoostResult(False, "Буст апелляции временно отключен")
     if policy.remaining_today <= 0:
         return AppealPriorityBoostResult(False, f"Достигнут дневной лимит бустов ({policy.daily_limit})")
 

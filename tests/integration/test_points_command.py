@@ -174,6 +174,44 @@ async def test_points_command_supports_custom_limit(monkeypatch, integration_eng
 
 
 @pytest.mark.asyncio
+async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.points.SessionFactory", session_factory)
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 3600)
+
+    message = _DummyMessage(from_user_id=93641)
+
+    async with session_factory() as session:
+        async with session.begin():
+            from app.services.user_service import upsert_user
+
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            await grant_points(
+                session,
+                user_id=user.id,
+                amount=-10,
+                event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST,
+                dedupe_key="seed:points:cooldown:status",
+                reason="seed cooldown",
+                payload=None,
+            )
+
+    await command_points(message)
+
+    assert message.answers
+    reply_text = message.answers[-1]
+    assert "Статус фидбек-буста: временно отключен" in reply_text
+    assert "Статус буста гаранта: доступен" in reply_text
+    assert "Статус буста апелляции: доступен" in reply_text
+    assert "До следующего буста:" in reply_text
+
+
+@pytest.mark.asyncio
 async def test_points_command_rejects_invalid_limit(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.bot.handlers.points.SessionFactory", session_factory)

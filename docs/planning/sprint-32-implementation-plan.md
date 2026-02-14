@@ -29,10 +29,11 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #55: points utility v2 guarantor priority boost.
   - PR #56: points utility v2.1 conversion metrics.
   - PR #57: points utility v2.2 redemption cooldown guardrail.
+  - PR #58: points utility v2.3 appeal priority boost.
 - In progress:
-  - Third points redeem path for appeal priority boost.
+  - PR #59: points utility v2.4 operator boost toggles and policy visibility.
 - Next:
-  - Additional redeem mechanics after dual-boost, conversion, cooldown and appeal-boost baseline.
+  - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
 ## P0 Scope (Recommended)
 
@@ -152,6 +153,12 @@ Acceptance:
 - Add third redeem path: `/boostappeal <appeal_id>` for own active appeal.
 - Add ledger event and anti-abuse limits/cost config for appeal boosts.
 - Extend points filtering and labels in bot/web for appeal boost spends.
+
+### PR-59: Points Utility v2.4 Operator Toggles + Policy Visibility
+
+- Add operator-controlled on/off toggles for each redeem path (`feedback`, `guarantor`, `appeal`).
+- Enforce toggles in redeem services with explicit user-facing disabled message.
+- Surface current per-path policy (on/off, cost, daily limit) and global cooldown in `/points` and admin manage-user view.
 
 ## Non-Goals for Sprint 32
 

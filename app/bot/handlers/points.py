@@ -12,7 +12,12 @@ from app.db.session import SessionFactory
 from app.services.appeal_service import AppealPriorityBoostPolicy, get_appeal_priority_boost_policy
 from app.services.feedback_service import FeedbackPriorityBoostPolicy, get_feedback_priority_boost_policy
 from app.services.guarantor_service import GuarantorPriorityBoostPolicy, get_guarantor_priority_boost_policy
-from app.services.points_service import UserPointsSummary, get_user_points_summary, list_user_points_entries
+from app.services.points_service import (
+    UserPointsSummary,
+    get_points_redemption_cooldown_remaining_seconds,
+    get_user_points_summary,
+    list_user_points_entries,
+)
 from app.services.user_service import upsert_user
 
 router = Router(name="points")
@@ -51,6 +56,7 @@ def _render_points_text(
     feedback_boost_policy: FeedbackPriorityBoostPolicy,
     guarantor_boost_policy: GuarantorPriorityBoostPolicy,
     appeal_boost_policy: AppealPriorityBoostPolicy,
+    cooldown_remaining_seconds: int,
 ) -> str:
     lines = [
         f"Ваш баланс: {summary.balance} points",
@@ -62,19 +68,27 @@ def _render_points_text(
             f"{feedback_boost_policy.used_today}/{feedback_boost_policy.daily_limit} "
             f"(осталось {feedback_boost_policy.remaining_today})"
         ),
+        f"Статус фидбек-буста: {'доступен' if feedback_boost_policy.enabled else 'временно отключен'}",
         f"Буст гаранта: /boostguarant <request_id> (стоимость: {guarantor_boost_policy.cost_points} points)",
         (
             "Лимит бустов гаранта сегодня: "
             f"{guarantor_boost_policy.used_today}/{guarantor_boost_policy.daily_limit} "
             f"(осталось {guarantor_boost_policy.remaining_today})"
         ),
+        f"Статус буста гаранта: {'доступен' if guarantor_boost_policy.enabled else 'временно отключен'}",
         f"Буст апелляции: /boostappeal <appeal_id> (стоимость: {appeal_boost_policy.cost_points} points)",
         (
             "Лимит бустов апелляций сегодня: "
             f"{appeal_boost_policy.used_today}/{appeal_boost_policy.daily_limit} "
             f"(осталось {appeal_boost_policy.remaining_today})"
         ),
+        f"Статус буста апелляции: {'доступен' if appeal_boost_policy.enabled else 'временно отключен'}",
         f"Глобальный кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
+        (
+            f"До следующего буста: {cooldown_remaining_seconds} сек"
+            if cooldown_remaining_seconds > 0
+            else "Следующий буст доступен сейчас"
+        ),
     ]
     if not entries:
         lines.append("Начислений пока нет")
@@ -111,6 +125,11 @@ async def command_points(message: Message) -> None:
             feedback_boost_policy = await get_feedback_priority_boost_policy(session, submitter_user_id=user.id)
             guarantor_boost_policy = await get_guarantor_priority_boost_policy(session, submitter_user_id=user.id)
             appeal_boost_policy = await get_appeal_priority_boost_policy(session, appellant_user_id=user.id)
+            cooldown_remaining_seconds = await get_points_redemption_cooldown_remaining_seconds(
+                session,
+                user_id=user.id,
+                cooldown_seconds=settings.points_redemption_cooldown_seconds,
+            )
 
     await message.answer(
         _render_points_text(
@@ -120,5 +139,6 @@ async def command_points(message: Message) -> None:
             feedback_boost_policy=feedback_boost_policy,
             guarantor_boost_policy=guarantor_boost_policy,
             appeal_boost_policy=appeal_boost_policy,
+            cooldown_remaining_seconds=cooldown_remaining_seconds,
         )
     )

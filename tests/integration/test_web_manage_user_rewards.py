@@ -54,6 +54,8 @@ def _stub_auth() -> AdminAuthContext:
 
 @pytest.mark.asyncio
 async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 
     async with session_factory() as session:
@@ -89,6 +91,16 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
     monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
     monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", False)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 21)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 34)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 2)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 13)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 4)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 75)
 
     request = _make_request(f"/manage/user/{user_id}")
     response = await manage_user(request, user_id=user_id)
@@ -104,6 +116,10 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
     assert "Списано всего:</b> -5" in body
     assert "Бустов фидбека:</b> 0" in body
     assert "Списано на бусты:</b> -0" in body
+    assert "Политика фидбек-буста:</b> off | cost 21 | limit 3/day" in body
+    assert "Политика буста гаранта:</b> on | cost 34 | limit 2/day" in body
+    assert "Политика буста апелляций:</b> on | cost 13 | limit 4/day" in body
+    assert "Глобальный кулдаун редимпшена:</b> 75 сек" in body
     assert "Награда за фидбек" in body
     assert "Ручная корректировка" in body
 
@@ -141,6 +157,8 @@ async def test_manage_user_shows_feedback_boost_totals(monkeypatch, integration_
     body = bytes(response.body).decode("utf-8")
     assert response.status_code == 200
     assert "Бустов фидбека:</b> 1" in body
+    assert "Бустов гаранта:</b> 0" in body
+    assert "Бустов апелляций:</b> 0" in body
     assert "Списано на бусты:</b> -25" in body
 
 
