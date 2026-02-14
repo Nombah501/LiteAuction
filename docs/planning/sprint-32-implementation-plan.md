@@ -31,8 +31,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #57: points utility v2.2 redemption cooldown guardrail.
   - PR #58: points utility v2.3 appeal priority boost.
   - PR #59: points utility v2.4 operator boost toggles and policy visibility.
-- In progress:
   - PR #60: points utility v2.5 per-utility boost cooldown policies.
+- In progress:
+  - PR #61: points utility v2.6 policy visibility parity in modstats/dashboard.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -166,6 +167,12 @@ Acceptance:
 - Add per-utility cooldown settings for feedback/guarantor/appeal boosts.
 - Enforce utility-specific cooldowns in redeem services alongside existing global cooldown guardrail.
 - Surface per-utility cooldown config and remaining wait in `/points` and admin manage-user view.
+
+### PR-61: Points Utility v2.6 Policy Visibility Parity
+
+- Extend points utility 24h KPI block with guarantor boost redeems in bot/web dashboards.
+- Surface full active boost policy (toggle, cost, daily limit, per-utility cooldown, global cooldown) in `/modstats`.
+- Keep parity between bot and web points visibility for operator-facing policy context.
 
 ## Non-Goals for Sprint 32
 

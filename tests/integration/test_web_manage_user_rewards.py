@@ -167,6 +167,8 @@ async def test_manage_user_shows_feedback_boost_totals(monkeypatch, integration_
 
 @pytest.mark.asyncio
 async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 
     async with session_factory() as session:
@@ -212,6 +214,19 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
 
     monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
     monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 25)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 2)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 11)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 40)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cooldown_seconds", 22)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 20)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 77)
 
     request = _make_request("/")
     response = await dashboard(request)
@@ -228,7 +243,12 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     assert "Points начислено (24ч):</b> +30" in body
     assert "Points списано (24ч):</b> -10" in body
     assert "Бустов фидбека (24ч):</b> 1" in body
+    assert "Бустов гаранта (24ч):</b> 0" in body
     assert "Бустов апелляций (24ч):</b> 0" in body
+    assert "Policy feedback:</b> on | cost 25 | limit 2/day | cooldown 11s" in body
+    assert "Policy guarantor:</b> off | cost 40 | limit 1/day | cooldown 22s" in body
+    assert "Policy appeal:</b> on | cost 20 | limit 1/day | cooldown 33s" in body
+    assert "Global redemption cooldown:</b> 77s" in body
 
 
 @pytest.mark.asyncio

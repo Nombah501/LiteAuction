@@ -323,6 +323,19 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     target_tg_user_id = 93772
     monkeypatch.setattr(settings, "admin_user_ids", str(owner_tg_user_id))
     monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 25)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 2)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 11)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 40)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cooldown_seconds", 22)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 20)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 77)
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
@@ -371,7 +384,13 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     assert "Points начислено (24ч): +12" in text
     assert "Points списано (24ч): -4" in text
     assert "Бустов фидбека (24ч): 1" in text
+    assert "Бустов гаранта (24ч): 0" in text
     assert "Бустов апелляций (24ч): 0" in text
+    assert "Points policy" in text
+    assert "feedback: on | cost 25 | limit 2/day | cooldown 11s" in text
+    assert "guarantor: off | cost 40 | limit 1/day | cooldown 22s" in text
+    assert "appeal: on | cost 20 | limit 1/day | cooldown 33s" in text
+    assert "global cooldown: 77s" in text
 
 
 @pytest.mark.asyncio
