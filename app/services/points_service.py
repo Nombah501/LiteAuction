@@ -418,3 +418,22 @@ async def get_points_redemptions_spent_this_week(
         )
     )
     return int(spent_this_week or 0)
+
+
+async def get_points_redemptions_spent_this_month(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    now: datetime | None = None,
+) -> int:
+    current_time = now or datetime.now(UTC)
+    month_start = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    spent_this_month = await session.scalar(
+        select(func.coalesce(func.sum(-PointsLedgerEntry.amount), 0)).where(
+            PointsLedgerEntry.user_id == user_id,
+            PointsLedgerEntry.amount < 0,
+            PointsLedgerEntry.event_type.in_(BOOST_REDEMPTION_EVENT_TYPES),
+            PointsLedgerEntry.created_at >= month_start,
+        )
+    )
+    return int(spent_this_month or 0)

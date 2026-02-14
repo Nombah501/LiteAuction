@@ -40,8 +40,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #66: points utility v3.1 minimum account age guardrail.
   - PR #67: points utility v3.2 minimum earned points guardrail.
   - PR #68: points utility v3.3 weekly spend cap guardrail.
-- In progress:
   - PR #69: points utility v3.4 weekly redemption cap guardrail.
+- In progress:
+  - PR #70: points utility v3.5 monthly spend cap guardrail.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -229,6 +230,12 @@ Acceptance:
 - Add configurable global weekly redemption count cap for boost utilities.
 - Enforce weekly redemption limit across `feedback`, `guarantor`, and `appeal` boost redemptions.
 - Surface weekly redemption cap policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
+
+### PR-70: Points Utility v3.5 Monthly Spend Cap Guardrail
+
+- Add configurable global monthly spend cap for boost redemptions.
+- Enforce monthly spend cap across `feedback`, `guarantor`, and `appeal` boost redemptions.
+- Surface monthly spend cap policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
 
 ## Non-Goals for Sprint 32
 

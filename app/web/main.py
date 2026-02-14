@@ -71,6 +71,7 @@ from app.services.points_service import (
     get_points_redemption_account_age_remaining_seconds,
     get_points_redemptions_spent_today,
     get_points_redemptions_spent_this_week,
+    get_points_redemptions_spent_this_month,
     get_points_redemptions_used_today,
     get_points_redemptions_used_this_week,
     get_user_points_summary,
@@ -862,6 +863,12 @@ async def dashboard(request: Request) -> Response:
             "<div class='kpi'><b>Global redemption weekly spend cap:</b> "
             f"{settings.points_redemption_weekly_spend_cap} points/week</div>"
         )
+    global_monthly_spend_cap_line = "<div class='kpi'><b>Global redemption monthly spend cap:</b> unlimited</div>"
+    if settings.points_redemption_monthly_spend_cap > 0:
+        global_monthly_spend_cap_line = (
+            "<div class='kpi'><b>Global redemption monthly spend cap:</b> "
+            f"{settings.points_redemption_monthly_spend_cap} points/month</div>"
+        )
 
     body = (
         "<h1>LiteAuction Admin</h1>"
@@ -906,6 +913,7 @@ async def dashboard(request: Request) -> Response:
         f"{global_weekly_limit_line}"
         f"{global_daily_spend_cap_line}"
         f"{global_weekly_spend_cap_line}"
+        f"{global_monthly_spend_cap_line}"
         f"<div class='kpi'><b>Min balance after redemption:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
         f"<div class='kpi'><b>Min account age for redemption:</b> {max(settings.points_redemption_min_account_age_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Min earned points for redemption:</b> {max(settings.points_redemption_min_earned_points, 0)} points</div>"
@@ -1745,6 +1753,11 @@ async def manage_user(
             user_id=user.id,
             now=now,
         )
+        redemptions_spent_this_month = await get_points_redemptions_spent_this_month(
+            session,
+            user_id=user.id,
+            now=now,
+        )
         min_account_age_remaining = await get_points_redemption_account_age_remaining_seconds(
             session,
             user_id=user.id,
@@ -1955,6 +1968,14 @@ async def manage_user(
             f"{redemptions_spent_this_week}/{global_weekly_spend_cap} points "
             f"(осталось {global_weekly_spend_remaining})"
         )
+    global_monthly_spend_cap = max(settings.points_redemption_monthly_spend_cap, 0)
+    global_monthly_spend_remaining = max(global_monthly_spend_cap - redemptions_spent_this_month, 0)
+    global_monthly_spend_text = "без ограничений"
+    if global_monthly_spend_cap > 0:
+        global_monthly_spend_text = (
+            f"{redemptions_spent_this_month}/{global_monthly_spend_cap} points "
+            f"(осталось {global_monthly_spend_remaining})"
+        )
     min_account_age_required = max(settings.points_redemption_min_account_age_seconds, 0)
     min_account_age_text = f"{min_account_age_required} сек"
     if min_account_age_required > 0:
@@ -2002,6 +2023,7 @@ async def manage_user(
         f"<div class='kpi'><b>Глобальный недельный лимит редимпшена:</b> {global_weekly_limit_text}</div>"
         f"<div class='kpi'><b>Глобальный лимит списания на бусты:</b> {global_daily_spend_text}</div>"
         f"<div class='kpi'><b>Глобальный недельный лимит списания на бусты:</b> {global_weekly_spend_text}</div>"
+        f"<div class='kpi'><b>Глобальный месячный лимит списания на бусты:</b> {global_monthly_spend_text}</div>"
         f"<div class='kpi'><b>Минимальный остаток после буста:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
         f"<div class='kpi'><b>Мин. возраст аккаунта для буста:</b> {min_account_age_text}</div>"
         f"<div class='kpi'><b>Мин. начислено points для буста:</b> {min_earned_points_text}</div>"

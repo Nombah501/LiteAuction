@@ -16,6 +16,7 @@ from app.services.points_service import (
     get_points_event_redemption_cooldown_remaining_seconds,
     get_points_redemptions_spent_today,
     get_points_redemptions_spent_this_week,
+    get_points_redemptions_spent_this_month,
     get_points_redemptions_used_today,
     get_points_redemptions_used_this_week,
     get_points_redemption_cooldown_remaining_seconds,
@@ -402,6 +403,22 @@ async def redeem_feedback_priority_boost(
                 (
                     "Достигнут глобальный недельный лимит списания на бусты "
                     f"({global_weekly_spend_cap} points)"
+                ),
+            )
+
+    global_monthly_spend_cap = max(settings.points_redemption_monthly_spend_cap, 0)
+    if global_monthly_spend_cap > 0:
+        spent_this_month = await get_points_redemptions_spent_this_month(
+            session,
+            user_id=submitter_user_id,
+            now=now,
+        )
+        if spent_this_month + policy.cost_points > global_monthly_spend_cap:
+            return FeedbackPriorityBoostResult(
+                False,
+                (
+                    "Достигнут глобальный месячный лимит списания на бусты "
+                    f"({global_monthly_spend_cap} points)"
                 ),
             )
 
