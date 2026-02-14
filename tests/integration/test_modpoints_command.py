@@ -367,9 +367,11 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     assert "Редимеры points (7д): 1 (100.0%)" in text
     assert "Редимеры фидбек-буста (7д): 1" in text
     assert "Редимеры буста гаранта (7д): 0" in text
+    assert "Редимеры буста апелляции (7д): 0" in text
     assert "Points начислено (24ч): +12" in text
     assert "Points списано (24ч): -4" in text
     assert "Бустов фидбека (24ч): 1" in text
+    assert "Бустов апелляций (24ч): 0" in text
 
 
 @pytest.mark.asyncio
@@ -411,3 +413,44 @@ async def test_modpoints_history_supports_guarantor_boost_filter(monkeypatch, in
     reply = message.answers[-1]
     assert "фильтр: gboost" in reply
     assert "guarant boost" in reply
+
+
+@pytest.mark.asyncio
+async def test_modpoints_history_supports_appeal_boost_filter(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    owner_tg_user_id = 93791
+    target_tg_user_id = 93792
+    monkeypatch.setattr(settings, "admin_user_ids", str(owner_tg_user_id))
+    monkeypatch.setattr(settings, "admin_operator_user_ids", "")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.moderation.SessionFactory", session_factory)
+
+    async with session_factory() as session:
+        async with session.begin():
+            target_user = User(tg_user_id=target_tg_user_id)
+            session.add(target_user)
+            await session.flush()
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=target_user.id,
+                    amount=-7,
+                    event_type=PointsEventType.APPEAL_PRIORITY_BOOST,
+                    dedupe_key="history:aboost:1",
+                    reason="appeal boost",
+                    payload=None,
+                )
+            )
+
+    message = _DummyMessage(
+        text=f"/modpoints_history {target_tg_user_id} 1 aboost",
+        from_user_id=owner_tg_user_id,
+    )
+    await mod_points_history(message)
+
+    assert message.answers
+    reply = message.answers[-1]
+    assert "фильтр: aboost" in reply
+    assert "appeal boost" in reply

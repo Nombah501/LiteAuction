@@ -34,9 +34,11 @@ class ModerationDashboardSnapshot:
     points_redeemers_7d: int
     points_feedback_boost_redeemers_7d: int
     points_guarantor_boost_redeemers_7d: int
+    points_appeal_boost_redeemers_7d: int
     points_earned_24h: int
     points_spent_24h: int
     feedback_boost_redeems_24h: int
+    appeal_boost_redeems_24h: int
 
 
 async def get_moderation_dashboard_snapshot(session: AsyncSession) -> ModerationDashboardSnapshot:
@@ -171,6 +173,14 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
             )
         )
     ) or 0
+    points_appeal_boost_redeemers_7d = (
+        await session.scalar(
+            select(func.count(func.distinct(PointsLedgerEntry.user_id))).where(
+                PointsLedgerEntry.created_at >= seven_days,
+                PointsLedgerEntry.event_type == PointsEventType.APPEAL_PRIORITY_BOOST,
+            )
+        )
+    ) or 0
     points_earned_24h = (
         await session.scalar(
             select(func.coalesce(func.sum(PointsLedgerEntry.amount), 0)).where(
@@ -192,6 +202,14 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
             select(func.count(PointsLedgerEntry.id)).where(
                 PointsLedgerEntry.created_at >= one_day,
                 PointsLedgerEntry.event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST,
+            )
+        )
+    ) or 0
+    appeal_boost_redeems_24h = (
+        await session.scalar(
+            select(func.count(PointsLedgerEntry.id)).where(
+                PointsLedgerEntry.created_at >= one_day,
+                PointsLedgerEntry.event_type == PointsEventType.APPEAL_PRIORITY_BOOST,
             )
         )
     ) or 0
@@ -219,7 +237,9 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
         points_redeemers_7d=int(points_redeemers_7d),
         points_feedback_boost_redeemers_7d=int(points_feedback_boost_redeemers_7d),
         points_guarantor_boost_redeemers_7d=int(points_guarantor_boost_redeemers_7d),
+        points_appeal_boost_redeemers_7d=int(points_appeal_boost_redeemers_7d),
         points_earned_24h=int(points_earned_24h),
         points_spent_24h=int(points_spent_24h),
         feedback_boost_redeems_24h=int(feedback_boost_redeems_24h),
+        appeal_boost_redeems_24h=int(appeal_boost_redeems_24h),
     )

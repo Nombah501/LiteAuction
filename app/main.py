@@ -34,6 +34,7 @@ async def configure_bot_commands(bot: Bot) -> None:
         BotCommand(command="suggest", description="Предложить улучшение"),
         BotCommand(command="guarant", description="Запросить гаранта для сделки"),
         BotCommand(command="boostguarant", description="Поднять приоритет запроса гаранта"),
+        BotCommand(command="boostappeal", description="Поднять приоритет апелляции"),
         BotCommand(command="points", description="Показать баланс наград"),
         BotCommand(command="modpanel", description="Открыть панель модератора"),
         BotCommand(command="modstats", description="Показать статистику модерации"),

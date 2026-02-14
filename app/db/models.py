@@ -268,6 +268,8 @@ class Appeal(Base, TimestampMixin):
     sla_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     escalation_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    priority_boost_points_spent: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    priority_boosted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
 
 class FeedbackItem(Base, TimestampMixin):

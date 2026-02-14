@@ -203,9 +203,11 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     assert "Редимеры points (7д):</b> 1 (50.0%)" in body
     assert "Редимеры фидбек-буста (7д):</b> 1" in body
     assert "Редимеры буста гаранта (7д):</b> 0" in body
+    assert "Редимеры буста апелляции (7д):</b> 0" in body
     assert "Points начислено (24ч):</b> +30" in body
     assert "Points списано (24ч):</b> -10" in body
     assert "Бустов фидбека (24ч):</b> 1" in body
+    assert "Бустов апелляций (24ч):</b> 0" in body
 
 
 @pytest.mark.asyncio
@@ -242,6 +244,42 @@ async def test_manage_user_points_filter_supports_guarantor_boost(monkeypatch, i
     assert "Фильтр:</b> gboost" in body
     assert "Списание за приоритет гаранта" in body
     assert "gboost reason" in body
+
+
+@pytest.mark.asyncio
+async def test_manage_user_points_filter_supports_appeal_boost(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=93809, username="aboost_filter")
+            session.add(user)
+            await session.flush()
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=user.id,
+                    amount=-13,
+                    event_type=PointsEventType.APPEAL_PRIORITY_BOOST,
+                    dedupe_key="web:aboost:1",
+                    reason="aboost reason",
+                    payload=None,
+                )
+            )
+            user_id = user.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+
+    request = _make_request(f"/manage/user/{user_id}", query="points_page=1&points_filter=aboost")
+    response = await manage_user(request, user_id=user_id, points_page=1, points_filter="aboost")
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "Фильтр:</b> aboost" in body
+    assert "Списание за приоритет апелляции" in body
+    assert "aboost reason" in body
 
 
 @pytest.mark.asyncio

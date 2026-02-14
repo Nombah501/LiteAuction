@@ -14,6 +14,7 @@ from app.db.models import PointsLedgerEntry, User
 BOOST_REDEMPTION_EVENT_TYPES: tuple[PointsEventType, ...] = (
     PointsEventType.FEEDBACK_PRIORITY_BOOST,
     PointsEventType.GUARANTOR_PRIORITY_BOOST,
+    PointsEventType.APPEAL_PRIORITY_BOOST,
 )
 
 

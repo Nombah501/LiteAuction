@@ -9,6 +9,7 @@ from aiogram.types import Message
 
 from app.bot.handlers.start import (
     _appeal_acceptance_text,
+    _extract_boost_appeal_id,
     _extract_start_payload,
     _notify_moderators_about_appeal,
 )
@@ -28,6 +29,12 @@ def test_extract_start_payload() -> None:
 
 def test_appeal_acceptance_text_contains_appeal_id() -> None:
     assert "#145" in _appeal_acceptance_text(145)
+
+
+def test_extract_boost_appeal_id() -> None:
+    assert _extract_boost_appeal_id("/boostappeal") is None
+    assert _extract_boost_appeal_id("/boostappeal abc") is None
+    assert _extract_boost_appeal_id("/boostappeal 42") == 42
 
 
 @pytest.mark.asyncio
