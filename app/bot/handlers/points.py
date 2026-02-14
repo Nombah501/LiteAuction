@@ -19,6 +19,8 @@ MAX_POINTS_HISTORY_LIMIT = 20
 def _event_label(event_type: PointsEventType) -> str:
     if event_type == PointsEventType.FEEDBACK_APPROVED:
         return "Награда за фидбек"
+    if event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST:
+        return "Списание за приоритет фидбека"
     return "Ручная корректировка"
 
 

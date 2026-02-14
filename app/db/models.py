@@ -298,6 +298,8 @@ class FeedbackItem(Base, TimestampMixin):
     reward_points: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     queue_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    priority_boost_points_spent: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    priority_boosted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     github_issue_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 

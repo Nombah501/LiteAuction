@@ -15,6 +15,7 @@ from app.services.feedback_service import (
     approve_feedback,
     create_feedback,
     load_feedback_view,
+    redeem_feedback_priority_boost,
     reject_feedback,
     render_feedback_text,
     set_feedback_queue_message,
@@ -138,6 +139,62 @@ async def command_suggest(message: Message, state: FSMContext, bot: Bot) -> None
 
     await state.set_state(FeedbackIntakeStates.waiting_suggestion_text)
     await message.answer("Опишите предложение в одном сообщении. Для отмены используйте /cancel")
+
+
+@router.message(Command("boostfeedback"), F.chat.type == ChatType.PRIVATE)
+async def command_boost_feedback(message: Message, bot: Bot) -> None:
+    if message.from_user is None or message.text is None:
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        await message.answer("Формат: /boostfeedback <feedback_id>")
+        return
+
+    feedback_id = int(parts[1])
+    queue_chat_id: int | None = None
+    queue_message_id: int | None = None
+    queue_text = ""
+    queue_status: FeedbackStatus | None = None
+    result_message = ""
+    result_changed = False
+    async with SessionFactory() as session:
+        async with session.begin():
+            submitter = await upsert_user(session, message.from_user, mark_private_started=True)
+            result = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=feedback_id,
+                submitter_user_id=submitter.id,
+            )
+            if not result.ok or result.item is None:
+                await message.answer(result.message)
+                return
+            result_message = result.message
+            result_changed = result.changed
+
+            view = await load_feedback_view(session, feedback_id)
+            if view is not None:
+                queue_chat_id = view.item.queue_chat_id
+                queue_message_id = view.item.queue_message_id
+                queue_text = render_feedback_text(view)
+                queue_status = FeedbackStatus(view.item.status)
+
+    if queue_chat_id is not None and queue_message_id is not None and queue_status is not None:
+        try:
+            await bot.edit_message_text(
+                chat_id=queue_chat_id,
+                message_id=queue_message_id,
+                text=queue_text,
+                reply_markup=feedback_actions_keyboard(feedback_id=feedback_id, status=queue_status),
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+    if result_changed:
+        await message.answer(f"{result_message}. Модераторы получат обновленную карточку.")
+        return
+
+    await message.answer(result_message)
 
 
 @router.message(FeedbackIntakeStates.waiting_bug_text, F.text)
