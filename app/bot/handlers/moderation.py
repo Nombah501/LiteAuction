@@ -470,6 +470,11 @@ async def _render_mod_stats_text() -> str:
     hint_conv = "0.0%"
     if snapshot.users_with_soft_gate_hint > 0:
         hint_conv = f"{(snapshot.users_converted_after_hint / snapshot.users_with_soft_gate_hint) * 100:.1f}%"
+    points_redeem_conv = "0.0%"
+    if snapshot.points_users_with_positive_balance > 0:
+        points_redeem_conv = (
+            f"{(snapshot.points_redeemers_7d / snapshot.points_users_with_positive_balance) * 100:.1f}%"
+        )
 
     return (
         "Статистика модерации\n"
@@ -492,6 +497,10 @@ async def _render_mod_stats_text() -> str:
         "\n"
         "Points utility\n"
         f"- Активные points-пользователи (7д): {snapshot.points_active_users_7d}\n"
+        f"- Пользователи с положительным балансом: {snapshot.points_users_with_positive_balance}\n"
+        f"- Редимеры points (7д): {snapshot.points_redeemers_7d} ({points_redeem_conv})\n"
+        f"- Редимеры фидбек-буста (7д): {snapshot.points_feedback_boost_redeemers_7d}\n"
+        f"- Редимеры буста гаранта (7д): {snapshot.points_guarantor_boost_redeemers_7d}\n"
         f"- Points начислено (24ч): +{snapshot.points_earned_24h}\n"
         f"- Points списано (24ч): -{snapshot.points_spent_24h}\n"
         f"- Бустов фидбека (24ч): {snapshot.feedback_boost_redeems_24h}"

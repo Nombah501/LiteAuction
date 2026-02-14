@@ -27,9 +27,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #53: points utility v1 feedback priority boost.
   - PR #54: points utility v1.1 visibility slices.
 - In progress:
-  - Second points redeem mechanic for guarantor queue priority.
+  - Points redemption conversion metrics in moderation stats.
 - Next:
-  - Additional redeem mechanics after dual-boost baseline.
+  - Additional redeem mechanics after dual-boost and conversion baseline.
 
 ## P0 Scope (Recommended)
 
@@ -131,6 +131,12 @@ Acceptance:
 - Add second redeem path: `/boostguarant <request_id>` for own open guarantor request.
 - Add ledger event and anti-abuse limits/cost config for guarantor boosts.
 - Extend points filtering and labels in bot/web for guarantor boost spends.
+
+### PR-56: Points Utility v2.1 Conversion Metrics
+
+- Add conversion-friendly points KPIs in `/modstats` and web dashboard.
+- Track users with positive points balance vs unique redeemers in 7-day window.
+- Split redeemers by utility path (feedback boost vs guarantor boost).
 
 ## Non-Goals for Sprint 32
 

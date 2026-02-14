@@ -363,6 +363,10 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     text = message.answers[-1]
     assert "Points utility" in text
     assert "Активные points-пользователи (7д): 1" in text
+    assert "Пользователи с положительным балансом: 1" in text
+    assert "Редимеры points (7д): 1 (100.0%)" in text
+    assert "Редимеры фидбек-буста (7д): 1" in text
+    assert "Редимеры буста гаранта (7д): 0" in text
     assert "Points начислено (24ч): +12" in text
     assert "Points списано (24ч): -4" in text
     assert "Бустов фидбека (24ч): 1" in text
