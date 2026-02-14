@@ -38,6 +38,7 @@ class ModerationDashboardSnapshot:
     points_earned_24h: int
     points_spent_24h: int
     feedback_boost_redeems_24h: int
+    guarantor_boost_redeems_24h: int
     appeal_boost_redeems_24h: int
 
 
@@ -205,6 +206,14 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
             )
         )
     ) or 0
+    guarantor_boost_redeems_24h = (
+        await session.scalar(
+            select(func.count(PointsLedgerEntry.id)).where(
+                PointsLedgerEntry.created_at >= one_day,
+                PointsLedgerEntry.event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST,
+            )
+        )
+    ) or 0
     appeal_boost_redeems_24h = (
         await session.scalar(
             select(func.count(PointsLedgerEntry.id)).where(
@@ -241,5 +250,6 @@ async def get_moderation_dashboard_snapshot(session: AsyncSession) -> Moderation
         points_earned_24h=int(points_earned_24h),
         points_spent_24h=int(points_spent_24h),
         feedback_boost_redeems_24h=int(feedback_boost_redeems_24h),
+        guarantor_boost_redeems_24h=int(guarantor_boost_redeems_24h),
         appeal_boost_redeems_24h=int(appeal_boost_redeems_24h),
     )
