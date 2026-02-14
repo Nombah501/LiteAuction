@@ -334,3 +334,22 @@ async def get_points_redemptions_used_today(
         )
     )
     return int(used_today or 0)
+
+
+async def get_points_redemptions_spent_today(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    now: datetime | None = None,
+) -> int:
+    current_time = now or datetime.now(UTC)
+    day_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    spent_today = await session.scalar(
+        select(func.coalesce(func.sum(-PointsLedgerEntry.amount), 0)).where(
+            PointsLedgerEntry.user_id == user_id,
+            PointsLedgerEntry.amount < 0,
+            PointsLedgerEntry.event_type.in_(BOOST_REDEMPTION_EVENT_TYPES),
+            PointsLedgerEntry.created_at >= day_start,
+        )
+    )
+    return int(spent_today or 0)

@@ -13,6 +13,7 @@ from app.services.outbox_service import enqueue_feedback_issue_event
 from app.services.points_service import (
     feedback_reward_dedupe_key,
     get_points_event_redemption_cooldown_remaining_seconds,
+    get_points_redemptions_spent_today,
     get_points_redemptions_used_today,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_balance,
@@ -327,6 +328,22 @@ async def redeem_feedback_priority_boost(
             return FeedbackPriorityBoostResult(
                 False,
                 f"Достигнут глобальный дневной лимит бустов ({global_daily_limit})",
+            )
+
+    global_daily_spend_cap = max(settings.points_redemption_daily_spend_cap, 0)
+    if global_daily_spend_cap > 0:
+        spent_today = await get_points_redemptions_spent_today(
+            session,
+            user_id=submitter_user_id,
+            now=now,
+        )
+        if spent_today + policy.cost_points > global_daily_spend_cap:
+            return FeedbackPriorityBoostResult(
+                False,
+                (
+                    "Достигнут глобальный дневной лимит списания на бусты "
+                    f"({global_daily_spend_cap} points)"
+                ),
             )
 
     cooldown_remaining = await get_points_redemption_cooldown_remaining_seconds(

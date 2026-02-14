@@ -336,6 +336,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 1)
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 33)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 5)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 80)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 77)
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
@@ -392,6 +393,7 @@ async def test_modstats_includes_points_utility_block(monkeypatch, integration_e
     assert "guarantor: off | cost 40 | limit 1/day | cooldown 22s" in text
     assert "appeal: on | cost 20 | limit 1/day | cooldown 33s" in text
     assert "global daily limit: 5/day" in text
+    assert "global daily spend cap: 80 points/day" in text
     assert "global cooldown: 77s" in text
 
 

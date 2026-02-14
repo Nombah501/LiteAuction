@@ -13,6 +13,7 @@ from app.db.enums import AppealSourceType, AppealStatus, PointsEventType
 from app.db.models import Appeal, Complaint, FraudSignal
 from app.services.points_service import (
     get_points_event_redemption_cooldown_remaining_seconds,
+    get_points_redemptions_spent_today,
     get_points_redemptions_used_today,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_balance,
@@ -396,6 +397,22 @@ async def redeem_appeal_priority_boost(
             return AppealPriorityBoostResult(
                 False,
                 f"Достигнут глобальный дневной лимит бустов ({global_daily_limit})",
+            )
+
+    global_daily_spend_cap = max(settings.points_redemption_daily_spend_cap, 0)
+    if global_daily_spend_cap > 0:
+        spent_today = await get_points_redemptions_spent_today(
+            session,
+            user_id=appellant_user_id,
+            now=now,
+        )
+        if spent_today + policy.cost_points > global_daily_spend_cap:
+            return AppealPriorityBoostResult(
+                False,
+                (
+                    "Достигнут глобальный дневной лимит списания на бусты "
+                    f"({global_daily_spend_cap} points)"
+                ),
             )
 
     cooldown_remaining = await get_points_redemption_cooldown_remaining_seconds(

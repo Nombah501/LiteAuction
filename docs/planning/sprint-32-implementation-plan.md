@@ -33,8 +33,9 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #59: points utility v2.4 operator boost toggles and policy visibility.
   - PR #60: points utility v2.5 per-utility boost cooldown policies.
   - PR #61: points utility v2.6 policy visibility parity in modstats/dashboard.
-- In progress:
   - PR #62: points utility v2.7 global daily redemption cap.
+- In progress:
+  - PR #63: points utility v2.8 global daily redemption spend cap.
 - Next:
   - Additional redeem mechanics after feedback/guarantor/appeal boosts baseline.
 
@@ -180,6 +181,12 @@ Acceptance:
 - Add configurable global daily redemption limit for boost utilities (`feedback`, `guarantor`, `appeal`).
 - Enforce global daily limit alongside per-utility limits/cooldowns and global cooldown guardrail.
 - Surface global daily policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
+
+### PR-63: Points Utility v2.8 Global Daily Redemption Spend Cap
+
+- Add configurable global daily spend cap for boost redemptions (`feedback`, `guarantor`, `appeal`).
+- Enforce spend cap alongside existing per-utility limits, global daily redemption cap, and cooldown guardrails.
+- Surface global daily spend cap policy context in `/points`, `/modstats`, web dashboard, and `/manage/user/{id}`.
 
 ## Non-Goals for Sprint 32
 

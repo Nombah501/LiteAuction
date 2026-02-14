@@ -488,6 +488,11 @@ async def _render_mod_stats_text() -> str:
     global_daily_limit_text = "- global daily limit: unlimited\n"
     if settings.points_redemption_daily_limit > 0:
         global_daily_limit_text = f"- global daily limit: {settings.points_redemption_daily_limit}/day\n"
+    global_daily_spend_cap_text = "- global daily spend cap: unlimited\n"
+    if settings.points_redemption_daily_spend_cap > 0:
+        global_daily_spend_cap_text = (
+            f"- global daily spend cap: {settings.points_redemption_daily_spend_cap} points/day\n"
+        )
 
     return (
         "Статистика модерации\n"
@@ -535,6 +540,7 @@ async def _render_mod_stats_text() -> str:
         f"limit {settings.appeal_priority_boost_daily_limit}/day | "
         f"cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s\n"
         f"{global_daily_limit_text}"
+        f"{global_daily_spend_cap_text}"
         f"- global cooldown: {max(settings.points_redemption_cooldown_seconds, 0)}s"
     )
 
