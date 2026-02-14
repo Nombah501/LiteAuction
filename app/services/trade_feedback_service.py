@@ -26,6 +26,8 @@ class TradeFeedbackModerationResult:
     message: str
     item: TradeFeedback | None = None
     changed: bool = False
+    previous_status: str | None = None
+    current_status: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -123,9 +125,17 @@ async def set_trade_feedback_visibility(
     if item is None:
         return TradeFeedbackModerationResult(False, "Отзыв не найден")
 
+    previous_status = item.status
     target_status = "VISIBLE" if visible else "HIDDEN"
     if item.status == target_status:
-        return TradeFeedbackModerationResult(True, "Статус уже установлен", item=item, changed=False)
+        return TradeFeedbackModerationResult(
+            True,
+            "Статус уже установлен",
+            item=item,
+            changed=False,
+            previous_status=previous_status,
+            current_status=item.status,
+        )
 
     now = datetime.now(UTC)
     item.status = target_status
@@ -133,7 +143,14 @@ async def set_trade_feedback_visibility(
     item.moderation_note = (note or "").strip() or None
     item.moderated_at = now
     item.updated_at = now
-    return TradeFeedbackModerationResult(True, "Статус отзыва обновлен", item=item, changed=True)
+    return TradeFeedbackModerationResult(
+        True,
+        "Статус отзыва обновлен",
+        item=item,
+        changed=True,
+        previous_status=previous_status,
+        current_status=item.status,
+    )
 
 
 async def get_trade_feedback_summary(

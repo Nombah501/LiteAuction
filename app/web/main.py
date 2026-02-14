@@ -155,6 +155,26 @@ def _parse_trade_feedback_status(raw: str) -> str:
     raise HTTPException(status_code=400, detail="Invalid trade feedback status filter")
 
 
+def _parse_trade_feedback_min_rating(raw: str) -> int | None:
+    value = raw.strip()
+    if not value:
+        return None
+    parsed = _parse_non_negative_int(value)
+    if parsed is None or parsed < 1 or parsed > 5:
+        raise HTTPException(status_code=400, detail="Invalid trade feedback rating filter")
+    return parsed
+
+
+def _parse_optional_tg_user_id(raw: str) -> int | None:
+    value = raw.strip()
+    if not value:
+        return None
+    parsed = _parse_non_negative_int(value)
+    if parsed is None or parsed <= 0:
+        raise HTTPException(status_code=400, detail="Invalid trade feedback tg user filter")
+    return parsed
+
+
 def _appeal_source_label(source_type: AppealSourceType, source_id: int | None) -> str:
     if source_type == AppealSourceType.COMPLAINT:
         return f"Жалоба #{source_id}" if source_id is not None else "Жалоба"
@@ -962,7 +982,15 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
 
 
 @app.get("/trade-feedback", response_class=HTMLResponse)
-async def trade_feedback(request: Request, status: str = "visible", page: int = 0, q: str = "") -> Response:
+async def trade_feedback(
+    request: Request,
+    status: str = "visible",
+    page: int = 0,
+    q: str = "",
+    min_rating: str = "",
+    author_tg: str = "",
+    target_tg: str = "",
+) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
         return response
@@ -972,6 +1000,9 @@ async def trade_feedback(request: Request, status: str = "visible", page: int = 
     offset = page * page_size
     status_value = _parse_trade_feedback_status(status)
     query_value = q.strip()
+    min_rating_value = _parse_trade_feedback_min_rating(min_rating)
+    author_tg_value = _parse_optional_tg_user_id(author_tg)
+    target_tg_value = _parse_optional_tg_user_id(target_tg)
 
     author_user = aliased(User)
     target_user = aliased(User)
@@ -987,6 +1018,15 @@ async def trade_feedback(request: Request, status: str = "visible", page: int = 
 
     if status_value != "all":
         stmt = stmt.where(TradeFeedback.status == status_value.upper())
+
+    if min_rating_value is not None:
+        stmt = stmt.where(TradeFeedback.rating >= min_rating_value)
+
+    if author_tg_value is not None:
+        stmt = stmt.where(author_user.tg_user_id == author_tg_value)
+
+    if target_tg_value is not None:
+        stmt = stmt.where(target_user.tg_user_id == target_tg_value)
 
     if query_value:
         auction_uuid: uuid.UUID | None = None
@@ -1028,8 +1068,27 @@ async def trade_feedback(request: Request, status: str = "visible", page: int = 
     has_next = len(rows) > page_size
     rows = rows[:page_size]
 
+    base_query = {
+        "status": status_value,
+        "q": query_value,
+    }
+    if min_rating_value is not None:
+        base_query["min_rating"] = str(min_rating_value)
+    if author_tg_value is not None:
+        base_query["author_tg"] = str(author_tg_value)
+    if target_tg_value is not None:
+        base_query["target_tg"] = str(target_tg_value)
+
+    def _trade_feedback_path(*, page_value: int | None = None, **extra: str) -> str:
+        query = dict(base_query)
+        query.update(extra)
+        if page_value is not None:
+            query["page"] = str(page_value)
+        encoded = urlencode(query)
+        return "/trade-feedback" if not encoded else f"/trade-feedback?{encoded}"
+
     csrf_input = _csrf_hidden_input(request, auth)
-    return_to = f"/trade-feedback?status={status_value}&page={page}&q={query_value}"
+    return_to = _trade_feedback_path(page_value=page)
     table_rows = ""
 
     for item, auction, author, target, moderator in rows:
@@ -1064,8 +1123,8 @@ async def trade_feedback(request: Request, status: str = "visible", page: int = 
             "<tr>"
             f"<td>{item.id}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>{escape(str(auction.id))}</a></td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{author.id}'))}'>{escape(author_label)}</a></td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{target.id}'))}'>{escape(target_label)}</a></td>"
+            f"<td><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, author_tg=str(author.tg_user_id), target_tg='')))}'>{escape(author_label)}</a></td>"
+            f"<td><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, target_tg=str(target.tg_user_id), author_tg='')))}'>{escape(target_label)}</a></td>"
             f"<td>{item.rating}/5</td>"
             f"<td>{escape((item.comment or '-')[:180])}</td>"
             f"<td>{status_label}</td>"
@@ -1080,15 +1139,19 @@ async def trade_feedback(request: Request, status: str = "visible", page: int = 
         table_rows = "<tr><td colspan='11'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status={status_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=page - 1)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status={status_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=page + 1)))}'>Вперед →</a>"
         if has_next
         else ""
     )
+
+    min_rating_text = "all" if min_rating_value is None else str(min_rating_value)
+    author_filter_text = "all" if author_tg_value is None else str(author_tg_value)
+    target_filter_text = "all" if target_tg_value is None else str(target_tg_value)
 
     body = (
         "<h1>Отзывы по сделкам</h1>"
@@ -1097,13 +1160,21 @@ async def trade_feedback(request: Request, status: str = "visible", page: int = 
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/trade-feedback'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
+        f"<input type='hidden' name='min_rating' value='{escape(min_rating_text if min_rating_text != 'all' else '')}'>"
+        f"<input type='hidden' name='author_tg' value='{escape(author_filter_text if author_filter_text != 'all' else '')}'>"
+        f"<input type='hidden' name='target_tg' value='{escape(target_filter_text if target_filter_text != 'all' else '')}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='id / auction_id / username / tg id' style='width:320px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
         f"<p>Статус: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/trade-feedback?status=visible&q={query_value}'))}'>Видимые</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/trade-feedback?status=hidden&q={query_value}'))}'>Скрытые</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&q={query_value}'))}'>Все</a></p>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, status='visible')))}'>Видимые</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, status='hidden')))}'>Скрытые</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, status='all')))}'>Все</a></p>"
+        f"<p>Оценка: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='')))}'>all</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='4')))}'>4+</a> "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='5')))}'>5</a></p>"
+        f"<p>Автор TG: {escape(author_filter_text)} | Получатель TG: {escape(target_filter_text)}</p>"
         "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
@@ -2292,6 +2363,7 @@ async def action_hide_trade_feedback(
         return _csrf_failed_response(request, back_to=target)
 
     actor_user_id = await _resolve_actor_user_id(auth)
+    normalized_reason = reason.strip()
     async with SessionFactory() as session:
         async with session.begin():
             result = await set_trade_feedback_visibility(
@@ -2299,8 +2371,25 @@ async def action_hide_trade_feedback(
                 feedback_id=feedback_id,
                 visible=False,
                 moderator_user_id=actor_user_id,
-                note=reason,
+                note=normalized_reason,
             )
+
+            if result.ok and result.changed and result.item is not None:
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor_user_id,
+                    action=ModerationAction.HIDE_TRADE_FEEDBACK,
+                    reason=f"[web] {normalized_reason or 'trade feedback hidden'}",
+                    target_user_id=result.item.target_user_id,
+                    auction_id=result.item.auction_id,
+                    payload={
+                        "feedback_id": feedback_id,
+                        "source": "web",
+                        "from_status": result.previous_status,
+                        "to_status": result.current_status,
+                        "moderation_note": normalized_reason or None,
+                    },
+                )
 
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)
@@ -2324,6 +2413,7 @@ async def action_unhide_trade_feedback(
         return _csrf_failed_response(request, back_to=target)
 
     actor_user_id = await _resolve_actor_user_id(auth)
+    normalized_reason = reason.strip()
     async with SessionFactory() as session:
         async with session.begin():
             result = await set_trade_feedback_visibility(
@@ -2331,8 +2421,25 @@ async def action_unhide_trade_feedback(
                 feedback_id=feedback_id,
                 visible=True,
                 moderator_user_id=actor_user_id,
-                note=reason,
+                note=normalized_reason,
             )
+
+            if result.ok and result.changed and result.item is not None:
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor_user_id,
+                    action=ModerationAction.UNHIDE_TRADE_FEEDBACK,
+                    reason=f"[web] {normalized_reason or 'trade feedback unhidden'}",
+                    target_user_id=result.item.target_user_id,
+                    auction_id=result.item.auction_id,
+                    payload={
+                        "feedback_id": feedback_id,
+                        "source": "web",
+                        "from_status": result.previous_status,
+                        "to_status": result.current_status,
+                        "moderation_note": normalized_reason or None,
+                    },
+                )
 
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)
