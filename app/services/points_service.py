@@ -315,3 +315,22 @@ async def get_points_event_redemption_cooldown_remaining_seconds(
         return 0
 
     return max(math.ceil(safe_cooldown - elapsed_seconds), 0)
+
+
+async def get_points_redemptions_used_today(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    now: datetime | None = None,
+) -> int:
+    current_time = now or datetime.now(UTC)
+    day_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    used_today = await session.scalar(
+        select(func.count(PointsLedgerEntry.id)).where(
+            PointsLedgerEntry.user_id == user_id,
+            PointsLedgerEntry.amount < 0,
+            PointsLedgerEntry.event_type.in_(BOOST_REDEMPTION_EVENT_TYPES),
+            PointsLedgerEntry.created_at >= day_start,
+        )
+    )
+    return int(used_today or 0)

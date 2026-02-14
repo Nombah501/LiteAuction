@@ -68,6 +68,7 @@ from app.services.moderation_service import (
 )
 from app.services.points_service import (
     count_user_points_entries,
+    get_points_redemptions_used_today,
     get_user_points_summary,
     grant_points,
     list_user_points_entries,
@@ -835,6 +836,11 @@ async def dashboard(request: Request) -> Response:
         snapshot.users_with_engagement - snapshot.users_engaged_without_private_start,
         0,
     )
+    global_daily_limit_line = "<div class='kpi'><b>Global redemption daily limit:</b> unlimited</div>"
+    if settings.points_redemption_daily_limit > 0:
+        global_daily_limit_line = (
+            f"<div class='kpi'><b>Global redemption daily limit:</b> {settings.points_redemption_daily_limit}/day</div>"
+        )
 
     body = (
         "<h1>LiteAuction Admin</h1>"
@@ -874,6 +880,7 @@ async def dashboard(request: Request) -> Response:
         f"<div class='kpi'><b>Policy feedback:</b> {'on' if settings.feedback_priority_boost_enabled else 'off'} | cost {settings.feedback_priority_boost_cost_points} | limit {settings.feedback_priority_boost_daily_limit}/day | cooldown {max(settings.feedback_priority_boost_cooldown_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Policy guarantor:</b> {'on' if settings.guarantor_priority_boost_enabled else 'off'} | cost {settings.guarantor_priority_boost_cost_points} | limit {settings.guarantor_priority_boost_daily_limit}/day | cooldown {max(settings.guarantor_priority_boost_cooldown_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Policy appeal:</b> {'on' if settings.appeal_priority_boost_enabled else 'off'} | cost {settings.appeal_priority_boost_cost_points} | limit {settings.appeal_priority_boost_daily_limit}/day | cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s</div>"
+        f"{global_daily_limit_line}"
         f"<div class='kpi'><b>Global redemption cooldown:</b> {max(settings.points_redemption_cooldown_seconds, 0)}s</div>"
         "<hr>"
         "<ul>"
@@ -1690,6 +1697,11 @@ async def manage_user(
             + boost_guarantor_points_spent_total
             + boost_appeal_points_spent_total
         )
+        redemptions_used_today = await get_points_redemptions_used_today(
+            session,
+            user_id=user.id,
+            now=now,
+        )
 
         trade_feedback_summary = await get_trade_feedback_summary(session, target_user_id=user.id)
         trade_feedback_received = await list_received_trade_feedback(session, target_user_id=user.id, limit=10)
@@ -1866,6 +1878,11 @@ async def manage_user(
     feedback_boost_policy_status = "on" if settings.feedback_priority_boost_enabled else "off"
     guarantor_boost_policy_status = "on" if settings.guarantor_priority_boost_enabled else "off"
     appeal_boost_policy_status = "on" if settings.appeal_priority_boost_enabled else "off"
+    global_daily_limit = max(settings.points_redemption_daily_limit, 0)
+    global_daily_remaining = max(global_daily_limit - redemptions_used_today, 0)
+    global_daily_limit_text = "без ограничений"
+    if global_daily_limit > 0:
+        global_daily_limit_text = f"{redemptions_used_today}/{global_daily_limit} (осталось {global_daily_remaining})"
 
     body = (
         f"<h1>Управление пользователем {user.id}</h1>"
@@ -1894,6 +1911,7 @@ async def manage_user(
         f"<div class='kpi'><b>Политика фидбек-буста:</b> {feedback_boost_policy_status} | cost {settings.feedback_priority_boost_cost_points} | limit {settings.feedback_priority_boost_daily_limit}/day | cooldown {max(settings.feedback_priority_boost_cooldown_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Политика буста гаранта:</b> {guarantor_boost_policy_status} | cost {settings.guarantor_priority_boost_cost_points} | limit {settings.guarantor_priority_boost_daily_limit}/day | cooldown {max(settings.guarantor_priority_boost_cooldown_seconds, 0)}s</div>"
         f"<div class='kpi'><b>Политика буста апелляций:</b> {appeal_boost_policy_status} | cost {settings.appeal_priority_boost_cost_points} | limit {settings.appeal_priority_boost_daily_limit}/day | cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s</div>"
+        f"<div class='kpi'><b>Глобальный дневной лимит редимпшена:</b> {global_daily_limit_text}</div>"
         f"<div class='kpi'><b>Глобальный кулдаун редимпшена:</b> {max(settings.points_redemption_cooldown_seconds, 0)} сек</div>"
         f"<div class='kpi'><b>Отзывов получено:</b> {trade_feedback_summary.total_received}</div>"
         f"<div class='kpi'><b>Видимых отзывов:</b> {trade_feedback_summary.visible_received}</div>"
