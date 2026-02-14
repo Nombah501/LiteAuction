@@ -541,6 +541,7 @@ async def _render_mod_stats_text() -> str:
         f"cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s\n"
         f"{global_daily_limit_text}"
         f"{global_daily_spend_cap_text}"
+        f"- min balance after redemption: {max(settings.points_redemption_min_balance, 0)} points\n"
         f"- global cooldown: {max(settings.points_redemption_cooldown_seconds, 0)}s"
     )
 
