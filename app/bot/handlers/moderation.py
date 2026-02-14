@@ -266,6 +266,8 @@ def _event_label(event_type: PointsEventType) -> str:
         return "Награда за фидбек"
     if event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST:
         return "Списание за приоритет фидбека"
+    if event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST:
+        return "Списание за приоритет гаранта"
     return "Ручная корректировка"
 
 
@@ -281,6 +283,8 @@ def _parse_points_filter(raw: str | None) -> PointsEventType | None | Literal["i
         return PointsEventType.MANUAL_ADJUSTMENT
     if lowered in {"boost", "priority", "feedback_priority_boost"}:
         return PointsEventType.FEEDBACK_PRIORITY_BOOST
+    if lowered in {"gboost", "guarantor_priority_boost", "guarant_boost"}:
+        return PointsEventType.GUARANTOR_PRIORITY_BOOST
     return "invalid"
 
 
@@ -291,6 +295,8 @@ def _points_filter_label(event_type: PointsEventType | None) -> str:
         return "feedback"
     if event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST:
         return "boost"
+    if event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST:
+        return "gboost"
     return "manual"
 
 
@@ -547,7 +553,7 @@ async def mod_help(message: Message) -> None:
                 "/modpoints <tg_user_id>",
                 "/modpoints <tg_user_id> <limit>",
                 "/modpoints <tg_user_id> <amount> <reason>",
-                "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost]",
+                "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost]",
             ]
         )
 
@@ -770,8 +776,8 @@ async def mod_points_history(message: Message) -> None:
         "Формат:\n"
         "/modpoints_history <tg_user_id>\n"
         "/modpoints_history <tg_user_id> <page>\n"
-        "/modpoints_history <tg_user_id> <all|feedback|manual|boost>\n"
-        "/modpoints_history <tg_user_id> <page> <all|feedback|manual|boost>"
+        "/modpoints_history <tg_user_id> <all|feedback|manual|boost|gboost>\n"
+        "/modpoints_history <tg_user_id> <page> <all|feedback|manual|boost|gboost>"
     )
 
     parts = message.text.split()

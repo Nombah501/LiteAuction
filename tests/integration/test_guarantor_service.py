@@ -4,11 +4,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.enums import GuarantorRequestStatus
-from app.db.models import GuarantorRequest, User
+from app.db.enums import GuarantorRequestStatus, PointsEventType
+from app.db.models import GuarantorRequest, PointsLedgerEntry, User
 from app.services.guarantor_service import (
     assign_guarantor_request,
     create_guarantor_request,
+    redeem_guarantor_priority_boost,
     reject_guarantor_request,
 )
 
@@ -95,3 +96,116 @@ async def test_guarantor_create_respects_cooldown(monkeypatch, integration_engin
     assert first.ok is True
     assert second.ok is False
     assert "Слишком часто" in second.message
+
+
+@pytest.mark.asyncio
+async def test_guarantor_priority_boost_spends_points_and_marks_item(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 40)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 1)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93321, username="guarant_boost_submitter")
+            session.add(submitter)
+            await session.flush()
+
+            created = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Нужен гарант для сделки с предоплатой",
+            )
+            assert created.ok is True
+            assert created.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=60,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:guarant:boost:points",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            boosted = await redeem_guarantor_priority_boost(
+                session,
+                request_id=created.item.id,
+                submitter_user_id=submitter.id,
+            )
+            assert boosted.ok is True
+            assert boosted.changed is True
+            assert boosted.item is not None
+            assert boosted.item.priority_boost_points_spent == 40
+            assert boosted.item.priority_boosted_at is not None
+
+    async with session_factory() as session:
+        item = await session.scalar(select(GuarantorRequest).where(GuarantorRequest.submitter_user_id == submitter.id))
+        spend_row = await session.scalar(
+            select(PointsLedgerEntry).where(PointsLedgerEntry.event_type == PointsEventType.GUARANTOR_PRIORITY_BOOST)
+        )
+
+    assert item is not None
+    assert item.priority_boost_points_spent == 40
+    assert spend_row is not None
+    assert spend_row.amount == -40
+    assert spend_row.user_id == submitter.id
+
+
+@pytest.mark.asyncio
+async def test_guarantor_priority_boost_daily_limit(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 1)
+    monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93331, username="guarant_boost_limit")
+            session.add(submitter)
+            await session.flush()
+
+            request_a = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Запрос гаранта A",
+            )
+            request_b = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Запрос гаранта B",
+            )
+            assert request_a.item is not None and request_b.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=30,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:guarant:boost:limit",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            first = await redeem_guarantor_priority_boost(
+                session,
+                request_id=request_a.item.id,
+                submitter_user_id=submitter.id,
+            )
+            second = await redeem_guarantor_priority_boost(
+                session,
+                request_id=request_b.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert first.ok is True
+    assert second.ok is False
+    assert "дневной лимит" in second.message.lower()
