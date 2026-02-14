@@ -302,6 +302,42 @@ class FeedbackItem(Base, TimestampMixin):
     github_issue_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class TradeFeedback(Base, TimestampMixin):
+    __tablename__ = "trade_feedback"
+    __table_args__ = (
+        CheckConstraint("rating BETWEEN 1 AND 5", name="trade_feedback_rating_range"),
+        CheckConstraint("status IN ('VISIBLE', 'HIDDEN')", name="trade_feedback_status_values"),
+        UniqueConstraint("auction_id", "author_user_id", name="uq_trade_feedback_auction_author"),
+        CheckConstraint("author_user_id <> target_user_id", name="trade_feedback_distinct_users"),
+        Index("ix_trade_feedback_status_created_at", "status", "created_at"),
+        Index("ix_trade_feedback_target_created_at", "target_user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    auction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("auctions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'VISIBLE'"), index=True)
+    moderator_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    moderation_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    moderated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class GuarantorRequest(Base, TimestampMixin):
     __tablename__ = "guarantor_requests"
     __table_args__ = (

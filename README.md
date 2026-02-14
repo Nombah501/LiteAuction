@@ -382,11 +382,14 @@ Use it as a reply to a message that contains premium/custom emoji.
 /bug <описание>
 /suggest <предложение>
 /guarant <запрос на гаранта>
+/tradefeedback <auction_id> <1..5> [комментарий]
 /points
 /points <1..20>
 ```
 
 High-risk sellers cannot publish drafts until a guarantor request is assigned by moderation.
+
+Trade feedback moderation list is available in admin web: `/trade-feedback`.
 
 - Include moderation queue destination in env (recommended):
 
