@@ -23,6 +23,7 @@ async def test_points_redemption_global_cooldown_blocks_second_boost(monkeypatch
     monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 3600)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 0)
 
     async with session_factory() as session:
         async with session.begin():
@@ -84,6 +85,7 @@ async def test_points_redemption_cooldown_zero_allows_multiple_boosts(monkeypatc
     monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 0)
 
     async with session_factory() as session:
         async with session.begin():
@@ -143,6 +145,7 @@ async def test_points_redemption_cooldown_applies_to_appeal_boost(monkeypatch, i
     monkeypatch.setattr(settings, "feedback_intake_cooldown_seconds", 0)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 3600)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 0)
 
     async with session_factory() as session:
         async with session.begin():
@@ -204,6 +207,7 @@ async def test_points_redemption_daily_limit_blocks_second_boost(monkeypatch, in
     monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
     monkeypatch.setattr(settings, "points_redemption_daily_limit", 1)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 0)
 
     async with session_factory() as session:
         async with session.begin():
@@ -250,3 +254,65 @@ async def test_points_redemption_daily_limit_blocks_second_boost(monkeypatch, in
     assert first.ok is True
     assert second.ok is False
     assert "глобальный дневной лимит" in second.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_points_redemption_daily_spend_cap_blocks_second_boost(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "feedback_intake_cooldown_seconds", 0)
+    monkeypatch.setattr(settings, "guarantor_intake_cooldown_seconds", 0)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_limit", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 10)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93905, username="daily_spend_cap_redeemer")
+            session.add(submitter)
+            await session.flush()
+
+            feedback = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.BUG,
+                content="Проверка глобального дневного лимита списания",
+            )
+            guarantor = await create_guarantor_request(
+                session,
+                submitter_user_id=submitter.id,
+                details="Повторный буст с превышением лимита списания",
+            )
+            assert feedback.item is not None and guarantor.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=100,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:redemption:daily_spend_cap",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            first = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=feedback.item.id,
+                submitter_user_id=submitter.id,
+            )
+            second = await redeem_guarantor_priority_boost(
+                session,
+                request_id=guarantor.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert first.ok is True
+    assert second.ok is False
+    assert "лимит списания" in second.message.lower()

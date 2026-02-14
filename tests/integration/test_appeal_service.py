@@ -526,3 +526,60 @@ async def test_appeal_priority_boost_respects_global_daily_limit(monkeypatch, in
 
     assert result.ok is False
     assert "глобальный дневной лимит" in result.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_appeal_priority_boost_respects_global_daily_spend_cap(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 3)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_limit", 0)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 10)
+
+    async with session_factory() as session:
+        async with session.begin():
+            appellant = User(tg_user_id=88651, username="appeal_global_daily_spend_cap")
+            session.add(appellant)
+            await session.flush()
+
+            appeal = await create_appeal_from_ref(
+                session,
+                appellant_user_id=appellant.id,
+                appeal_ref="manual_global_daily_spend_cap",
+            )
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=appellant.id,
+                    amount=100,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:appeal:global:spend:balance",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=appellant.id,
+                    amount=-10,
+                    event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST,
+                    dedupe_key="seed:appeal:global:spend:used",
+                    reason="seed",
+                    payload=None,
+                    created_at=datetime.now(UTC),
+                )
+            )
+            await session.flush()
+
+            result = await redeem_appeal_priority_boost(
+                session,
+                appeal_id=appeal.id,
+                appellant_user_id=appellant.id,
+            )
+
+    assert result.ok is False
+    assert "лимит списания" in result.message.lower()

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.enums import PointsEventType
 from app.db.models import PointsLedgerEntry, User
 from app.services.points_service import (
+    get_points_redemptions_spent_today,
     count_user_points_entries,
     get_points_redemptions_used_today,
     get_user_points_balance,
@@ -233,3 +234,69 @@ async def test_points_redemptions_used_today_counts_boost_spends_only(integratio
         used_today = await get_points_redemptions_used_today(session, user_id=user.id)
 
     assert used_today == 2
+
+
+@pytest.mark.asyncio
+async def test_points_redemptions_spent_today_sums_boost_spends_only(integration_engine) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=93541, username="points_daily_spend")
+            session.add(user)
+            await session.flush()
+
+            now = datetime.now(UTC)
+            yesterday = now - timedelta(days=1)
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=user.id,
+                    amount=-10,
+                    event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST,
+                    dedupe_key="daily:spend:today:1",
+                    reason="seed",
+                    payload=None,
+                    created_at=now,
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=user.id,
+                    amount=-12,
+                    event_type=PointsEventType.GUARANTOR_PRIORITY_BOOST,
+                    dedupe_key="daily:spend:today:2",
+                    reason="seed",
+                    payload=None,
+                    created_at=now,
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=user.id,
+                    amount=-5,
+                    event_type=PointsEventType.APPEAL_PRIORITY_BOOST,
+                    dedupe_key="daily:spend:yesterday",
+                    reason="seed",
+                    payload=None,
+                    created_at=yesterday,
+                )
+            )
+            session.add(
+                PointsLedgerEntry(
+                    user_id=user.id,
+                    amount=-9,
+                    event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                    dedupe_key="daily:spend:manual",
+                    reason="seed",
+                    payload=None,
+                    created_at=now,
+                )
+            )
+
+    async with session_factory() as session:
+        spent_today = await get_points_redemptions_spent_today(session, user_id=user.id)
+
+    assert spent_today == 22
