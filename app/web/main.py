@@ -885,23 +885,36 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
             limit=page_size + 1,
             offset=offset,
         )
+        has_next = len(rows) > page_size
+        rows = rows[:page_size]
+        risk_by_user_id = await _load_user_risk_snapshot_map(
+            session,
+            user_ids=[item.user_id for item in rows],
+        )
 
-    has_next = len(rows) > page_size
-    rows = rows[:page_size]
-
-    table_rows = "".join(
-        "<tr>"
-        f"<td>{item.id}</td>"
-        f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
-        f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{item.user_id}'))}'>{item.user_id}</a></td>"
-        f"<td>{item.score}</td>"
-        f"<td>{escape(item.status)}</td>"
-        f"<td>{escape(_fmt_ts(item.created_at))}</td>"
-        "</tr>"
-        for item in rows
+    default_risk_snapshot = evaluate_user_risk_snapshot(
+        complaints_against=0,
+        open_fraud_signals=0,
+        has_active_blacklist=False,
+        removed_bids=0,
     )
+
+    table_rows = ""
+    for item in rows:
+        user_risk = risk_by_user_id.get(item.user_id, default_risk_snapshot)
+        table_rows += (
+            "<tr>"
+            f"<td>{item.id}</td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
+            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{item.user_id}'))}'>{item.user_id}</a></td>"
+            f"<td>{_risk_snapshot_inline_html(user_risk)}</td>"
+            f"<td>{item.score}</td>"
+            f"<td>{escape(item.status)}</td>"
+            f"<td>{escape(_fmt_ts(item.created_at))}</td>"
+            "</tr>"
+        )
     if not table_rows:
-        table_rows = "<tr><td colspan='6'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, f'/signals?status={status}&page={page-1}'))}'>← Назад</a>"
@@ -918,7 +931,7 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
         f"<h1>Фрод-сигналы ({escape(status)})</h1>"
         f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
         f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>User ID</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
+        "<table><thead><tr><th>ID</th><th>Auction</th><th>User ID</th><th>User Risk</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
@@ -1919,19 +1932,30 @@ async def appeals(
 
     async with SessionFactory() as session:
         rows = (await session.execute(stmt)).all()
-
-    has_next = len(rows) > page_size
-    rows = rows[:page_size]
+        has_next = len(rows) > page_size
+        rows = rows[:page_size]
+        appellant_risk_map = await _load_user_risk_snapshot_map(
+            session,
+            user_ids=[appellant.id for _, appellant, _ in rows],
+            now=now,
+        )
 
     return_to = (
         f"/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&page={page}&q={query_value}"
     )
     csrf_input = _csrf_hidden_input(request, auth)
     table_rows = ""
+    default_risk_snapshot = evaluate_user_risk_snapshot(
+        complaints_against=0,
+        open_fraud_signals=0,
+        has_active_blacklist=False,
+        removed_bids=0,
+    )
 
     for appeal, appellant, resolver in rows:
         source_label = _appeal_source_label(AppealSourceType(appeal.source_type), appeal.source_id)
         appellant_label = f"@{appellant.username}" if appellant.username else str(appellant.tg_user_id)
+        appellant_risk = appellant_risk_map.get(appellant.id, default_risk_snapshot)
         resolver_label = "-"
         if resolver is not None:
             resolver_label = f"@{resolver.username}" if resolver.username else str(resolver.tg_user_id)
@@ -1982,6 +2006,7 @@ async def appeals(
             f"<td>{escape(appeal.appeal_ref)}</td>"
             f"<td>{escape(source_label)}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{appellant.id}'))}'>{escape(appellant_label)}</a></td>"
+            f"<td>{_risk_snapshot_inline_html(appellant_risk)}</td>"
             f"<td>{escape(status_label)}</td>"
             f"<td>{escape((appeal.resolution_note or '-')[:160])}</td>"
             f"<td>{escape(resolver_label)}</td>"
@@ -1995,7 +2020,7 @@ async def appeals(
         )
 
     if not table_rows:
-        table_rows = "<tr><td colspan='13'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='14'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
@@ -2040,7 +2065,7 @@ async def appeals(
         f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=all&q={query_value}'))}'>Все</a> "
         f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=only&q={query_value}'))}'>Эскалированные</a> "
         f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=none&q={query_value}'))}'>Без эскалации</a></p>"
-        "<table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA статус</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
+        "<table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Риск апеллянта</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA статус</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
