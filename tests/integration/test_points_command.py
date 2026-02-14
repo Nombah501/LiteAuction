@@ -70,6 +70,7 @@ async def test_points_command_shows_balance_and_history(monkeypatch, integration
     assert "Лимит фидбек-бустов сегодня:" in reply_text
     assert "Буст гаранта: /boostguarant <request_id>" in reply_text
     assert "Лимит бустов гаранта сегодня:" in reply_text
+    assert "Глобальный кулдаун между бустами:" in reply_text
     assert "Последние операции (до 5):" in reply_text
     assert "-5" in reply_text
 

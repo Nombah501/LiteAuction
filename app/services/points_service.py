@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import math
 
 from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -9,6 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import PointsEventType
 from app.db.models import PointsLedgerEntry, User
+
+BOOST_REDEMPTION_EVENT_TYPES: tuple[PointsEventType, ...] = (
+    PointsEventType.FEEDBACK_PRIORITY_BOOST,
+    PointsEventType.GUARANTOR_PRIORITY_BOOST,
+)
 
 
 @dataclass(slots=True)
@@ -249,3 +255,32 @@ async def spend_points(
         balance_before=balance_before,
         balance_after=balance_after,
     )
+
+
+async def get_points_redemption_cooldown_remaining_seconds(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    cooldown_seconds: int,
+    now: datetime | None = None,
+) -> int:
+    safe_cooldown = max(int(cooldown_seconds), 0)
+    if safe_cooldown <= 0:
+        return 0
+
+    current_time = now or datetime.now(UTC)
+    last_redemption_at = await session.scalar(
+        select(func.max(PointsLedgerEntry.created_at)).where(
+            PointsLedgerEntry.user_id == user_id,
+            PointsLedgerEntry.amount < 0,
+            PointsLedgerEntry.event_type.in_(BOOST_REDEMPTION_EVENT_TYPES),
+        )
+    )
+    if last_redemption_at is None:
+        return 0
+
+    elapsed_seconds = (current_time - last_redemption_at).total_seconds()
+    if elapsed_seconds >= safe_cooldown:
+        return 0
+
+    return max(math.ceil(safe_cooldown - elapsed_seconds), 0)
