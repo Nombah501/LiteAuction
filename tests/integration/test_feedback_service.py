@@ -400,6 +400,65 @@ async def test_feedback_priority_boost_requires_min_account_age(monkeypatch, int
 
 
 @pytest.mark.asyncio
+async def test_feedback_priority_boost_requires_min_earned_points(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(settings, "points_redemption_enabled", True)
+    monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 0)
+    monkeypatch.setattr(settings, "points_redemption_min_earned_points", 30)
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 10)
+    monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 1)
+
+    async with session_factory() as session:
+        async with session.begin():
+            submitter = User(tg_user_id=93044, username="boost_min_earned_submitter")
+            session.add(submitter)
+            await session.flush()
+
+            created = await create_feedback(
+                session,
+                submitter_user_id=submitter.id,
+                feedback_type=FeedbackType.BUG,
+                content="Проверка минимально заработанных points для буста",
+            )
+            assert created.item is not None
+
+            session.add(
+                PointsLedgerEntry(
+                    user_id=submitter.id,
+                    amount=20,
+                    event_type=PointsEventType.FEEDBACK_APPROVED,
+                    dedupe_key="seed:feedback:boost:min_earned_points",
+                    reason="seed",
+                    payload=None,
+                )
+            )
+            await session.flush()
+
+            result = await redeem_feedback_priority_boost(
+                session,
+                feedback_id=created.item.id,
+                submitter_user_id=submitter.id,
+            )
+
+    assert result.ok is False
+    assert "нужно заработать минимум" in result.message.lower()
+
+    async with session_factory() as session:
+        item = await session.scalar(select(FeedbackItem).where(FeedbackItem.submitter_user_id == submitter.id))
+        spend_row = await session.scalar(
+            select(PointsLedgerEntry).where(PointsLedgerEntry.event_type == PointsEventType.FEEDBACK_PRIORITY_BOOST)
+        )
+
+    assert item is not None
+    assert item.priority_boosted_at is None
+    assert item.priority_boost_points_spent == 0
+    assert spend_row is None
+
+
+@pytest.mark.asyncio
 async def test_feedback_priority_boost_utility_cooldown(monkeypatch, integration_engine) -> None:
     from app.config import settings
 

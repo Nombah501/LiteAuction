@@ -18,6 +18,7 @@ from app.services.points_service import (
     get_points_redemptions_used_today,
     get_points_redemption_cooldown_remaining_seconds,
     get_user_points_balance,
+    get_user_points_summary,
     grant_points,
     spend_points,
 )
@@ -320,6 +321,19 @@ async def redeem_feedback_priority_boost(
             False,
             f"Бусты станут доступны через {account_age_remaining} сек после регистрации",
         )
+    min_earned_points = max(settings.points_redemption_min_earned_points, 0)
+    if min_earned_points > 0:
+        points_summary = await get_user_points_summary(session, user_id=submitter_user_id)
+        if points_summary.total_earned < min_earned_points:
+            remaining_earned_points = min_earned_points - points_summary.total_earned
+            return FeedbackPriorityBoostResult(
+                False,
+                (
+                    "Для буста нужно заработать минимум "
+                    f"{min_earned_points} points (сейчас {points_summary.total_earned}, "
+                    f"осталось {remaining_earned_points})"
+                ),
+            )
     policy = await get_feedback_priority_boost_policy(session, submitter_user_id=submitter_user_id, now=now)
     if not policy.enabled:
         return FeedbackPriorityBoostResult(False, "Буст фидбека временно отключен")
