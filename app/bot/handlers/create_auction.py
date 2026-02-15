@@ -331,7 +331,10 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) ->
         return
 
     await callback.message.answer(
-        "Нажмите 'Опубликовать в чате/канале', выберите нужный чат/раздел и отправьте карточку."
+        "Для публикации в нужный раздел откройте этот раздел и отправьте команду "
+        f"<code>/publish {view.auction.id}</code>.\n"
+        "Можно нажать кнопку 'Скопировать /publish'.\n\n"
+        "Кнопка 'Опубликовать в чате/канале' доступна как fallback через inline mode."
     )
 
 
