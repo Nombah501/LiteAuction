@@ -16,6 +16,12 @@ from app.bot.keyboards.auction import (
 from app.bot.states.auction_create import AuctionCreateStates
 from app.config import settings
 from app.db.session import SessionFactory
+from app.services.channel_dm_intake_service import (
+    AuctionIntakeKind,
+    extract_direct_messages_topic_id,
+    resolve_auction_intake_actor,
+    resolve_auction_intake_context,
+)
 from app.services.moderation_service import is_tg_user_blacklisted
 from app.services.auction_service import create_draft_auction, load_auction_view, render_auction_caption
 from app.services.private_topics_service import (
@@ -68,19 +74,85 @@ async def _append_photo_file_id(state: FSMContext, file_id: str) -> tuple[int, b
     return len(photo_file_ids), True, False
 
 
+async def _store_expected_intake_scope(state: FSMContext, message: Message) -> None:
+    context = resolve_auction_intake_context(message)
+    thread_id = getattr(message, "message_thread_id", None)
+    payload: dict[str, object | None] = {
+        "expected_thread_id": None,
+        "expected_direct_messages_topic_id": None,
+    }
+    if context.kind == AuctionIntakeKind.PRIVATE and isinstance(thread_id, int):
+        payload["expected_thread_id"] = thread_id
+    if context.kind == AuctionIntakeKind.CHANNEL_DM and isinstance(context.direct_messages_topic_id, int):
+        payload["expected_direct_messages_topic_id"] = context.direct_messages_topic_id
+    await state.update_data(**payload)
+
+
+async def _handle_unsupported_newauction_context(message: Message) -> bool:
+    context = resolve_auction_intake_context(message)
+    if context.kind != AuctionIntakeKind.UNSUPPORTED:
+        return False
+
+    if context.reason == "channel_dm_disabled":
+        await message.answer("Создание лота через DM канала временно отключено.")
+    elif context.reason == "channel_dm_chat_not_allowed":
+        await message.answer("Этот DM-чат канала не подключен для создания лотов.")
+    elif context.reason == "missing_direct_topic_id":
+        await message.answer("Не удалось определить тему DM канала. Откройте нужную тему и повторите /newauction.")
+    elif context.reason == "unsupported_chat_type":
+        await message.answer("Команда доступна в личке бота или в теме DM канала.")
+    return True
+
+
+async def _handle_unsupported_newauction_callback(callback: CallbackQuery) -> bool:
+    message = callback.message
+    context = resolve_auction_intake_context(message if isinstance(message, Message) else None)
+    if context.kind != AuctionIntakeKind.UNSUPPORTED:
+        return False
+
+    if context.reason == "channel_dm_disabled":
+        await callback.answer("DM-режим канала выключен", show_alert=True)
+    elif context.reason == "channel_dm_chat_not_allowed":
+        await callback.answer("Этот DM-чат не подключен", show_alert=True)
+    elif context.reason == "missing_direct_topic_id":
+        await callback.answer("Откройте нужную тему DM канала", show_alert=True)
+    elif context.reason == "unsupported_chat_type":
+        await callback.answer("Откройте личку бота или DM тему", show_alert=True)
+    return True
+
+
 async def _ensure_auction_state_message(
     message: Message,
     state: FSMContext,
     bot: Bot | None,
 ) -> bool:
+    data = await state.get_data()
+    expected_dm_topic_id = data.get("expected_direct_messages_topic_id")
+    if isinstance(expected_dm_topic_id, int):
+        current_dm_topic_id = extract_direct_messages_topic_id(message)
+        if current_dm_topic_id == expected_dm_topic_id:
+            return True
+
+        await message.answer("Продолжайте создание лота в исходной теме DM канала.")
+        chat_id = getattr(getattr(message, "chat", None), "id", None)
+        if bot is not None and isinstance(chat_id, int):
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    direct_messages_topic_id=expected_dm_topic_id,
+                    text="Продолжим создание лота здесь.",
+                )
+            except Exception:
+                pass
+        return False
+
     if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
         return True
 
-    data = await state.get_data()
     expected_thread_id = data.get("expected_thread_id")
     if not isinstance(expected_thread_id, int):
         return True
-    if message.message_thread_id == expected_thread_id:
+    if getattr(message, "message_thread_id", None) == expected_thread_id:
         return True
 
     await message.answer("Продолжайте создание лота в разделе «Лоты».")
@@ -101,18 +173,37 @@ async def _ensure_auction_state_callback(
     state: FSMContext,
     bot: Bot | None,
 ) -> bool:
-    if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
-        return True
-
     message = callback.message
-    if message is None:
+    if message is None or not isinstance(message, Message):
         return True
 
     data = await state.get_data()
+    expected_dm_topic_id = data.get("expected_direct_messages_topic_id")
+    if isinstance(expected_dm_topic_id, int):
+        current_dm_topic_id = extract_direct_messages_topic_id(message)
+        if current_dm_topic_id == expected_dm_topic_id:
+            return True
+
+        await callback.answer("Откройте исходную тему DM канала", show_alert=True)
+        chat_id = getattr(getattr(message, "chat", None), "id", None)
+        if bot is not None and isinstance(chat_id, int):
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    direct_messages_topic_id=expected_dm_topic_id,
+                    text="Продолжим создание лота здесь.",
+                )
+            except Exception:
+                pass
+        return False
+
+    if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
+        return True
+
     expected_thread_id = data.get("expected_thread_id")
     if not isinstance(expected_thread_id, int):
         return True
-    if message.message_thread_id == expected_thread_id:
+    if getattr(message, "message_thread_id", None) == expected_thread_id:
         return True
 
     await callback.answer("Откройте раздел «Лоты»", show_alert=True)
@@ -128,29 +219,36 @@ async def _ensure_auction_state_callback(
     return False
 
 
-@router.message(Command("newauction"), F.chat.type == ChatType.PRIVATE)
+@router.message(Command("newauction"), F.chat.type.in_({ChatType.PRIVATE, ChatType.SUPERGROUP}))
 async def command_new_auction(message: Message, state: FSMContext, bot: Bot) -> None:
-    if message.from_user is not None:
-        async with SessionFactory() as session:
-            async with session.begin():
-                seller = await upsert_user(session, message.from_user, mark_private_started=True)
-                if not await enforce_message_topic(
-                    message,
-                    bot=bot,
-                    session=session,
-                    user=seller,
-                    purpose=PrivateTopicPurpose.AUCTIONS,
-                    command_hint="/newauction",
-                ):
-                    return
-                if await is_tg_user_blacklisted(session, message.from_user.id):
-                    await message.answer("Вы в черном списке и не можете создавать аукционы")
-                    return
+    if await _handle_unsupported_newauction_context(message):
+        return
+
+    actor = resolve_auction_intake_actor(message)
+    if actor is None:
+        await message.answer("Не удалось определить отправителя. Попробуйте снова из личного диалога.")
+        return
+
+    intake_context = resolve_auction_intake_context(message)
+    async with SessionFactory() as session:
+        async with session.begin():
+            seller = await upsert_user(session, actor, mark_private_started=True)
+            if intake_context.kind == AuctionIntakeKind.PRIVATE and not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=seller,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                command_hint="/newauction",
+            ):
+                return
+            if await is_tg_user_blacklisted(session, actor.id):
+                await message.answer("Вы в черном списке и не можете создавать аукционы")
+                return
 
     await state.clear()
     await state.set_state(AuctionCreateStates.waiting_photo)
-    if isinstance(message.message_thread_id, int):
-        await state.update_data(expected_thread_id=message.message_thread_id)
+    await _store_expected_intake_scope(state, message)
     await message.answer(
         "Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
         reply_markup=photos_done_keyboard(),
@@ -159,27 +257,37 @@ async def command_new_auction(message: Message, state: FSMContext, bot: Bot) -> 
 
 @router.callback_query(F.data == "create:new")
 async def callback_new_auction(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    if callback.from_user is not None:
-        async with SessionFactory() as session:
-            async with session.begin():
-                user = await upsert_user(session, callback.from_user, mark_private_started=True)
-                if not await enforce_callback_topic(
-                    callback,
-                    bot=bot,
-                    session=session,
-                    user=user,
-                    purpose=PrivateTopicPurpose.AUCTIONS,
-                    command_hint="/newauction",
-                ):
-                    return
-                if await is_tg_user_blacklisted(session, callback.from_user.id):
-                    await callback.answer("Вы в черном списке", show_alert=True)
-                    return
+    if await _handle_unsupported_newauction_callback(callback):
+        return
+
+    actor = callback.from_user
+    if actor is None and isinstance(callback.message, Message):
+        actor = resolve_auction_intake_actor(callback.message)
+    if actor is None:
+        await callback.answer("Не удалось определить отправителя", show_alert=True)
+        return
+
+    intake_context = resolve_auction_intake_context(callback.message if isinstance(callback.message, Message) else None)
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, actor, mark_private_started=True)
+            if intake_context.kind == AuctionIntakeKind.PRIVATE and not await enforce_callback_topic(
+                callback,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                command_hint="/newauction",
+            ):
+                return
+            if await is_tg_user_blacklisted(session, actor.id):
+                await callback.answer("Вы в черном списке", show_alert=True)
+                return
 
     await state.clear()
     await state.set_state(AuctionCreateStates.waiting_photo)
-    if callback.message is not None and isinstance(callback.message.message_thread_id, int):
-        await state.update_data(expected_thread_id=callback.message.message_thread_id)
+    if isinstance(callback.message, Message):
+        await _store_expected_intake_scope(state, callback.message)
     await callback.answer()
     if callback.message:
         await callback.message.answer(
@@ -188,8 +296,11 @@ async def callback_new_auction(callback: CallbackQuery, state: FSMContext, bot: 
         )
 
 
-@router.message(Command("cancel"), F.chat.type == ChatType.PRIVATE)
+@router.message(Command("cancel"), F.chat.type.in_({ChatType.PRIVATE, ChatType.SUPERGROUP}))
 async def cancel_creation(message: Message, state: FSMContext) -> None:
+    context = resolve_auction_intake_context(message)
+    if context.kind == AuctionIntakeKind.UNSUPPORTED:
+        return
     await state.clear()
     await message.answer("Создание аукциона отменено. Для нового лота нажмите /newauction")
 
