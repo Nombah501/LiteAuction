@@ -54,3 +54,19 @@ acceptance = [
   "Invalid override values are rejected with clear feedback",
   "Runtime changes are visible in admin UI and audited",
 ]
+
+[[items]]
+id = "S37-004"
+title = "Refresh planning status and sprint manifest docs"
+description = "Update planning status snapshot after merged Sprint 37 work and replace Sprint 33-specific sprint-manifest examples with reusable placeholders."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:chore", "area:process", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Planning status reflects closed Sprint 37 issues/PRs",
+  "Sprint manifest README examples use generic sprint placeholders",
+  "Changes are delivered through issue-linked PR workflow",
+]
