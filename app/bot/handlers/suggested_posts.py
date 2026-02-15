@@ -17,7 +17,7 @@ from app.services.channel_dm_intake_service import (
     resolve_auction_intake_context,
 )
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
-from app.services.rbac_service import SCOPE_AUCTION_MANAGE, resolve_tg_user_scopes
+from app.services.rbac_service import SCOPE_DIRECT_MESSAGES_MANAGE, resolve_tg_user_scopes
 from app.services.user_service import upsert_user
 
 router = Router(name="suggested_posts")
@@ -213,7 +213,7 @@ async def handle_suggested_post_decision(callback: CallbackQuery, bot: Bot) -> N
     async with SessionFactory() as session:
         async with session.begin():
             scopes = await resolve_tg_user_scopes(session, moderator.id)
-            if SCOPE_AUCTION_MANAGE not in scopes:
+            if SCOPE_DIRECT_MESSAGES_MANAGE not in scopes:
                 await callback.answer("Недостаточно прав", show_alert=True)
                 return
 
@@ -269,9 +269,17 @@ async def handle_suggested_post_decision(callback: CallbackQuery, bot: Bot) -> N
     await callback.answer("Решение сохранено")
 
     message = callback.message
-    if message is not None and hasattr(message, "edit_text"):
+    chat = getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None)
+    message_id = getattr(message, "message_id", None)
+    if isinstance(chat_id, int) and isinstance(message_id, int):
         original_text = getattr(message, "text", None) or "Suggested post review"
         try:
-            await message.edit_text(f"{original_text}\n\n{ui_note}", reply_markup=None)
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=f"{original_text}\n\n{ui_note}",
+                reply_markup=None,
+            )
         except Exception:
             pass
