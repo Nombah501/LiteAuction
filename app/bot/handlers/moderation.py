@@ -27,6 +27,11 @@ from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType
 from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
+from app.services.bot_profile_photo_service import (
+    apply_bot_profile_photo_preset,
+    list_bot_profile_photo_presets,
+    rollback_bot_profile_photo,
+)
 from app.services.appeal_service import (
     mark_appeal_in_review,
     reject_appeal,
@@ -639,6 +644,9 @@ async def mod_help(message: Message, bot: Bot) -> None:
                 "/freeze <auction_uuid> <reason>",
                 "/unfreeze <auction_uuid> <reason>",
                 "/end <auction_uuid> <reason>",
+                "/botphoto list",
+                "/botphoto set <preset>",
+                "/botphoto reset",
             ]
         )
     if SCOPE_BID_MANAGE in scopes:
@@ -678,6 +686,77 @@ async def mod_stats(message: Message, bot: Bot | None = None) -> None:
     if not await _require_moderator(message):
         return
     await message.answer(await _render_mod_stats_text())
+
+
+@router.message(Command("botphoto"), F.chat.type == ChatType.PRIVATE)
+async def mod_botphoto(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/botphoto"):
+        return
+    if (
+        not await _require_scope_message(message, SCOPE_AUCTION_MANAGE)
+        or message.from_user is None
+        or message.text is None
+    ):
+        return
+
+    parts = message.text.split(maxsplit=2)
+    action = "list" if len(parts) == 1 else parts[1].strip().lower()
+
+    if action == "list":
+        presets = list_bot_profile_photo_presets()
+        if not presets:
+            await message.answer(
+                "Preset-ы не настроены. Добавьте BOT_PROFILE_PHOTO_PRESETS в env "
+                "(пример: default=file_id,campaign=file_id)."
+            )
+            return
+
+        default_preset = settings.parsed_bot_profile_photo_default_preset()
+        lines = ["Доступные preset-ы фото бота:"]
+        for preset in presets:
+            suffix = " (default)" if default_preset == preset else ""
+            lines.append(f"- {preset}{suffix}")
+        lines.append("")
+        lines.append("Команды: /botphoto set <preset> | /botphoto reset")
+        await message.answer("\n".join(lines))
+        return
+
+    if action == "set":
+        if len(parts) != 3:
+            await message.answer("Формат: /botphoto set <preset>")
+            return
+        result = await apply_bot_profile_photo_preset(bot, preset=parts[2])
+    elif action == "reset":
+        if len(parts) != 2:
+            await message.answer("Формат: /botphoto reset")
+            return
+        result = await rollback_bot_profile_photo(bot)
+    else:
+        await message.answer(
+            "Формат:\n"
+            "/botphoto list\n"
+            "/botphoto set <preset>\n"
+            "/botphoto reset"
+        )
+        return
+
+    if not result.ok:
+        await message.answer(result.message)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, message.from_user)
+            if result.action is not None and result.reason is not None:
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor.id,
+                    action=result.action,
+                    reason=result.reason,
+                    payload=result.payload,
+                )
+
+    await message.answer(result.message)
 
 
 @router.message(Command("role"), F.chat.type == ChatType.PRIVATE)

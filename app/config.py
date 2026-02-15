@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     private_topic_title_points: str = "Баллы"
     private_topic_title_trades: str = "Сделки"
     private_topic_title_moderation: str = "Модерация"
+    bot_profile_photo_presets: str = ""
+    bot_profile_photo_default_preset: str = "default"
     auction_watcher_interval_seconds: int = 5
     fraud_alert_threshold: int = 60
     fraud_rapid_window_seconds: int = 120
@@ -198,6 +200,26 @@ class Settings(BaseSettings):
         if not normalized:
             return None
         return self.parsed_moderation_topic_ids().get(normalized)
+
+    def parsed_bot_profile_photo_presets(self) -> dict[str, str]:
+        presets: dict[str, str] = {}
+        for item in self.bot_profile_photo_presets.split(","):
+            normalized = item.strip()
+            if not normalized or "=" not in normalized:
+                continue
+            key_raw, value_raw = normalized.split("=", maxsplit=1)
+            key = key_raw.strip().lower()
+            value = value_raw.strip()
+            if not key or not value:
+                continue
+            presets[key] = value
+        return presets
+
+    def parsed_bot_profile_photo_default_preset(self) -> str | None:
+        normalized = self.bot_profile_photo_default_preset.strip().lower()
+        if not normalized:
+            return None
+        return normalized
 
 
 @lru_cache(1)
