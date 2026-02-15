@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     private_topic_title_points: str = "Баллы"
     private_topic_title_trades: str = "Сделки"
     private_topic_title_moderation: str = "Модерация"
+    channel_dm_intake_enabled: bool = False
+    channel_dm_intake_chat_id: int = 0
     auction_watcher_interval_seconds: int = 5
     fraud_alert_threshold: int = 60
     fraud_rapid_window_seconds: int = 120
