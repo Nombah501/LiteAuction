@@ -11,6 +11,7 @@ from app.bot.keyboards.auction import (
     buyout_choice_keyboard,
     draft_publish_keyboard,
     duration_keyboard,
+    photos_done_keyboard,
 )
 from app.bot.states.auction_create import AuctionCreateStates
 from app.db.session import SessionFactory
@@ -20,6 +21,7 @@ from app.services.publish_gate_service import evaluate_seller_publish_gate
 from app.services.user_service import upsert_user
 
 router = Router(name="create_auction")
+MAX_AUCTION_PHOTOS = 10
 
 
 def _parse_usd_amount(text: str) -> int | None:
@@ -41,6 +43,25 @@ async def _prompt_min_step(target: Message | CallbackQuery) -> None:
         await target.message.answer("Укажите минимальный шаг ставки в USD (например: 1 или 5).")
 
 
+async def _append_photo_file_id(state: FSMContext, file_id: str) -> tuple[int, bool, bool]:
+    data = await state.get_data()
+    photo_ids_raw = data.get("photo_file_ids")
+    if isinstance(photo_ids_raw, list):
+        photo_file_ids = [str(item) for item in photo_ids_raw if str(item)]
+    else:
+        fallback = data.get("photo_file_id")
+        photo_file_ids = [str(fallback)] if isinstance(fallback, str) and fallback else []
+
+    if file_id in photo_file_ids:
+        return len(photo_file_ids), False, False
+    if len(photo_file_ids) >= MAX_AUCTION_PHOTOS:
+        return len(photo_file_ids), False, True
+
+    photo_file_ids.append(file_id)
+    await state.update_data(photo_file_id=photo_file_ids[0], photo_file_ids=photo_file_ids)
+    return len(photo_file_ids), True, False
+
+
 @router.message(Command("newauction"), F.chat.type == ChatType.PRIVATE)
 async def command_new_auction(message: Message, state: FSMContext) -> None:
     if message.from_user is not None:
@@ -51,7 +72,10 @@ async def command_new_auction(message: Message, state: FSMContext) -> None:
 
     await state.clear()
     await state.set_state(AuctionCreateStates.waiting_photo)
-    await message.answer("Отправьте фото лота.")
+    await message.answer(
+        "Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
+        reply_markup=photos_done_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "create:new")
@@ -66,7 +90,10 @@ async def callback_new_auction(callback: CallbackQuery, state: FSMContext) -> No
     await state.set_state(AuctionCreateStates.waiting_photo)
     await callback.answer()
     if callback.message:
-        await callback.message.answer("Отправьте фото лота.")
+        await callback.message.answer(
+            "Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
+            reply_markup=photos_done_keyboard(),
+        )
 
 
 @router.message(Command("cancel"), F.chat.type == ChatType.PRIVATE)
@@ -77,20 +104,53 @@ async def cancel_creation(message: Message, state: FSMContext) -> None:
 
 @router.message(AuctionCreateStates.waiting_photo, F.photo)
 async def create_photo_step(message: Message, state: FSMContext) -> None:
+    if not message.photo:
+        return
     photo = message.photo[-1]
-    await state.update_data(photo_file_id=photo.file_id)
+    count, added, max_reached = await _append_photo_file_id(state, photo.file_id)
+    if max_reached:
+        await message.answer(
+            f"Можно добавить максимум {MAX_AUCTION_PHOTOS} фото. Нажмите 'Готово'.",
+            reply_markup=photos_done_keyboard(),
+        )
+        return
+
+    if not added:
+        return
+
+    if message.media_group_id is None or count == 1:
+        await message.answer(
+            f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Отправьте еще или нажмите 'Готово'.",
+            reply_markup=photos_done_keyboard(),
+        )
+
+
+@router.callback_query(AuctionCreateStates.waiting_photo, F.data == "create:photos:done")
+async def create_photos_done(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    photo_ids_raw = data.get("photo_file_ids")
+    photo_file_ids = photo_ids_raw if isinstance(photo_ids_raw, list) else []
+    if not photo_file_ids:
+        await callback.answer("Сначала добавьте хотя бы одно фото", show_alert=True)
+        return
+
     await state.set_state(AuctionCreateStates.waiting_description)
-    await message.answer("Отлично. Теперь отправьте описание лота.")
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.answer("Отлично. Теперь отправьте описание лота.")
 
 
 @router.message(AuctionCreateStates.waiting_photo)
 async def create_photo_step_invalid(message: Message) -> None:
-    await message.answer("Нужно отправить именно фото лота.")
+    await message.answer(
+        "Отправьте фото лота (можно несколько), затем нажмите 'Готово'.",
+        reply_markup=photos_done_keyboard(),
+    )
 
 
 @router.message(AuctionCreateStates.waiting_description, F.text)
 async def create_description_step(message: Message, state: FSMContext) -> None:
-    description = message.text.strip()
+    description = (message.text or "").strip()
     if len(description) < 3:
         await message.answer("Описание слишком короткое. Добавьте больше деталей.")
         return
@@ -100,6 +160,25 @@ async def create_description_step(message: Message, state: FSMContext) -> None:
     await message.answer("Укажите начальную цену в USD (целое число, минимум 1).")
 
 
+@router.message(AuctionCreateStates.waiting_description, F.photo)
+async def create_description_collect_photo(message: Message, state: FSMContext) -> None:
+    if not message.photo:
+        return
+    photo = message.photo[-1]
+    count, added, max_reached = await _append_photo_file_id(state, photo.file_id)
+    if max_reached:
+        await message.answer(f"Можно добавить максимум {MAX_AUCTION_PHOTOS} фото. Пришлите описание текстом.")
+        return
+
+    if not added:
+        return
+
+    if message.media_group_id is None:
+        await message.answer(
+            f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Теперь пришлите описание текстом."
+        )
+
+
 @router.message(AuctionCreateStates.waiting_description)
 async def create_description_step_invalid(message: Message) -> None:
     await message.answer("Пришлите описание текстом.")
@@ -107,7 +186,7 @@ async def create_description_step_invalid(message: Message) -> None:
 
 @router.message(AuctionCreateStates.waiting_start_price, F.text)
 async def create_start_price_step(message: Message, state: FSMContext) -> None:
-    amount = _parse_usd_amount(message.text)
+    amount = _parse_usd_amount(message.text or "")
     if amount is None:
         await message.answer("Некорректная цена. Введите целое число USD, минимум 1.")
         return
@@ -136,7 +215,7 @@ async def create_buyout_skip(callback: CallbackQuery, state: FSMContext) -> None
 
 @router.message(AuctionCreateStates.waiting_buyout_price, F.text)
 async def create_buyout_step(message: Message, state: FSMContext) -> None:
-    buyout_price = _parse_usd_amount(message.text)
+    buyout_price = _parse_usd_amount(message.text or "")
     if buyout_price is None:
         await message.answer("Некорректная цена выкупа. Введите целое число или нажмите 'Пропустить'.")
         return
@@ -159,7 +238,7 @@ async def create_buyout_step_invalid(message: Message) -> None:
 
 @router.message(AuctionCreateStates.waiting_min_step, F.text)
 async def create_min_step_step(message: Message, state: FSMContext) -> None:
-    min_step = _parse_usd_amount(message.text)
+    min_step = _parse_usd_amount(message.text or "")
     if min_step is None:
         await message.answer("Некорректный шаг. Введите целое число USD, минимум 1.")
         return
@@ -176,6 +255,9 @@ async def create_min_step_step_invalid(message: Message) -> None:
 
 @router.callback_query(AuctionCreateStates.waiting_duration, F.data.startswith("create:duration:"))
 async def create_duration_step(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.data is None:
+        await callback.answer("Некорректная длительность", show_alert=True)
+        return
     duration_raw = callback.data.split(":")[-1]
     if duration_raw not in {"6", "12", "18", "24"}:
         await callback.answer("Некорректная длительность", show_alert=True)
@@ -194,7 +276,7 @@ async def create_duration_step(callback: CallbackQuery, state: FSMContext) -> No
 
 @router.callback_query(AuctionCreateStates.waiting_anti_sniper, F.data.startswith("create:antisniper:"))
 async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) -> None:
-    if callback.from_user is None or callback.message is None:
+    if callback.from_user is None or callback.message is None or callback.data is None:
         return
 
     async with SessionFactory() as session:
@@ -214,6 +296,7 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) ->
             session,
             seller_user_id=seller.id,
             photo_file_id=data["photo_file_id"],
+            photo_file_ids=data.get("photo_file_ids"),
             description=data["description"],
             start_price=int(data["start_price"]),
             buyout_price=data.get("buyout_price"),
@@ -237,7 +320,11 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) ->
     await callback.message.answer_photo(
         photo=view.auction.photo_file_id,
         caption=caption,
-        reply_markup=None if publish_blocked else draft_publish_keyboard(str(view.auction.id)),
+        reply_markup=(
+            None
+            if publish_blocked
+            else draft_publish_keyboard(str(view.auction.id), photo_count=view.photo_count)
+        ),
     )
     if publish_blocked:
         await callback.message.answer(publish_gate.block_message or "Публикация временно ограничена")
