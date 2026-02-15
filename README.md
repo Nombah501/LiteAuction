@@ -508,6 +508,7 @@ Private DM topics (Bot API 9.3/9.4):
 - `PRIVATE_TOPICS_ENABLED` - enables personal topic routing in bot private chat.
 - `PRIVATE_TOPICS_STRICT_ROUTING` - when enabled, commands are processed only in their assigned topic.
 - `PRIVATE_TOPICS_AUTOCREATE_ON_START` - bootstrap all personal topics on `/start`.
+- `PRIVATE_TOPICS_USER_TOPIC_POLICY` - controls topic mutation mode: `auto` (BotFather policy), `allow`, or `block`.
 - `PRIVATE_TOPIC_TITLE_*` - topic names for `auctions/support/points/trades/moderation`.
 - When Telegram reports `has_topics_enabled=false` for a user, bot falls back to regular private-chat flow.
 
@@ -517,6 +518,7 @@ Examples:
 PRIVATE_TOPICS_ENABLED=true
 PRIVATE_TOPICS_STRICT_ROUTING=true
 PRIVATE_TOPICS_AUTOCREATE_ON_START=true
+PRIVATE_TOPICS_USER_TOPIC_POLICY=auto
 PRIVATE_TOPIC_TITLE_AUCTIONS=Лоты
 PRIVATE_TOPIC_TITLE_SUPPORT=Поддержка
 PRIVATE_TOPIC_TITLE_POINTS=Баллы
