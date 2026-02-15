@@ -57,6 +57,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Draft-stream progress hints (`sendMessageDraft`) for long-running bot actions like `/modstats` and auction finalize
 - Moderation checklists for complaints, guarantor requests, and appeals with audit-logged checklist toggles
 - Task-scoped checklist replies in moderation flows with actor/timestamp audit trail
+- Seller/chat verification workflow (`verifyUser`/`verifyChat`) with scope-gated operator commands and trust-aware risk integration
 - Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist
@@ -531,6 +532,12 @@ PRIVATE_TOPIC_TITLE_TRADES=Сделки
 PRIVATE_TOPIC_TITLE_MODERATION=Модерация
 BOT_PROFILE_PHOTO_PRESETS=default=AgACAgIAAxk...,campaign=AgACAgIAAxk...
 BOT_PROFILE_PHOTO_DEFAULT_PRESET=default
+AUCTION_MESSAGE_EFFECTS_ENABLED=false
+AUCTION_EFFECT_OUTBID_ID=
+AUCTION_EFFECT_BUYOUT_SELLER_ID=
+AUCTION_EFFECT_BUYOUT_WINNER_ID=
+AUCTION_EFFECT_ENDED_SELLER_ID=
+AUCTION_EFFECT_ENDED_WINNER_ID=
 ```
 
 Bot profile photo presets (`/botphoto` command for operators with `auction:manage`):
@@ -539,11 +546,18 @@ Bot profile photo presets (`/botphoto` command for operators with `auction:manag
 - `BOT_PROFILE_PHOTO_DEFAULT_PRESET` - preset name used by `/botphoto reset`; if missing, reset falls back to `removeMyProfilePhoto`.
 - Successful set/reset actions are written to moderation audit log.
 
+Auction message effects for critical auction notifications:
+
+- `AUCTION_MESSAGE_EFFECTS_ENABLED` - global kill-switch for all auction effect usage.
+- `AUCTION_EFFECT_*_ID` - per-event effect IDs (`outbid`, `buyout seller/winner`, `ended seller/winner`).
+- If effect delivery is rejected by Telegram (unsupported effect/client/chat), bot retries the same text notification without `message_effect_id`.
+
 Channel DM lot intake (Bot API 9.2):
 
 - `CHANNEL_DM_INTAKE_ENABLED` - enables `/newauction` intake in channel DM topics.
 - `CHANNEL_DM_INTAKE_CHAT_ID` - optional chat allowlist; `0` allows any direct-messages chat.
 - Incoming `suggested_post_info` events from enabled channel DM chats are routed to moderation with approve/decline actions.
+- `chat_owner_changed` / `chat_owner_left` service events from monitored channel DM chats are saved to audit and pause auto-processing until operator confirmation (`/confirmowner <chat_id>`).
 
 Examples:
 
@@ -561,6 +575,16 @@ Example:
 ```text
 MESSAGE_DRAFTS_ENABLED=true
 ```
+
+Verification workflow (Bot API verify/remove verification):
+
+- Scope `trust:manage` can run moderation commands:
+  - `/verifyuser <tg_user_id> [description]`
+  - `/unverifyuser <tg_user_id>`
+  - `/verifychat <chat_id> [description]`
+  - `/unverifychat <chat_id>`
+- User verification state is shown in web `/manage/users` and `/manage/user/<id>` surfaces.
+- Risk/trust scoring consumes verification in a conservative way (bonus applies only when there is no active blacklist and no open fraud signals).
 
 - Optional Bot API 9.4 button icons (custom emoji IDs):
 

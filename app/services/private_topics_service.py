@@ -361,6 +361,7 @@ async def send_user_topic_message(
     purpose: PrivateTopicPurpose,
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
+    message_effect_id: str | None = None,
 ) -> bool:
     thread_id: int | None = None
 
@@ -377,19 +378,43 @@ async def send_user_topic_message(
             except Exception:
                 thread_id = None
 
+    send_kwargs: dict[str, object] = {
+        "chat_id": tg_user_id,
+        "text": text,
+        "reply_markup": reply_markup,
+    }
+    if thread_id is not None:
+        send_kwargs["message_thread_id"] = thread_id
+
+    normalized_effect_id = message_effect_id.strip() if message_effect_id else ""
+    if normalized_effect_id:
+        send_kwargs["message_effect_id"] = normalized_effect_id
+
     try:
-        if thread_id is not None:
-            await bot.send_message(
-                chat_id=tg_user_id,
-                message_thread_id=thread_id,
-                text=text,
-                reply_markup=reply_markup,
-            )
-        else:
-            await bot.send_message(chat_id=tg_user_id, text=text, reply_markup=reply_markup)
+        await bot.send_message(**send_kwargs)
         return True
+    except TelegramBadRequest as exc:
+        if "message_effect_id" not in send_kwargs:
+            return False
+        if not _is_unsupported_message_effect_error(exc):
+            return False
+        send_kwargs.pop("message_effect_id", None)
+        try:
+            await bot.send_message(**send_kwargs)
+            return True
+        except Exception:
+            return False
     except Exception:
         return False
+
+
+def _is_unsupported_message_effect_error(exc: TelegramBadRequest) -> bool:
+    message = str(exc).lower()
+    return (
+        "message effect" in message
+        or "message_effect" in message
+        or ("effect" in message and "support" in message)
+    )
 
 
 async def render_user_topics_overview(

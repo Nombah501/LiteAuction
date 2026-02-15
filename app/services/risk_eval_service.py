@@ -28,6 +28,7 @@ def evaluate_user_risk_snapshot(
     open_fraud_signals: int,
     has_active_blacklist: bool,
     removed_bids: int,
+    is_verified_user: bool = False,
 ) -> UserRiskSnapshot:
     score = 0
     reasons: list[str] = []
@@ -53,6 +54,9 @@ def evaluate_user_risk_snapshot(
     elif removed_bids >= 1:
         score += 8
         reasons.append("REMOVED_BIDS")
+
+    if is_verified_user and not has_active_blacklist and open_fraud_signals == 0:
+        score = max(score - 10, 0)
 
     score = min(score, 100)
 
