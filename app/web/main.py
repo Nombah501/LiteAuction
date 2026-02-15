@@ -80,6 +80,11 @@ from app.services.points_service import (
     list_user_points_entries,
 )
 from app.services.risk_eval_service import UserRiskSnapshot, evaluate_user_risk_snapshot, format_risk_reason_label
+from app.services.runtime_settings_service import (
+    build_runtime_settings_snapshot,
+    delete_runtime_setting_override,
+    upsert_runtime_setting_override,
+)
 from app.services.trade_feedback_service import (
     get_trade_feedback_summary,
     list_received_trade_feedback,
@@ -747,6 +752,23 @@ def _require_scope_permission(request: Request, scope: str) -> tuple[Response | 
     return HTMLResponse(_render_page("Forbidden", body), status_code=403), auth
 
 
+def _require_owner_permission(request: Request) -> tuple[Response | None, AdminAuthContext]:
+    response, auth = _auth_context_or_unauthorized(request)
+    if response is not None:
+        return response, auth
+    if auth.role == "owner":
+        return None, auth
+
+    back_to = _safe_back_to_from_request(request)
+    body = (
+        "<h1>Недостаточно прав</h1>"
+        "<div class='notice notice-warn'><p>Доступ к runtime-настройкам разрешен только owner.</p></div>"
+        f"<p><a href='{escape(_path_with_auth(request, back_to))}'>Назад</a></p>"
+        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+    )
+    return HTMLResponse(_render_page("Forbidden", body), status_code=403), auth
+
+
 async def _resolve_actor_user_id(auth: AdminAuthContext) -> int:
     tg_user_id = auth.tg_user_id
     if tg_user_id is None:
@@ -887,6 +909,12 @@ async def dashboard(request: Request) -> Response:
             f"{settings.points_redemption_monthly_spend_cap} points/month</div>"
         )
 
+    owner_settings_link = ""
+    if auth.role == "owner":
+        owner_settings_link = (
+            f"<li><a href='{escape(_path_with_auth(request, '/settings'))}'>Runtime settings</a></li>"
+        )
+
     body = (
         "<h1>LiteAuction Admin</h1>"
         f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
@@ -945,10 +973,134 @@ async def dashboard(request: Request) -> Response:
         f"<li><a href='{escape(_path_with_auth(request, '/trade-feedback?status=visible'))}'>Отзывы по сделкам</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>Нарушители</a></li>"
         f"<li><a href='{escape(_path_with_auth(request, '/manage/users'))}'>Управление пользователями</a></li>"
+        f"{owner_settings_link}"
         f"<li><a href='{escape(_path_with_auth(request, '/logout'))}'>Выйти</a></li>"
         "</ul>"
     )
     return HTMLResponse(_render_page("LiteAuction Admin", body))
+
+
+def _render_runtime_setting_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def runtime_settings_page(request: Request) -> Response:
+    response, auth = _require_owner_permission(request)
+    if response is not None:
+        return response
+
+    async with SessionFactory() as session:
+        snapshot_items = await build_runtime_settings_snapshot(session)
+
+    csrf_input = _csrf_hidden_input(request, auth)
+    rows: list[str] = []
+    for item in snapshot_items:
+        override_raw_value = item.override_raw_value
+        override_text = "<span class='empty-state'>none</span>"
+        if override_raw_value is not None:
+            override_text = escape(override_raw_value)
+
+        updated_by = str(item.updated_by_user_id) if item.updated_by_user_id is not None else "-"
+        updated_at = _fmt_ts(item.updated_at)
+        rows.append(
+            "<tr>"
+            f"<td><code>{escape(item.key)}</code></td>"
+            f"<td>{escape(item.description)}</td>"
+            f"<td>{escape(_render_runtime_setting_value(item.default_value))}</td>"
+            f"<td><b>{escape(_render_runtime_setting_value(item.effective_value))}</b></td>"
+            f"<td>{override_text}</td>"
+            f"<td>{escape(updated_by)}</td>"
+            f"<td>{escape(updated_at)}</td>"
+            "<td>"
+            f"<form method='post' action='{escape(_path_with_auth(request, '/actions/settings/runtime/set'))}'>"
+            f"<input type='hidden' name='key' value='{escape(item.key)}'>"
+            "<input type='hidden' name='return_to' value='/settings'>"
+            f"{csrf_input}"
+            f"<input name='value' value='{escape(override_raw_value or '')}' style='width:170px' placeholder='override value' required>"
+            "<button type='submit'>Save</button>"
+            "</form>"
+            f"<form method='post' action='{escape(_path_with_auth(request, '/actions/settings/runtime/delete'))}'>"
+            f"<input type='hidden' name='key' value='{escape(item.key)}'>"
+            "<input type='hidden' name='return_to' value='/settings'>"
+            f"{csrf_input}"
+            "<button type='submit'>Remove override</button>"
+            "</form>"
+            "</td>"
+            "</tr>"
+        )
+
+    body = (
+        "<h1>Runtime settings</h1>"
+        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
+        "<div class='notice'><p>Owner-only operational overrides. Keys are allowlisted and validated.</p></div>"
+        "<table><thead><tr>"
+        "<th>Key</th><th>Description</th><th>Default</th><th>Effective</th><th>Override</th><th>Updated by</th><th>Updated at</th><th>Actions</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=8><span class="empty-state">Нет настроек</span></td></tr>'}</tbody>"
+        "</table>"
+        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+    )
+    return HTMLResponse(_render_page("Runtime Settings", body))
+
+
+@app.post("/actions/settings/runtime/set")
+async def action_set_runtime_setting(
+    request: Request,
+    key: str = Form(...),
+    value: str = Form(...),
+    return_to: str = Form("/settings"),
+    csrf_token: str = Form(...),
+) -> Response:
+    response, auth = _require_owner_permission(request)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/settings")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    try:
+        async with SessionFactory() as session:
+            async with session.begin():
+                await upsert_runtime_setting_override(
+                    session,
+                    key=key,
+                    raw_value=value,
+                    updated_by_user_id=actor_user_id,
+                )
+    except ValueError as exc:
+        return _action_error_page(request, str(exc), back_to=target)
+
+    return RedirectResponse(_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/settings/runtime/delete")
+async def action_delete_runtime_setting(
+    request: Request,
+    key: str = Form(...),
+    return_to: str = Form("/settings"),
+    csrf_token: str = Form(...),
+) -> Response:
+    response, auth = _require_owner_permission(request)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/settings")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    try:
+        async with SessionFactory() as session:
+            async with session.begin():
+                await delete_runtime_setting_override(session, key=key)
+    except ValueError as exc:
+        return _action_error_page(request, str(exc), back_to=target)
+
+    return RedirectResponse(_path_with_auth(request, target), status_code=303)
 
 
 @app.get("/complaints", response_class=HTMLResponse)

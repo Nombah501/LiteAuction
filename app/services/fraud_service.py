@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.enums import AuctionStatus
 from app.db.models import Auction, Bid, FraudSignal, User
+from app.services.runtime_settings_service import resolve_runtime_setting_value
 
 
 @dataclass(slots=True)
@@ -284,7 +285,8 @@ async def evaluate_and_store_bid_fraud_signal(
                     }
                 )
 
-    if score < settings.fraud_alert_threshold:
+    fraud_alert_threshold = int(await resolve_runtime_setting_value(session, "fraud_alert_threshold"))
+    if score < fraud_alert_threshold:
         return None
 
     duplicate_open = await session.scalar(

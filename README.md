@@ -441,6 +441,12 @@ High-risk sellers cannot publish drafts until a guarantor request is assigned by
 
 Trade feedback moderation list is available in admin web: `/trade-feedback` (status/rating/actor filters).
 
+Owner-only runtime overrides are available in admin web: `/settings`.
+
+- Overrides are persisted in DB and keep `updated_by` / `updated_at` audit fields.
+- Only allowlisted operational keys are mutable in runtime layer.
+- Invalid values are rejected with validation errors; removing override rolls back to static config.
+
 Current points redemption guardrails:
 
 - Global kill-switch for all redemptions.

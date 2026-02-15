@@ -345,6 +345,35 @@ class ChatOwnerServiceEventAudit(Base):
     )
 
 
+class RuntimeSettingOverride(Base):
+    __tablename__ = "runtime_setting_overrides"
+    __table_args__ = (
+        UniqueConstraint("key", name="uq_runtime_setting_overrides_key"),
+        CheckConstraint("char_length(key) > 0", name="runtime_setting_overrides_key_not_blank"),
+        Index("ix_runtime_setting_overrides_updated_at", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+        index=True,
+    )
+
+
 class ModerationChecklistItem(Base, TimestampMixin):
     __tablename__ = "moderation_checklist_items"
     __table_args__ = (

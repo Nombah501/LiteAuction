@@ -3,7 +3,6 @@ from __future__ import annotations
 from aiogram.enums import ChatType
 import pytest
 
-from app.config import settings
 from app.services.message_draft_service import send_progress_draft
 
 
@@ -49,7 +48,10 @@ class _DummyBot:
 
 @pytest.mark.asyncio
 async def test_send_progress_draft_uses_private_thread(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "message_drafts_enabled", True)
+    async def _runtime_enabled(_key: str) -> bool:
+        return True
+
+    monkeypatch.setattr("app.services.message_draft_service.get_runtime_setting_value", _runtime_enabled)
     bot = _DummyBot()
     message = _DummyMessage(
         chat=_DummyChat(chat_type=ChatType.PRIVATE, chat_id=100),
@@ -70,7 +72,10 @@ async def test_send_progress_draft_uses_private_thread(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_send_progress_draft_skips_when_disabled(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "message_drafts_enabled", False)
+    async def _runtime_disabled(_key: str) -> bool:
+        return False
+
+    monkeypatch.setattr("app.services.message_draft_service.get_runtime_setting_value", _runtime_disabled)
     bot = _DummyBot()
     message = _DummyMessage(chat=_DummyChat(chat_type=ChatType.PRIVATE, chat_id=100))
 
