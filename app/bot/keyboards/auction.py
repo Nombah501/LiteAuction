@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
 
@@ -17,9 +17,10 @@ def styled_button(
     style: str | None = None,
     icon_custom_emoji_id: str | None = None,
     switch_inline_query: str | None = None,
+    copy_text: str | None = None,
     url: str | None = None,
 ) -> InlineKeyboardButton:
-    payload: dict[str, str] = {"text": text}
+    payload: dict[str, object] = {"text": text}
     if callback_data is not None:
         payload["callback_data"] = callback_data
     if style is not None:
@@ -28,6 +29,8 @@ def styled_button(
         payload["icon_custom_emoji_id"] = icon_custom_emoji_id
     if switch_inline_query is not None:
         payload["switch_inline_query"] = switch_inline_query
+    if copy_text is not None:
+        payload["copy_text"] = CopyTextButton(text=copy_text)
     if url is not None:
         payload["url"] = url
     return InlineKeyboardButton.model_validate(payload)
@@ -107,6 +110,13 @@ def draft_publish_keyboard(auction_id: str, photo_count: int) -> InlineKeyboardM
                     switch_inline_query=f"auc_{auction_id}",
                     style="primary",
                     icon_custom_emoji_id=_icon(settings.ui_emoji_publish_id),
+                )
+            ],
+            [
+                styled_button(
+                    text="Скопировать /publish",
+                    copy_text=f"/publish {auction_id}",
+                    style="success",
                 )
             ],
             [

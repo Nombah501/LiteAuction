@@ -8,7 +8,14 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramServerError,
+)
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -361,6 +368,47 @@ async def activate_auction_inline_post(
     return auction
 
 
+async def activate_auction_chat_post(
+    session: AsyncSession,
+    *,
+    auction_id: uuid.UUID,
+    publisher_user_id: int,
+    chat_id: int,
+    message_id: int,
+) -> Auction | None:
+    auction = await get_auction_by_id(session, auction_id, for_update=True)
+    if auction is None:
+        return None
+
+    if auction.status != AuctionStatus.DRAFT:
+        return None
+
+    now = datetime.now(UTC)
+    auction.starts_at = now
+    auction.ends_at = ceil_to_next_hour(now + timedelta(hours=auction.duration_hours))
+    auction.status = AuctionStatus.ACTIVE
+    auction.updated_at = now
+
+    existing = await session.scalar(
+        select(AuctionPost).where(
+            AuctionPost.chat_id == chat_id,
+            AuctionPost.message_id == message_id,
+        )
+    )
+    if existing is None:
+        session.add(
+            AuctionPost(
+                auction_id=auction.id,
+                chat_id=chat_id,
+                message_id=message_id,
+                published_by_user_id=publisher_user_id,
+            )
+        )
+
+    await session.flush()
+    return auction
+
+
 async def _finalize_auction_locked(
     session: AsyncSession,
     auction: Auction,
@@ -412,7 +460,7 @@ async def process_bid_action(
         return BidActionResult(False, False, "Аукцион не найден")
 
     if auction.status != AuctionStatus.ACTIVE:
-        return BidActionResult(False, False, "Аукцион не активен")
+        return BidActionResult(False, True, "Аукцион не активен")
 
     if auction.ends_at is not None and now >= auction.ends_at:
         finalized = await _finalize_auction_locked(session, auction, status=AuctionStatus.ENDED)
@@ -570,6 +618,24 @@ async def refresh_auction_posts(bot: Bot, auction_id: uuid.UUID) -> None:
             logger.warning("Failed to refresh auction post %s: %s", post.id, exc)
         except TelegramForbiddenError as exc:
             logger.warning("No rights to edit auction post %s: %s", post.id, exc)
+        except TelegramRetryAfter as exc:
+            logger.warning(
+                "Rate limited while refreshing auction post %s (retry_after=%s): %s",
+                post.id,
+                exc.retry_after,
+                exc,
+            )
+        except (TelegramNetworkError, TelegramServerError) as exc:
+            logger.warning("Transient error while refreshing auction post %s: %s", post.id, exc)
+        except TelegramAPIError as exc:
+            logger.warning("Unexpected Telegram API error while refreshing auction post %s: %s", post.id, exc)
+
+
+async def _safe_refresh_auction_posts(bot: Bot, auction_id: uuid.UUID) -> None:
+    try:
+        await refresh_auction_posts(bot, auction_id)
+    except Exception as exc:
+        logger.exception("Failed to refresh auction %s posts after finalize: %s", auction_id, exc)
 
 
 async def finalize_expired_auctions(bot: Bot) -> int:
@@ -596,7 +662,7 @@ async def finalize_expired_auctions(bot: Bot) -> int:
                 if finalized is not None:
                     finalized_results.append(finalized)
 
-        await refresh_auction_posts(bot, auction_id)
+        await _safe_refresh_auction_posts(bot, auction_id)
 
     for result in finalized_results:
         try:
