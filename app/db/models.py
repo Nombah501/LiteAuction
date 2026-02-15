@@ -224,6 +224,78 @@ class ModerationLog(Base):
     )
 
 
+class SuggestedPostReview(Base, TimestampMixin):
+    __tablename__ = "suggested_post_reviews"
+    __table_args__ = (
+        UniqueConstraint("source_chat_id", "source_message_id", name="uq_suggested_post_reviews_source"),
+        CheckConstraint(
+            "status IN ('PENDING', 'APPROVED', 'DECLINED', 'FAILED')",
+            name="suggested_post_reviews_status_values",
+        ),
+        Index("ix_suggested_post_reviews_status_created_at", "status", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_direct_messages_topic_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    submitter_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submitter_tg_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    queue_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'PENDING'"), index=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class ModerationChecklistItem(Base, TimestampMixin):
+    __tablename__ = "moderation_checklist_items"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "item_code", name="uq_moderation_checklist_item_scope"),
+        Index("ix_moderation_checklist_entity", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    item_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_done: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), index=True)
+    done_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ModerationChecklistReply(Base):
+    __tablename__ = "moderation_checklist_replies"
+    __table_args__ = (Index("ix_moderation_checklist_replies_item_created", "checklist_item_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    checklist_item_id: Mapped[int] = mapped_column(
+        ForeignKey("moderation_checklist_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reply_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+        index=True,
+    )
+
+
 class Complaint(Base):
     __tablename__ = "complaints"
     __table_args__ = (
