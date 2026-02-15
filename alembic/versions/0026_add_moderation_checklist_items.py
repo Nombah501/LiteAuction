@@ -1,6 +1,6 @@
 """add moderation checklist items
 
-Revision ID: 0026_add_moderation_checklist_items
+Revision ID: 0026_moderation_checklists
 Revises: 0025_add_suggested_post_reviews
 Create Date: 2026-02-16 00:30:00
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0026_add_moderation_checklist_items"
+revision: str = "0026_moderation_checklists"
 down_revision: str | None = "0025_add_suggested_post_reviews"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
