@@ -20,7 +20,7 @@ def _usage_text() -> str:
 
 
 @router.message(Command("tradefeedback"), F.chat.type == ChatType.PRIVATE)
-async def command_tradefeedback(message: Message, bot: Bot) -> None:
+async def command_tradefeedback(message: Message, bot: Bot | None = None) -> None:
     if message.from_user is None:
         return
 

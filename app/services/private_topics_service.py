@@ -91,7 +91,7 @@ async def ensure_user_private_topics(
         title = topic_title(purpose)
         try:
             forum_topic = await bot.create_forum_topic(chat_id=user.tg_user_id, name=title)
-        except (TelegramBadRequest, TelegramForbiddenError, TelegramAPIError) as exc:
+        except Exception as exc:
             logger.warning(
                 "Failed to create private topic for user %s purpose %s: %s",
                 user.tg_user_id,
@@ -146,13 +146,14 @@ async def enforce_message_topic(
 ) -> bool:
     if not settings.private_topics_enabled:
         return True
-    if message.chat is None or message.chat.type != ChatType.PRIVATE:
+    chat = getattr(message, "chat", None)
+    if chat is None or getattr(chat, "type", None) != ChatType.PRIVATE:
         return True
 
     target_thread_id = await resolve_user_topic_thread_id(session, bot, user=user, purpose=purpose)
     if target_thread_id is None or not settings.private_topics_strict_routing:
         return True
-    if message.message_thread_id == target_thread_id:
+    if getattr(message, "message_thread_id", None) == target_thread_id:
         return True
 
     hint = f"Эта команда доступна в разделе «{topic_title(purpose)}»."
@@ -160,10 +161,11 @@ async def enforce_message_topic(
         hint = f"{hint} Повторите там: <code>{command_hint}</code>."
     await message.answer(hint)
 
-    if bot is not None:
+    chat_id = getattr(chat, "id", None)
+    if bot is not None and isinstance(chat_id, int):
         try:
             await bot.send_message(
-                chat_id=message.chat.id,
+                chat_id=chat_id,
                 message_thread_id=target_thread_id,
                 text=(
                     f"Раздел «{topic_title(purpose)}» готов. "
@@ -187,22 +189,24 @@ async def enforce_callback_topic(
     command_hint: str | None = None,
 ) -> bool:
     message = callback.message
-    if not settings.private_topics_enabled or message is None or message.chat is None:
+    chat = getattr(message, "chat", None) if message is not None else None
+    if not settings.private_topics_enabled or message is None or chat is None:
         return True
-    if message.chat.type != ChatType.PRIVATE:
+    if getattr(chat, "type", None) != ChatType.PRIVATE:
         return True
 
     target_thread_id = await resolve_user_topic_thread_id(session, bot, user=user, purpose=purpose)
     if target_thread_id is None or not settings.private_topics_strict_routing:
         return True
-    if message.message_thread_id == target_thread_id:
+    if getattr(message, "message_thread_id", None) == target_thread_id:
         return True
 
     await callback.answer(f"Откройте раздел «{topic_title(purpose)}»", show_alert=True)
-    if bot is not None:
+    chat_id = getattr(chat, "id", None)
+    if bot is not None and isinstance(chat_id, int):
         try:
             await bot.send_message(
-                chat_id=message.chat.id,
+                chat_id=chat_id,
                 message_thread_id=target_thread_id,
                 text=(
                     f"Раздел «{topic_title(purpose)}»: повторите <code>{command_hint}</code>."
@@ -226,11 +230,14 @@ async def send_user_topic_message(
     thread_id: int | None = None
 
     if settings.private_topics_enabled:
-        async with SessionFactory() as session:
-            async with session.begin():
-                user = await session.scalar(select(User).where(User.tg_user_id == tg_user_id))
-                if user is not None:
-                    thread_id = await resolve_user_topic_thread_id(session, bot, user=user, purpose=purpose)
+        try:
+            async with SessionFactory() as session:
+                async with session.begin():
+                    user = await session.scalar(select(User).where(User.tg_user_id == tg_user_id))
+                    if user is not None:
+                        thread_id = await resolve_user_topic_thread_id(session, bot, user=user, purpose=purpose)
+        except Exception:
+            thread_id = None
 
     try:
         if thread_id is not None:
@@ -243,7 +250,7 @@ async def send_user_topic_message(
         else:
             await bot.send_message(chat_id=tg_user_id, text=text, reply_markup=reply_markup)
         return True
-    except (TelegramForbiddenError, TelegramBadRequest, TelegramAPIError):
+    except Exception:
         return False
 
 

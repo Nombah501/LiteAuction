@@ -672,7 +672,7 @@ async def mod_help(message: Message, bot: Bot) -> None:
 
 
 @router.message(Command("modstats"), F.chat.type == ChatType.PRIVATE)
-async def mod_stats(message: Message, bot: Bot) -> None:
+async def mod_stats(message: Message, bot: Bot | None = None) -> None:
     if not await _ensure_moderation_topic(message, bot, "/modstats"):
         return
     if not await _require_moderator(message):
@@ -884,7 +884,7 @@ async def mod_points(message: Message, bot: Bot) -> None:
 
 
 @router.message(Command("modpoints_history"), F.chat.type == ChatType.PRIVATE)
-async def mod_points_history(message: Message, bot: Bot) -> None:
+async def mod_points_history(message: Message, bot: Bot | None = None) -> None:
     if not await _ensure_moderation_topic(message, bot, "/modpoints_history"):
         return
     if not await _require_scope_message(message, SCOPE_ROLE_MANAGE) or message.text is None:

@@ -191,7 +191,7 @@ def _render_points_text(
 
 
 @router.message(Command("points"), F.chat.type == ChatType.PRIVATE)
-async def command_points(message: Message, bot: Bot) -> None:
+async def command_points(message: Message, bot: Bot | None = None) -> None:
     if message.from_user is None:
         return
 
