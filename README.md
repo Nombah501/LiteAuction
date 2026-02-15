@@ -53,6 +53,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 - Full private-chat topic routing for bot DM (`Лоты`, `Поддержка`, `Баллы`, `Сделки`, `Модерация`) with strict command/topic enforcement and `/topics`
 - Channel DM lot intake foundation (Bot API 9.2) via `direct_messages_topic_id` for `/newauction`
+- Suggested post moderation pipeline for channel DM topics (approve/decline + persisted review audit)
 - Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist
@@ -525,6 +526,7 @@ Channel DM lot intake (Bot API 9.2):
 
 - `CHANNEL_DM_INTAKE_ENABLED` - enables `/newauction` intake in channel DM topics.
 - `CHANNEL_DM_INTAKE_CHAT_ID` - optional chat allowlist; `0` allows any direct-messages chat.
+- Incoming `suggested_post_info` events from enabled channel DM chats are routed to moderation with approve/decline actions.
 
 Examples:
 
