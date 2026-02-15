@@ -65,6 +65,7 @@ from app.services.moderation_service import (
     unfreeze_auction,
 )
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
+from app.services.message_draft_service import send_progress_draft
 from app.services.points_service import (
     UserPointsSummary,
     count_user_points_entries,
@@ -677,6 +678,13 @@ async def mod_stats(message: Message, bot: Bot | None = None) -> None:
         return
     if not await _require_moderator(message):
         return
+
+    await send_progress_draft(
+        bot,
+        message,
+        text="Собираю модераторскую статистику...",
+        scope_key="modstats",
+    )
     await message.answer(await _render_mod_stats_text())
 
 
