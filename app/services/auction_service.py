@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Bot
+from aiogram.enums import ParseMode
 from aiogram.exceptions import (
     TelegramAPIError,
     TelegramBadRequest,
@@ -16,6 +17,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
+from aiogram.types import InlineKeyboardMarkup, InputMediaPhoto
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -599,37 +601,120 @@ async def refresh_auction_posts(bot: Bot, auction_id: uuid.UUID) -> None:
         )
 
     for post in posts:
-        try:
-            if post.inline_message_id:
-                await bot.edit_message_caption(
-                    inline_message_id=post.inline_message_id,
-                    caption=caption,
-                    reply_markup=reply_markup,
-                )
-            elif post.chat_id and post.message_id:
-                await bot.edit_message_caption(
-                    chat_id=post.chat_id,
-                    message_id=post.message_id,
-                    caption=caption,
-                    reply_markup=reply_markup,
-                )
-        except TelegramBadRequest as exc:
-            if "message is not modified" in str(exc).lower():
-                continue
-            logger.warning("Failed to refresh auction post %s: %s", post.id, exc)
-        except TelegramForbiddenError as exc:
-            logger.warning("No rights to edit auction post %s: %s", post.id, exc)
-        except TelegramRetryAfter as exc:
-            logger.warning(
-                "Rate limited while refreshing auction post %s (retry_after=%s): %s",
-                post.id,
-                exc.retry_after,
-                exc,
+        await _refresh_auction_post_message(
+            bot,
+            post=post,
+            caption=caption,
+            reply_markup=reply_markup,
+            photo_file_id=view.auction.photo_file_id,
+        )
+
+
+def _is_not_modified_error(exc: TelegramBadRequest) -> bool:
+    return "message is not modified" in str(exc).lower()
+
+
+def _should_upgrade_text_post(exc: TelegramBadRequest) -> bool:
+    message = str(exc).lower()
+    return (
+        "there is no caption" in message
+        or "message is not a media message" in message
+        or "wrong message content type" in message
+    )
+
+
+async def _edit_post_media(
+    bot: Bot,
+    *,
+    post: AuctionPost,
+    media: InputMediaPhoto,
+    reply_markup: InlineKeyboardMarkup | None,
+) -> None:
+    if post.inline_message_id:
+        await bot.edit_message_media(
+            inline_message_id=post.inline_message_id,
+            media=media,
+            reply_markup=reply_markup,
+        )
+        return
+    if post.chat_id is not None and post.message_id is not None:
+        await bot.edit_message_media(
+            chat_id=post.chat_id,
+            message_id=post.message_id,
+            media=media,
+            reply_markup=reply_markup,
+        )
+
+
+async def _refresh_auction_post_message(
+    bot: Bot,
+    *,
+    post: AuctionPost,
+    caption: str,
+    reply_markup: InlineKeyboardMarkup | None,
+    photo_file_id: str,
+) -> None:
+    try:
+        if post.inline_message_id:
+            await bot.edit_message_caption(
+                inline_message_id=post.inline_message_id,
+                caption=caption,
+                reply_markup=reply_markup,
             )
-        except (TelegramNetworkError, TelegramServerError) as exc:
-            logger.warning("Transient error while refreshing auction post %s: %s", post.id, exc)
-        except TelegramAPIError as exc:
-            logger.warning("Unexpected Telegram API error while refreshing auction post %s: %s", post.id, exc)
+            return
+        if post.chat_id is not None and post.message_id is not None:
+            await bot.edit_message_caption(
+                chat_id=post.chat_id,
+                message_id=post.message_id,
+                caption=caption,
+                reply_markup=reply_markup,
+            )
+            return
+        return
+    except TelegramBadRequest as exc:
+        if _is_not_modified_error(exc):
+            return
+        if not _should_upgrade_text_post(exc):
+            logger.warning("Failed to refresh auction post %s: %s", post.id, exc)
+            return
+    except TelegramForbiddenError as exc:
+        logger.warning("No rights to edit auction post %s: %s", post.id, exc)
+        return
+    except TelegramRetryAfter as exc:
+        logger.warning(
+            "Rate limited while refreshing auction post %s (retry_after=%s): %s",
+            post.id,
+            exc.retry_after,
+            exc,
+        )
+        return
+    except (TelegramNetworkError, TelegramServerError) as exc:
+        logger.warning("Transient error while refreshing auction post %s: %s", post.id, exc)
+        return
+    except TelegramAPIError as exc:
+        logger.warning("Unexpected Telegram API error while refreshing auction post %s: %s", post.id, exc)
+        return
+
+    media = InputMediaPhoto(media=photo_file_id, caption=caption, parse_mode=ParseMode.HTML)
+    try:
+        await _edit_post_media(bot, post=post, media=media, reply_markup=reply_markup)
+    except TelegramBadRequest as exc:
+        if _is_not_modified_error(exc):
+            return
+        logger.warning("Failed to attach media while refreshing auction post %s: %s", post.id, exc)
+    except TelegramForbiddenError as exc:
+        logger.warning("No rights to attach media for auction post %s: %s", post.id, exc)
+    except TelegramRetryAfter as exc:
+        logger.warning(
+            "Rate limited while attaching media for auction post %s (retry_after=%s): %s",
+            post.id,
+            exc.retry_after,
+            exc,
+        )
+    except (TelegramNetworkError, TelegramServerError) as exc:
+        logger.warning("Transient error while attaching media for auction post %s: %s", post.id, exc)
+    except TelegramAPIError as exc:
+        logger.warning("Unexpected Telegram API error while attaching media for auction post %s: %s", post.id, exc)
 
 
 async def _safe_refresh_auction_posts(bot: Bot, auction_id: uuid.UUID) -> None:
