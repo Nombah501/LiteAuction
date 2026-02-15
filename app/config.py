@@ -1,8 +1,33 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import os
+from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import dotenv_values
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    TomlConfigSettingsSource,
+)
+
+
+def _resolve_toml_settings_path() -> Path:
+    env_override = os.environ.get("APP_CONFIG_FILE", "").strip()
+    if env_override:
+        return Path(env_override)
+
+    dotenv_path = Path(".env")
+    if dotenv_path.exists():
+        dotenv_values_map = dotenv_values(dotenv_path)
+        raw_dotenv_override = dotenv_values_map.get("APP_CONFIG_FILE")
+        if raw_dotenv_override is not None:
+            dotenv_override = str(raw_dotenv_override).strip()
+            if dotenv_override:
+                return Path(dotenv_override)
+
+    return Path("config/defaults.toml")
 
 
 class Settings(BaseSettings):
@@ -11,6 +36,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://auction:auction@db:5432/auction"
     redis_url: str = "redis://redis:6379/0"
     tz: str = "Asia/Tashkent"
+    app_config_file: str = "config/defaults.toml"
     log_level: str = "INFO"
     admin_user_ids: str = ""
     admin_operator_user_ids: str = ""
@@ -163,6 +189,23 @@ class Settings(BaseSettings):
     feedback_github_actor_tg_user_id: int = -998
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            TomlConfigSettingsSource(settings_cls, toml_file=_resolve_toml_settings_path()),
+            file_secret_settings,
+        )
 
     def parsed_admin_user_ids(self) -> list[int]:
         raw = [x.strip() for x in self.admin_user_ids.split(",") if x.strip()]

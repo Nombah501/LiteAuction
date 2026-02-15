@@ -280,13 +280,26 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 cp .env.example .env
 ```
 
+Optional: use `.env.full.example` as reference for all advanced tuning keys.
+
 2. Set real `BOT_TOKEN` in `.env`.
 
-2.1 Set `BOT_USERNAME` (without @) to enable Telegram Login in web admin.
+2.1 Set `BOT_USERNAME` (without `@`) to enable Telegram Login in web admin.
+
+2.2 Set access/auth bootstrap values:
+
+- `ADMIN_USER_IDS` (first ID is owner)
+- `ADMIN_PANEL_TOKEN`
+- `ADMIN_WEB_SESSION_SECRET`
 
 3. Ensure timezone is set (default: `Asia/Tashkent`).
 
-4. Run services:
+4. Tune non-secret behavior defaults in `config/defaults.toml`.
+
+- You can keep `.env` small (tokens, IDs, URLs) and move policy/tuning values into TOML.
+- Optional: set `APP_CONFIG_FILE` in `.env` to use an alternate TOML file path.
+
+5. Run services:
 
 ```bash
 docker compose up -d --build
@@ -294,7 +307,7 @@ docker compose up -d --build
 
 Admin panel will be available at `http://localhost:8080`.
 
-5. Check logs:
+6. Check logs:
 
 ```bash
 docker compose logs -f bot
@@ -343,14 +356,14 @@ Integration tests refuse to run unless `TEST_DATABASE_URL` is set and points to 
 - Sync sprint plan to GitHub issues/milestone:
 
 ```bash
-cp planning/sprints/sprint-template.toml planning/sprints/sprint-33.toml
-python scripts/sprint_sync.py --manifest planning/sprints/sprint-33.toml
+cp planning/sprints/sprint-template.toml planning/sprints/sprint-<number>.toml
+python scripts/sprint_sync.py --manifest planning/sprints/sprint-<number>.toml
 ```
 
 - Create draft PR scaffolds for each sprint task:
 
 ```bash
-python scripts/sprint_sync.py --manifest planning/sprints/sprint-33.toml --create-draft-prs
+python scripts/sprint_sync.py --manifest planning/sprints/sprint-<number>.toml --create-draft-prs
 ```
 
 This sync also updates `planning/STATUS.md` so recovery after context loss stays deterministic.
@@ -460,39 +473,6 @@ ADMIN_PANEL_TOKEN=change_me
 ADMIN_WEB_SESSION_SECRET=change_me_session_secret
 ADMIN_WEB_CSRF_TTL_SECONDS=7200
 ADMIN_OPERATOR_USER_IDS=324897201,123456789
-SOFT_GATE_REQUIRE_PRIVATE_START=true
-SOFT_GATE_MODE=grace
-SOFT_GATE_HINT_INTERVAL_HOURS=24
-FEEDBACK_INTAKE_MIN_LENGTH=10
-FEEDBACK_INTAKE_COOLDOWN_SECONDS=90
-FEEDBACK_BUG_REWARD_POINTS=30
-FEEDBACK_SUGGESTION_REWARD_POINTS=20
-FEEDBACK_PRIORITY_BOOST_ENABLED=true
-FEEDBACK_PRIORITY_BOOST_COST_POINTS=25
-FEEDBACK_PRIORITY_BOOST_DAILY_LIMIT=2
-FEEDBACK_PRIORITY_BOOST_COOLDOWN_SECONDS=0
-POINTS_REDEMPTION_ENABLED=true
-POINTS_REDEMPTION_COOLDOWN_SECONDS=60
-POINTS_REDEMPTION_DAILY_LIMIT=0
-POINTS_REDEMPTION_WEEKLY_LIMIT=0
-POINTS_REDEMPTION_DAILY_SPEND_CAP=0
-POINTS_REDEMPTION_WEEKLY_SPEND_CAP=0
-POINTS_REDEMPTION_MONTHLY_SPEND_CAP=0
-POINTS_REDEMPTION_MIN_BALANCE=0
-POINTS_REDEMPTION_MIN_ACCOUNT_AGE_SECONDS=0
-POINTS_REDEMPTION_MIN_EARNED_POINTS=0
-APPEAL_PRIORITY_BOOST_ENABLED=true
-APPEAL_PRIORITY_BOOST_COST_POINTS=20
-APPEAL_PRIORITY_BOOST_DAILY_LIMIT=1
-APPEAL_PRIORITY_BOOST_COOLDOWN_SECONDS=0
-GUARANTOR_INTAKE_MIN_LENGTH=10
-GUARANTOR_INTAKE_COOLDOWN_SECONDS=180
-GUARANTOR_PRIORITY_BOOST_ENABLED=true
-GUARANTOR_PRIORITY_BOOST_COST_POINTS=40
-GUARANTOR_PRIORITY_BOOST_DAILY_LIMIT=1
-GUARANTOR_PRIORITY_BOOST_COOLDOWN_SECONDS=0
-PUBLISH_HIGH_RISK_REQUIRES_GUARANTOR=true
-PUBLISH_GUARANTOR_ASSIGNMENT_MAX_AGE_DAYS=30
 GITHUB_AUTOMATION_ENABLED=true
 GITHUB_TOKEN=ghp_xxx
 GITHUB_REPO_OWNER=Nombah501
@@ -505,7 +485,11 @@ OUTBOX_RETRY_MAX_SECONDS=1800
 FEEDBACK_GITHUB_ACTOR_TG_USER_ID=-998
 ```
 
+For full non-secret tuning keys (fraud thresholds, points limits, boosts, private topic policy, feature flags, UI emojis), use `.env.full.example`.
+
 Topic-specific IDs are optional; when unset the bot falls back to `MODERATION_THREAD_ID`.
+
+Configuration precedence (high -> low): init kwargs -> environment -> `.env` -> `config/defaults.toml` -> hardcoded fallback defaults.
 
 `SOFT_GATE_MODE` behavior:
 
