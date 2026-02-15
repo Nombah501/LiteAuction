@@ -31,6 +31,7 @@ async def configure_bot_commands(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="Открыть главное меню"),
         BotCommand(command="newauction", description="Создать новый аукцион"),
+        BotCommand(command="topics", description="Показать разделы в личке"),
         BotCommand(command="bug", description="Сообщить о проблеме"),
         BotCommand(command="suggest", description="Предложить улучшение"),
         BotCommand(command="guarant", description="Запросить гаранта для сделки"),

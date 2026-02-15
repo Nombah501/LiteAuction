@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -14,9 +14,15 @@ from app.bot.keyboards.auction import (
     photos_done_keyboard,
 )
 from app.bot.states.auction_create import AuctionCreateStates
+from app.config import settings
 from app.db.session import SessionFactory
 from app.services.moderation_service import is_tg_user_blacklisted
 from app.services.auction_service import create_draft_auction, load_auction_view, render_auction_caption
+from app.services.private_topics_service import (
+    PrivateTopicPurpose,
+    enforce_callback_topic,
+    enforce_message_topic,
+)
 from app.services.publish_gate_service import evaluate_seller_publish_gate
 from app.services.user_service import upsert_user
 
@@ -62,16 +68,89 @@ async def _append_photo_file_id(state: FSMContext, file_id: str) -> tuple[int, b
     return len(photo_file_ids), True, False
 
 
+async def _ensure_auction_state_message(
+    message: Message,
+    state: FSMContext,
+    bot: Bot | None,
+) -> bool:
+    if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
+        return True
+
+    data = await state.get_data()
+    expected_thread_id = data.get("expected_thread_id")
+    if not isinstance(expected_thread_id, int):
+        return True
+    if message.message_thread_id == expected_thread_id:
+        return True
+
+    await message.answer("Продолжайте создание лота в разделе «Лоты».")
+    if bot is not None and message.chat is not None:
+        try:
+            await bot.send_message(
+                chat_id=message.chat.id,
+                message_thread_id=expected_thread_id,
+                text="Продолжим создание лота здесь.",
+            )
+        except Exception:
+            pass
+    return False
+
+
+async def _ensure_auction_state_callback(
+    callback: CallbackQuery,
+    state: FSMContext,
+    bot: Bot | None,
+) -> bool:
+    if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
+        return True
+
+    message = callback.message
+    if message is None:
+        return True
+
+    data = await state.get_data()
+    expected_thread_id = data.get("expected_thread_id")
+    if not isinstance(expected_thread_id, int):
+        return True
+    if message.message_thread_id == expected_thread_id:
+        return True
+
+    await callback.answer("Откройте раздел «Лоты»", show_alert=True)
+    if bot is not None and message.chat is not None:
+        try:
+            await bot.send_message(
+                chat_id=message.chat.id,
+                message_thread_id=expected_thread_id,
+                text="Продолжим создание лота здесь.",
+            )
+        except Exception:
+            pass
+    return False
+
+
 @router.message(Command("newauction"), F.chat.type == ChatType.PRIVATE)
-async def command_new_auction(message: Message, state: FSMContext) -> None:
+async def command_new_auction(message: Message, state: FSMContext, bot: Bot) -> None:
     if message.from_user is not None:
         async with SessionFactory() as session:
-            if await is_tg_user_blacklisted(session, message.from_user.id):
-                await message.answer("Вы в черном списке и не можете создавать аукционы")
-                return
+            async with session.begin():
+                seller = await upsert_user(session, message.from_user, mark_private_started=True)
+                if not await enforce_message_topic(
+                    message,
+                    bot=bot,
+                    session=session,
+                    user=seller,
+                    purpose=PrivateTopicPurpose.AUCTIONS,
+                    command_hint="/newauction",
+                ):
+                    return
+                if await is_tg_user_blacklisted(session, message.from_user.id):
+                    await message.answer("Вы в черном списке и не можете создавать аукционы")
+                    return
 
     await state.clear()
     await state.set_state(AuctionCreateStates.waiting_photo)
+    if isinstance(message.message_thread_id, int):
+        await state.update_data(expected_thread_id=message.message_thread_id)
     await message.answer(
         "Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
         reply_markup=photos_done_keyboard(),
@@ -79,15 +158,28 @@ async def command_new_auction(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "create:new")
-async def callback_new_auction(callback: CallbackQuery, state: FSMContext) -> None:
+async def callback_new_auction(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     if callback.from_user is not None:
         async with SessionFactory() as session:
-            if await is_tg_user_blacklisted(session, callback.from_user.id):
-                await callback.answer("Вы в черном списке", show_alert=True)
-                return
+            async with session.begin():
+                user = await upsert_user(session, callback.from_user, mark_private_started=True)
+                if not await enforce_callback_topic(
+                    callback,
+                    bot=bot,
+                    session=session,
+                    user=user,
+                    purpose=PrivateTopicPurpose.AUCTIONS,
+                    command_hint="/newauction",
+                ):
+                    return
+                if await is_tg_user_blacklisted(session, callback.from_user.id):
+                    await callback.answer("Вы в черном списке", show_alert=True)
+                    return
 
     await state.clear()
     await state.set_state(AuctionCreateStates.waiting_photo)
+    if callback.message is not None and isinstance(callback.message.message_thread_id, int):
+        await state.update_data(expected_thread_id=callback.message.message_thread_id)
     await callback.answer()
     if callback.message:
         await callback.message.answer(
@@ -103,7 +195,9 @@ async def cancel_creation(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AuctionCreateStates.waiting_photo, F.photo)
-async def create_photo_step(message: Message, state: FSMContext) -> None:
+async def create_photo_step(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     if not message.photo:
         return
     photo = message.photo[-1]
@@ -126,7 +220,9 @@ async def create_photo_step(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(AuctionCreateStates.waiting_photo, F.data == "create:photos:done")
-async def create_photos_done(callback: CallbackQuery, state: FSMContext) -> None:
+async def create_photos_done(callback: CallbackQuery, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_callback(callback, state, bot):
+        return
     data = await state.get_data()
     photo_ids_raw = data.get("photo_file_ids")
     photo_file_ids = photo_ids_raw if isinstance(photo_ids_raw, list) else []
@@ -141,7 +237,9 @@ async def create_photos_done(callback: CallbackQuery, state: FSMContext) -> None
 
 
 @router.message(AuctionCreateStates.waiting_photo)
-async def create_photo_step_invalid(message: Message) -> None:
+async def create_photo_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     await message.answer(
         "Отправьте фото лота (можно несколько), затем нажмите 'Готово'.",
         reply_markup=photos_done_keyboard(),
@@ -149,7 +247,9 @@ async def create_photo_step_invalid(message: Message) -> None:
 
 
 @router.message(AuctionCreateStates.waiting_description, F.text)
-async def create_description_step(message: Message, state: FSMContext) -> None:
+async def create_description_step(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     description = (message.text or "").strip()
     if len(description) < 3:
         await message.answer("Описание слишком короткое. Добавьте больше деталей.")
@@ -161,7 +261,9 @@ async def create_description_step(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AuctionCreateStates.waiting_description, F.photo)
-async def create_description_collect_photo(message: Message, state: FSMContext) -> None:
+async def create_description_collect_photo(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     if not message.photo:
         return
     photo = message.photo[-1]
@@ -180,12 +282,16 @@ async def create_description_collect_photo(message: Message, state: FSMContext) 
 
 
 @router.message(AuctionCreateStates.waiting_description)
-async def create_description_step_invalid(message: Message) -> None:
+async def create_description_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     await message.answer("Пришлите описание текстом.")
 
 
 @router.message(AuctionCreateStates.waiting_start_price, F.text)
-async def create_start_price_step(message: Message, state: FSMContext) -> None:
+async def create_start_price_step(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     amount = _parse_usd_amount(message.text or "")
     if amount is None:
         await message.answer("Некорректная цена. Введите целое число USD, минимум 1.")
@@ -201,12 +307,16 @@ async def create_start_price_step(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AuctionCreateStates.waiting_start_price)
-async def create_start_price_step_invalid(message: Message) -> None:
+async def create_start_price_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     await message.answer("Введите стартовую цену текстом (например: 100).")
 
 
 @router.callback_query(AuctionCreateStates.waiting_buyout_price, F.data == "create:buyout:skip")
-async def create_buyout_skip(callback: CallbackQuery, state: FSMContext) -> None:
+async def create_buyout_skip(callback: CallbackQuery, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_callback(callback, state, bot):
+        return
     await state.update_data(buyout_price=None)
     await state.set_state(AuctionCreateStates.waiting_min_step)
     await callback.answer("Выкуп пропущен")
@@ -214,7 +324,9 @@ async def create_buyout_skip(callback: CallbackQuery, state: FSMContext) -> None
 
 
 @router.message(AuctionCreateStates.waiting_buyout_price, F.text)
-async def create_buyout_step(message: Message, state: FSMContext) -> None:
+async def create_buyout_step(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     buyout_price = _parse_usd_amount(message.text or "")
     if buyout_price is None:
         await message.answer("Некорректная цена выкупа. Введите целое число или нажмите 'Пропустить'.")
@@ -232,12 +344,16 @@ async def create_buyout_step(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AuctionCreateStates.waiting_buyout_price)
-async def create_buyout_step_invalid(message: Message) -> None:
+async def create_buyout_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     await message.answer("Введите цену выкупа текстом или нажмите 'Пропустить'.")
 
 
 @router.message(AuctionCreateStates.waiting_min_step, F.text)
-async def create_min_step_step(message: Message, state: FSMContext) -> None:
+async def create_min_step_step(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     min_step = _parse_usd_amount(message.text or "")
     if min_step is None:
         await message.answer("Некорректный шаг. Введите целое число USD, минимум 1.")
@@ -249,12 +365,16 @@ async def create_min_step_step(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AuctionCreateStates.waiting_min_step)
-async def create_min_step_step_invalid(message: Message) -> None:
+async def create_min_step_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_message(message, state, bot):
+        return
     await message.answer("Введите минимальный шаг текстом (например: 1).")
 
 
 @router.callback_query(AuctionCreateStates.waiting_duration, F.data.startswith("create:duration:"))
-async def create_duration_step(callback: CallbackQuery, state: FSMContext) -> None:
+async def create_duration_step(callback: CallbackQuery, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_callback(callback, state, bot):
+        return
     if callback.data is None:
         await callback.answer("Некорректная длительность", show_alert=True)
         return
@@ -275,7 +395,9 @@ async def create_duration_step(callback: CallbackQuery, state: FSMContext) -> No
 
 
 @router.callback_query(AuctionCreateStates.waiting_anti_sniper, F.data.startswith("create:antisniper:"))
-async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) -> None:
+async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_callback(callback, state, bot):
+        return
     if callback.from_user is None or callback.message is None or callback.data is None:
         return
 
@@ -339,10 +461,14 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext) ->
 
 
 @router.callback_query(AuctionCreateStates.waiting_duration)
-async def create_duration_invalid(callback: CallbackQuery) -> None:
+async def create_duration_invalid(callback: CallbackQuery, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_callback(callback, state, bot):
+        return
     await callback.answer("Выберите одну из кнопок длительности", show_alert=True)
 
 
 @router.callback_query(AuctionCreateStates.waiting_anti_sniper)
-async def create_anti_sniper_invalid(callback: CallbackQuery) -> None:
+async def create_anti_sniper_invalid(callback: CallbackQuery, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_auction_state_callback(callback, state, bot):
+        return
     await callback.answer("Выберите: включить или выключить", show_alert=True)

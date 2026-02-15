@@ -33,6 +33,7 @@ from app.services.fraud_service import (
     set_fraud_signal_queue_message,
 )
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
+from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.user_service import upsert_user
 
 router = Router(name="bid_actions")
@@ -221,10 +222,12 @@ async def _maybe_send_fraud_alert(bot: Bot, signal_id: int) -> None:
 async def _notify_outbid(bot: Bot, outbid_user_tg_id: int | None, actor_tg_id: int) -> None:
     if outbid_user_tg_id is None or outbid_user_tg_id == actor_tg_id:
         return
-    try:
-        await bot.send_message(outbid_user_tg_id, "Вашу ставку перебили. Откройте аукцион и сделайте новую.")
-    except TelegramForbiddenError:
-        pass
+    await send_user_topic_message(
+        bot,
+        tg_user_id=outbid_user_tg_id,
+        purpose=PrivateTopicPurpose.AUCTIONS,
+        text="Вашу ставку перебили. Откройте аукцион и сделайте новую.",
+    )
 
 
 async def _notify_auction_finish(
@@ -236,15 +239,19 @@ async def _notify_auction_finish(
 ) -> None:
     short_id = str(auction_id)[:8]
     if seller_tg_id is not None:
-        try:
-            await bot.send_message(seller_tg_id, f"Аукцион #{short_id} завершен (выкуп).")
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=seller_tg_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=f"Аукцион #{short_id} завершен (выкуп).",
+        )
     if winner_tg_id is not None:
-        try:
-            await bot.send_message(winner_tg_id, f"Вы выиграли аукцион #{short_id} через выкуп.")
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=winner_tg_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=f"Вы выиграли аукцион #{short_id} через выкуп.",
+        )
 
 
 @router.callback_query(F.data.startswith("bid:"))

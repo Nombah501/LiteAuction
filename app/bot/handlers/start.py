@@ -6,9 +6,15 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from app.bot.keyboards.auction import start_private_keyboard
+from app.config import settings
 from app.db.session import SessionFactory
 from app.services.appeal_service import create_appeal_from_ref, redeem_appeal_priority_boost
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
+from app.services.private_topics_service import (
+    PrivateTopicPurpose,
+    enforce_message_topic,
+    render_user_topics_overview,
+)
 from app.services.user_service import upsert_user
 
 router = Router(name="start")
@@ -99,6 +105,15 @@ async def command_boost_appeal(message: Message, bot: Bot) -> None:
     async with SessionFactory() as session:
         async with session.begin():
             user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.POINTS,
+                command_hint=f"/boostappeal {appeal_id}",
+            ):
+                return
             result = await redeem_appeal_priority_boost(
                 session,
                 appeal_id=appeal_id,
@@ -126,18 +141,21 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
 
     payload = _extract_start_payload(message)
     appeal_id: int | None = None
+    topics_overview: str | None = None
 
     async with SessionFactory() as session:
-        user = await upsert_user(session, message.from_user, mark_private_started=True)
-        if payload is not None and payload.startswith("appeal_"):
-            appeal_ref = payload[len("appeal_") :] or "manual"
-            appeal = await create_appeal_from_ref(
-                session,
-                appellant_user_id=user.id,
-                appeal_ref=appeal_ref,
-            )
-            appeal_id = appeal.id
-        await session.commit()
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if settings.private_topics_enabled and settings.private_topics_autocreate_on_start:
+                topics_overview = await render_user_topics_overview(session, bot, user=user)
+            if payload is not None and payload.startswith("appeal_"):
+                appeal_ref = payload[len("appeal_") :] or "manual"
+                appeal = await create_appeal_from_ref(
+                    session,
+                    appellant_user_id=user.id,
+                    appeal_ref=appeal_ref,
+                )
+                appeal_id = appeal.id
 
     if payload is not None and payload.startswith("appeal_") and appeal_id is not None:
         appeal_ref = payload[len("appeal_") :] or "manual"
@@ -160,6 +178,21 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
         "В посте будут live-ставки, топ-3, анти-снайпер и выкуп.",
         reply_markup=start_private_keyboard(),
     )
+    if topics_overview is not None:
+        await message.answer(topics_overview)
+
+
+@router.message(Command("topics"), F.chat.type == ChatType.PRIVATE)
+async def command_topics(message: Message, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            overview = await render_user_topics_overview(session, bot, user=user)
+
+    await message.answer(overview)
 
 
 @router.message(CommandStart())

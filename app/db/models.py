@@ -52,6 +52,25 @@ class User(Base, TimestampMixin):
     )
 
 
+class UserPrivateTopic(Base, TimestampMixin):
+    __tablename__ = "user_private_topics"
+    __table_args__ = (
+        UniqueConstraint("user_id", "purpose", name="uq_user_private_topics_user_purpose"),
+        UniqueConstraint("user_id", "thread_id", name="uq_user_private_topics_user_thread"),
+        Index("ix_user_private_topics_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False)
+    thread_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+
+
 class UserRoleAssignment(Base):
     __tablename__ = "user_roles"
     __table_args__ = (UniqueConstraint("user_id", "role", name="uq_user_roles_user_id_role"),)

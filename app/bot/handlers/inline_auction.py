@@ -14,6 +14,7 @@ from app.services.auction_service import (
     refresh_auction_posts,
     render_auction_caption,
 )
+from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.publish_gate_service import evaluate_seller_publish_gate
 from app.services.user_service import upsert_user
 
@@ -106,10 +107,12 @@ async def handle_chosen_inline_result(chosen: ChosenInlineResult, bot: Bot) -> N
                 )
 
     if blocked_message:
-        try:
-            await bot.send_message(chosen.from_user.id, blocked_message)
-        except Exception:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=chosen.from_user.id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=blocked_message,
+        )
         return
 
     if auction is None:

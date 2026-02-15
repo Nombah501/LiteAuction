@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.bot.keyboards.moderation import feedback_actions_keyboard
 from app.bot.states.feedback_intake import FeedbackIntakeStates
+from app.config import settings
 from app.db.enums import FeedbackStatus, FeedbackType, ModerationAction
 from app.db.session import SessionFactory
 from app.services.feedback_service import (
@@ -23,6 +24,11 @@ from app.services.feedback_service import (
 )
 from app.services.moderation_service import has_moderator_access, log_moderation_action
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
+from app.services.private_topics_service import (
+    PrivateTopicPurpose,
+    enforce_message_topic,
+    send_user_topic_message,
+)
 from app.services.user_service import upsert_user
 
 router = Router(name="feedback")
@@ -47,6 +53,30 @@ def _feedback_section(feedback_type: FeedbackType) -> ModerationTopicSection:
     if feedback_type == FeedbackType.BUG:
         return ModerationTopicSection.BUGS
     return ModerationTopicSection.SUGGESTIONS
+
+
+async def _ensure_feedback_state_thread(message: Message, state: FSMContext, bot: Bot | None) -> bool:
+    if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
+        return True
+
+    data = await state.get_data()
+    expected_thread_id = data.get("expected_thread_id")
+    if not isinstance(expected_thread_id, int):
+        return True
+    if message.message_thread_id == expected_thread_id:
+        return True
+
+    await message.answer("Этот шаг доступен в разделе «Поддержка».")
+    if bot is not None and message.chat is not None:
+        try:
+            await bot.send_message(
+                chat_id=message.chat.id,
+                message_thread_id=expected_thread_id,
+                text="Продолжим в разделе «Поддержка».",
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+    return False
 
 
 async def _create_feedback_item(
@@ -109,6 +139,22 @@ async def _create_feedback_item(
 
 @router.message(Command("bug"), F.chat.type == ChatType.PRIVATE)
 async def command_bug(message: Message, state: FSMContext, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.SUPPORT,
+                command_hint="/bug",
+            ):
+                return
+
     payload = _extract_payload(message)
     if payload is not None:
         await _create_feedback_item(
@@ -121,11 +167,29 @@ async def command_bug(message: Message, state: FSMContext, bot: Bot) -> None:
         return
 
     await state.set_state(FeedbackIntakeStates.waiting_bug_text)
+    if isinstance(message.message_thread_id, int):
+        await state.update_data(expected_thread_id=message.message_thread_id)
     await message.answer("Опишите баг в одном сообщении. Для отмены используйте /cancel")
 
 
 @router.message(Command("suggest"), F.chat.type == ChatType.PRIVATE)
 async def command_suggest(message: Message, state: FSMContext, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.SUPPORT,
+                command_hint="/suggest",
+            ):
+                return
+
     payload = _extract_payload(message)
     if payload is not None:
         await _create_feedback_item(
@@ -138,6 +202,8 @@ async def command_suggest(message: Message, state: FSMContext, bot: Bot) -> None
         return
 
     await state.set_state(FeedbackIntakeStates.waiting_suggestion_text)
+    if isinstance(message.message_thread_id, int):
+        await state.update_data(expected_thread_id=message.message_thread_id)
     await message.answer("Опишите предложение в одном сообщении. Для отмены используйте /cancel")
 
 
@@ -161,6 +227,15 @@ async def command_boost_feedback(message: Message, bot: Bot) -> None:
     async with SessionFactory() as session:
         async with session.begin():
             submitter = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=submitter,
+                purpose=PrivateTopicPurpose.POINTS,
+                command_hint=f"/boostfeedback {feedback_id}",
+            ):
+                return
             result = await redeem_feedback_priority_boost(
                 session,
                 feedback_id=feedback_id,
@@ -199,6 +274,8 @@ async def command_boost_feedback(message: Message, bot: Bot) -> None:
 
 @router.message(FeedbackIntakeStates.waiting_bug_text, F.text)
 async def waiting_bug_text(message: Message, state: FSMContext, bot: Bot) -> None:
+    if not await _ensure_feedback_state_thread(message, state, bot):
+        return
     await _create_feedback_item(
         message=message,
         state=state,
@@ -210,6 +287,8 @@ async def waiting_bug_text(message: Message, state: FSMContext, bot: Bot) -> Non
 
 @router.message(FeedbackIntakeStates.waiting_suggestion_text, F.text)
 async def waiting_suggestion_text(message: Message, state: FSMContext, bot: Bot) -> None:
+    if not await _ensure_feedback_state_thread(message, state, bot):
+        return
     await _create_feedback_item(
         message=message,
         state=state,
@@ -220,12 +299,20 @@ async def waiting_suggestion_text(message: Message, state: FSMContext, bot: Bot)
 
 
 @router.message(FeedbackIntakeStates.waiting_bug_text)
-async def waiting_bug_text_invalid(message: Message) -> None:
+async def waiting_bug_text_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
+    if not await _ensure_feedback_state_thread(message, state, bot):
+        return
     await message.answer("Нужен текст. Опишите баг в одном сообщении")
 
 
 @router.message(FeedbackIntakeStates.waiting_suggestion_text)
-async def waiting_suggestion_text_invalid(message: Message) -> None:
+async def waiting_suggestion_text_invalid(
+    message: Message,
+    state: FSMContext,
+    bot: Bot | None = None,
+) -> None:
+    if not await _ensure_feedback_state_thread(message, state, bot):
+        return
     await message.answer("Нужен текст. Опишите предложение в одном сообщении")
 
 
@@ -243,10 +330,12 @@ async def _notify_submitter_decision(
     else:
         text = f"Ваше {label} отклонено модерацией. Спасибо за участие."
 
-    try:
-        await bot.send_message(submitter_tg_user_id, text)
-    except TelegramForbiddenError:
-        return
+    await send_user_topic_message(
+        bot,
+        tg_user_id=submitter_tg_user_id,
+        purpose=PrivateTopicPurpose.SUPPORT,
+        text=text,
+    )
 
 
 @router.callback_query(F.data.startswith("modfb:"))

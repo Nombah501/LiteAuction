@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import uuid
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.db.session import SessionFactory
+from app.services.private_topics_service import PrivateTopicPurpose, enforce_message_topic
 from app.services.trade_feedback_service import submit_trade_feedback
 from app.services.user_service import upsert_user
 
@@ -19,7 +20,7 @@ def _usage_text() -> str:
 
 
 @router.message(Command("tradefeedback"), F.chat.type == ChatType.PRIVATE)
-async def command_tradefeedback(message: Message) -> None:
+async def command_tradefeedback(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
 
@@ -51,6 +52,15 @@ async def command_tradefeedback(message: Message) -> None:
     async with SessionFactory() as session:
         async with session.begin():
             actor = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=actor,
+                purpose=PrivateTopicPurpose.TRADES,
+                command_hint=f"/tradefeedback {auction_id} {rating}",
+            ):
+                return
             result = await submit_trade_feedback(
                 session,
                 auction_id=auction_id,

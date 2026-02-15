@@ -72,6 +72,12 @@ from app.services.points_service import (
     grant_points,
     list_user_points_entries,
 )
+from app.services.private_topics_service import (
+    PrivateTopicPurpose,
+    enforce_callback_topic,
+    enforce_message_topic,
+    send_user_topic_message,
+)
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -444,6 +450,42 @@ async def _require_scope_callback(callback: CallbackQuery, scope: str) -> bool:
     return True
 
 
+async def _ensure_moderation_topic(message: Message, bot: Bot | None, command_hint: str) -> bool:
+    if message.from_user is None:
+        return False
+    if bot is None:
+        return True
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            return await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.MODERATION,
+                command_hint=command_hint,
+            )
+
+
+async def _ensure_moderation_callback_topic(callback: CallbackQuery, bot: Bot) -> bool:
+    if callback.from_user is None:
+        return False
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            return await enforce_callback_topic(
+                callback,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.MODERATION,
+                command_hint="/modpanel",
+            )
+
+
 async def _render_mod_panel_home_text() -> str:
     async with SessionFactory() as session:
         snapshot = await get_moderation_dashboard_snapshot(session)
@@ -575,7 +617,9 @@ def _parse_page(raw: str) -> int | None:
 
 
 @router.message(Command("mod"), F.chat.type == ChatType.PRIVATE)
-async def mod_help(message: Message) -> None:
+async def mod_help(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/mod"):
+        return
     if not await _require_moderator(message) or message.from_user is None:
         return
 
@@ -628,14 +672,18 @@ async def mod_help(message: Message) -> None:
 
 
 @router.message(Command("modstats"), F.chat.type == ChatType.PRIVATE)
-async def mod_stats(message: Message) -> None:
+async def mod_stats(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/modstats"):
+        return
     if not await _require_moderator(message):
         return
     await message.answer(await _render_mod_stats_text())
 
 
 @router.message(Command("role"), F.chat.type == ChatType.PRIVATE)
-async def mod_role_manage(message: Message) -> None:
+async def mod_role_manage(message: Message, bot: Bot | None = None) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/role"):
+        return
     if not await _require_scope_message(message, SCOPE_ROLE_MANAGE) or message.text is None:
         return
 
@@ -697,6 +745,8 @@ async def mod_role_manage(message: Message) -> None:
 
 @router.message(Command("modpoints"), F.chat.type == ChatType.PRIVATE)
 async def mod_points(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/modpoints"):
+        return
     if (
         not await _require_scope_message(message, SCOPE_ROLE_MANAGE)
         or message.from_user is None
@@ -819,23 +869,24 @@ async def mod_points(message: Message, bot: Bot) -> None:
         delta_text = f"+{amount}" if amount > 0 else str(amount)
         await message.answer(f"Изменение применено: {delta_text} points\n\n{snapshot}")
         notify_label = f"@{message.from_user.username}" if message.from_user.username else str(message.from_user.id)
-        try:
-            await bot.send_message(
-                target_tg_user_id,
-                (
-                    f"Ваш баланс скорректирован модератором {notify_label}: {delta_text} points.\n"
-                    f"Причина: {reason}"
-                ),
-            )
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=target_tg_user_id,
+            purpose=PrivateTopicPurpose.POINTS,
+            text=(
+                f"Ваш баланс скорректирован модератором {notify_label}: {delta_text} points.\n"
+                f"Причина: {reason}"
+            ),
+        )
         return
 
     await message.answer(f"Команда уже обработана ранее\n\n{snapshot}")
 
 
 @router.message(Command("modpoints_history"), F.chat.type == ChatType.PRIVATE)
-async def mod_points_history(message: Message) -> None:
+async def mod_points_history(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/modpoints_history"):
+        return
     if not await _require_scope_message(message, SCOPE_ROLE_MANAGE) or message.text is None:
         return
 
@@ -924,7 +975,9 @@ async def mod_points_history(message: Message) -> None:
 
 
 @router.message(Command("modpanel"), F.chat.type == ChatType.PRIVATE)
-async def mod_panel(message: Message) -> None:
+async def mod_panel(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/modpanel"):
+        return
     if not await _require_moderator(message):
         return
 
@@ -933,7 +986,9 @@ async def mod_panel(message: Message) -> None:
 
 
 @router.callback_query(F.data == "mod:panel")
-async def mod_panel_from_button(callback: CallbackQuery) -> None:
+async def mod_panel_from_button(callback: CallbackQuery, bot: Bot) -> None:
+    if not await _ensure_moderation_callback_topic(callback, bot):
+        return
     if not await _require_moderator_callback(callback):
         return
     if callback.message is None:
@@ -948,6 +1003,8 @@ async def mod_panel_from_button(callback: CallbackQuery) -> None:
 
 @router.message(Command("freeze"), F.chat.type == ChatType.PRIVATE)
 async def mod_freeze(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/freeze"):
+        return
     if (
         not await _require_scope_message(message, SCOPE_AUCTION_MANAGE)
         or message.from_user is None
@@ -984,14 +1041,18 @@ async def mod_freeze(message: Message, bot: Bot) -> None:
     await message.answer(result.message)
 
     if result.seller_tg_user_id:
-        try:
-            await bot.send_message(result.seller_tg_user_id, f"Аукцион #{str(auction_id)[:8]} заморожен модератором")
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=result.seller_tg_user_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=f"Аукцион #{str(auction_id)[:8]} заморожен модератором",
+        )
 
 
 @router.message(Command("unfreeze"), F.chat.type == ChatType.PRIVATE)
 async def mod_unfreeze(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/unfreeze"):
+        return
     if (
         not await _require_scope_message(message, SCOPE_AUCTION_MANAGE)
         or message.from_user is None
@@ -1028,17 +1089,18 @@ async def mod_unfreeze(message: Message, bot: Bot) -> None:
     await message.answer(result.message)
 
     if result.seller_tg_user_id:
-        try:
-            await bot.send_message(
-                result.seller_tg_user_id,
-                f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
-            )
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=result.seller_tg_user_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
+        )
 
 
 @router.message(Command("end"), F.chat.type == ChatType.PRIVATE)
 async def mod_end(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/end"):
+        return
     if (
         not await _require_scope_message(message, SCOPE_AUCTION_MANAGE)
         or message.from_user is None
@@ -1075,19 +1137,25 @@ async def mod_end(message: Message, bot: Bot) -> None:
     await message.answer(result.message)
 
     if result.seller_tg_user_id:
-        try:
-            await bot.send_message(result.seller_tg_user_id, f"Аукцион #{str(auction_id)[:8]} завершен модератором")
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=result.seller_tg_user_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=f"Аукцион #{str(auction_id)[:8]} завершен модератором",
+        )
     if result.winner_tg_user_id:
-        try:
-            await bot.send_message(result.winner_tg_user_id, f"Вы победили в аукционе #{str(auction_id)[:8]}")
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=result.winner_tg_user_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=f"Вы победили в аукционе #{str(auction_id)[:8]}",
+        )
 
 
 @router.message(Command("bids"), F.chat.type == ChatType.PRIVATE)
-async def mod_bids(message: Message) -> None:
+async def mod_bids(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/bids"):
+        return
     if not await _require_scope_message(message, SCOPE_BID_MANAGE) or message.text is None:
         return
 
@@ -1118,6 +1186,8 @@ async def mod_bids(message: Message) -> None:
 
 @router.message(Command("rm_bid"), F.chat.type == ChatType.PRIVATE)
 async def mod_remove_bid(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/rm_bid"):
+        return
     if (
         not await _require_scope_message(message, SCOPE_BID_MANAGE)
         or message.from_user is None
@@ -1155,14 +1225,18 @@ async def mod_remove_bid(message: Message, bot: Bot) -> None:
     await message.answer(result.message)
 
     if result.target_tg_user_id:
-        try:
-            await bot.send_message(result.target_tg_user_id, "Ваша ставка была снята модератором")
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=result.target_tg_user_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text="Ваша ставка была снята модератором",
+        )
 
 
 @router.message(Command("ban"), F.chat.type == ChatType.PRIVATE)
-async def mod_ban(message: Message) -> None:
+async def mod_ban(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/ban"):
+        return
     if (
         not await _require_scope_message(message, SCOPE_USER_BAN)
         or message.from_user is None
@@ -1195,7 +1269,9 @@ async def mod_ban(message: Message) -> None:
 
 
 @router.message(Command("unban"), F.chat.type == ChatType.PRIVATE)
-async def mod_unban(message: Message) -> None:
+async def mod_unban(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/unban"):
+        return
     if (
         not await _require_scope_message(message, SCOPE_USER_BAN)
         or message.from_user is None
@@ -1228,7 +1304,9 @@ async def mod_unban(message: Message) -> None:
 
 
 @router.message(Command("audit"), F.chat.type == ChatType.PRIVATE)
-async def mod_audit(message: Message) -> None:
+async def mod_audit(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/audit"):
+        return
     if not await _require_moderator(message) or message.text is None:
         return
 
@@ -1257,7 +1335,9 @@ async def mod_audit(message: Message) -> None:
 
 
 @router.message(Command("risk"), F.chat.type == ChatType.PRIVATE)
-async def mod_risk(message: Message) -> None:
+async def mod_risk(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/risk"):
+        return
     if not await _require_moderator(message) or message.text is None:
         return
 
@@ -1286,6 +1366,8 @@ async def mod_risk(message: Message) -> None:
 
 @router.callback_query(F.data.startswith("modui:"))
 async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
+    if not await _ensure_moderation_callback_topic(callback, bot):
+        return
     if not await _require_moderator_callback(callback):
         return
     if callback.data is None or callback.message is None:
@@ -1462,10 +1544,12 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                     )
 
         if notify_tg_user_id is not None and notify_text is not None:
-            try:
-                await bot.send_message(notify_tg_user_id, notify_text)
-            except TelegramForbiddenError:
-                pass
+            await send_user_topic_message(
+                bot,
+                tg_user_id=notify_tg_user_id,
+                purpose=PrivateTopicPurpose.SUPPORT,
+                text=notify_text,
+            )
 
         text, keyboard = await _build_appeals_page(page)
         await callback.message.edit_text(text, reply_markup=keyboard)
@@ -1636,13 +1720,12 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
 
         await refresh_auction_posts(bot, auction_id)
         if seller_tg_user_id is not None:
-            try:
-                await bot.send_message(
-                    seller_tg_user_id,
-                    f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
-                )
-            except TelegramForbiddenError:
-                pass
+            await send_user_topic_message(
+                bot,
+                tg_user_id=seller_tg_user_id,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                text=f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
+            )
 
         text, keyboard = await _build_frozen_auctions_page(page)
         await callback.message.edit_text(text, reply_markup=keyboard)
@@ -1706,6 +1789,8 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("modrep:"))
 async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
+    if not await _ensure_moderation_callback_topic(callback, bot):
+        return
     if not await _require_moderator_callback(callback):
         return
     if callback.data is None or callback.from_user is None:
@@ -1851,19 +1936,18 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
         await refresh_auction_posts(bot, auction_id)
 
     if notify_target_tg_user_id is not None:
-        try:
-            sanction_label = sanction_note or "Применены санкции"
-            appeal_note, appeal_keyboard = _build_appeal_cta(f"complaint_{complaint_id}")
-            await bot.send_message(
-                notify_target_tg_user_id,
-                (
-                    f"По жалобе #{complaint_id} модератор применил санкции: {sanction_label}.\n"
-                    f"{appeal_note}"
-                ),
-                reply_markup=appeal_keyboard,
-            )
-        except TelegramForbiddenError:
-            pass
+        sanction_label = sanction_note or "Применены санкции"
+        appeal_note, appeal_keyboard = _build_appeal_cta(f"complaint_{complaint_id}")
+        await send_user_topic_message(
+            bot,
+            tg_user_id=notify_target_tg_user_id,
+            purpose=PrivateTopicPurpose.SUPPORT,
+            text=(
+                f"По жалобе #{complaint_id} модератор применил санкции: {sanction_label}.\n"
+                f"{appeal_note}"
+            ),
+            reply_markup=appeal_keyboard,
+        )
 
     if updated_text is not None and callback.message is not None:
         try:
@@ -1876,6 +1960,8 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("modrisk:"))
 async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
+    if not await _ensure_moderation_callback_topic(callback, bot):
+        return
     if not await _require_moderator_callback(callback):
         return
     if callback.data is None or callback.from_user is None:
@@ -1982,19 +2068,18 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
         await refresh_auction_posts(bot, auction_id)
 
     if banned_user_tg is not None:
-        try:
-            sanction_label = sanction_note or "Применены санкции"
-            appeal_note, appeal_keyboard = _build_appeal_cta(f"risk_{signal_id}")
-            await bot.send_message(
-                banned_user_tg,
-                (
-                    f"Ваш аккаунт получил санкции по фрод-сигналу #{signal_id}: {sanction_label}.\n"
-                    f"{appeal_note}"
-                ),
-                reply_markup=appeal_keyboard,
-            )
-        except TelegramForbiddenError:
-            pass
+        sanction_label = sanction_note or "Применены санкции"
+        appeal_note, appeal_keyboard = _build_appeal_cta(f"risk_{signal_id}")
+        await send_user_topic_message(
+            bot,
+            tg_user_id=banned_user_tg,
+            purpose=PrivateTopicPurpose.SUPPORT,
+            text=(
+                f"Ваш аккаунт получил санкции по фрод-сигналу #{signal_id}: {sanction_label}.\n"
+                f"{appeal_note}"
+            ),
+            reply_markup=appeal_keyboard,
+        )
 
     if updated_text is not None and callback.message is not None:
         try:

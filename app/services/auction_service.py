@@ -25,6 +25,7 @@ from app.db.enums import AuctionStatus
 from app.db.models import Auction, AuctionPhoto, AuctionPost, Bid, BlacklistEntry, Complaint, User
 from app.db.session import SessionFactory
 from app.services.fraud_service import evaluate_and_store_bid_fraud_signal
+from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 
 logger = logging.getLogger(__name__)
 
@@ -665,21 +666,19 @@ async def finalize_expired_auctions(bot: Bot) -> int:
         await _safe_refresh_auction_posts(bot, auction_id)
 
     for result in finalized_results:
-        try:
-            await bot.send_message(
-                result.seller_tg_user_id,
-                f"Аукцион #{str(result.auction_id)[:8]} завершен.",
-            )
-        except TelegramForbiddenError:
-            pass
+        await send_user_topic_message(
+            bot,
+            tg_user_id=result.seller_tg_user_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=f"Аукцион #{str(result.auction_id)[:8]} завершен.",
+        )
 
         if result.winner_tg_user_id is not None:
-            try:
-                await bot.send_message(
-                    result.winner_tg_user_id,
-                    f"Вы победили в аукционе #{str(result.auction_id)[:8]}.",
-                )
-            except TelegramForbiddenError:
-                pass
+            await send_user_topic_message(
+                bot,
+                tg_user_id=result.winner_tg_user_id,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                text=f"Вы победили в аукционе #{str(result.auction_id)[:8]}.",
+            )
 
     return len(finalized_results)
