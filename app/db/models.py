@@ -256,6 +256,26 @@ class SuggestedPostReview(Base, TimestampMixin):
     payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
+class ModerationChecklistItem(Base, TimestampMixin):
+    __tablename__ = "moderation_checklist_items"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "item_code", name="uq_moderation_checklist_item_scope"),
+        Index("ix_moderation_checklist_entity", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    item_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_done: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), index=True)
+    done_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Complaint(Base):
     __tablename__ = "complaints"
     __table_args__ = (

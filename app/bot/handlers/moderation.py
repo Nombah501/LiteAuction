@@ -17,6 +17,7 @@ from app.bot.keyboards.moderation import (
     fraud_actions_keyboard,
     moderation_appeal_actions_keyboard,
     moderation_appeals_list_keyboard,
+    moderation_checklist_keyboard,
     moderation_frozen_actions_keyboard,
     moderation_frozen_list_keyboard,
     moderation_complaints_list_keyboard,
@@ -66,6 +67,13 @@ from app.services.moderation_service import (
 )
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
 from app.services.message_draft_service import send_progress_draft
+from app.services.moderation_checklist_service import (
+    ENTITY_APPEAL,
+    ENTITY_COMPLAINT,
+    ensure_checklist,
+    render_checklist_block,
+    toggle_checklist_item,
+)
 from app.services.points_service import (
     UserPointsSummary,
     count_user_points_entries,
@@ -172,6 +180,27 @@ def _render_appeal_text(
     if appeal.resolved_at is not None:
         lines.append(f"Закрыта: {appeal.resolved_at}")
     return "\n".join(lines)
+
+
+async def _append_checklist_block(
+    session,
+    *,
+    entity_type: str,
+    entity_id: int,
+    text: str,
+) -> str:
+    items = await ensure_checklist(session, entity_type=entity_type, entity_id=entity_id)
+    if not items:
+        return text
+    return f"{text}\n\n{render_checklist_block(items)}"
+
+
+def _checklist_back_callback(*, entity_type: str, entity_id: int, page: int) -> str | None:
+    if entity_type == ENTITY_COMPLAINT:
+        return f"modui:complaint:{entity_id}:{page}"
+    if entity_type == ENTITY_APPEAL:
+        return f"modui:appeal:{entity_id}:{page}"
+    return None
 
 
 async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -1439,9 +1468,15 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
             resolver = None
             if appeal.resolver_user_id is not None:
                 resolver = await session.scalar(select(User).where(User.id == appeal.resolver_user_id))
+            appeal_text = await _append_checklist_block(
+                session,
+                entity_type=ENTITY_APPEAL,
+                entity_id=appeal_id,
+                text=_render_appeal_text(appeal, appellant=appellant, resolver=resolver),
+            )
 
         status = AppealStatus(appeal.status)
-        keyboard = moderation_appeal_back_keyboard(page=page)
+        keyboard = moderation_appeal_back_keyboard(appeal_id=appeal.id, page=page)
         if status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
             keyboard = moderation_appeal_actions_keyboard(
                 appeal_id=appeal.id,
@@ -1449,7 +1484,7 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 show_take=status == AppealStatus.OPEN,
             )
         await callback.message.edit_text(
-            _render_appeal_text(appeal, appellant=appellant, resolver=resolver),
+            appeal_text,
             reply_markup=keyboard,
         )
         await callback.answer()
@@ -1752,15 +1787,24 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
 
         async with SessionFactory() as session:
             view = await load_complaint_view(session, complaint_id)
+            complaint_text = None
+            if view is not None:
+                complaint_text = await _append_checklist_block(
+                    session,
+                    entity_type=ENTITY_COMPLAINT,
+                    entity_id=complaint_id,
+                    text=render_complaint_text(view),
+                )
         if view is None:
             await callback.answer("Жалоба не найдена", show_alert=True)
             return
 
         await callback.message.edit_text(
-            render_complaint_text(view),
+            complaint_text or render_complaint_text(view),
             reply_markup=complaint_actions_keyboard(
                 complaint_id,
                 back_callback=f"modui:complaints:{page}",
+                checklist_page=page,
             ),
         )
         await callback.answer()
@@ -1793,6 +1837,82 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
         return
 
     await callback.answer("Неизвестный раздел", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("modchk:"))
+async def mod_checklist_callbacks(callback: CallbackQuery) -> None:
+    if not await _require_moderator_callback(callback):
+        return
+    if callback.data is None or callback.message is None or callback.from_user is None:
+        return
+
+    parts = callback.data.split(":")
+    if len(parts) < 6:
+        await callback.answer("Некорректный чеклист", show_alert=True)
+        return
+
+    _, action, entity_type, entity_id_raw, *rest = parts
+    if not entity_id_raw.isdigit():
+        await callback.answer("Некорректный id", show_alert=True)
+        return
+    entity_id = int(entity_id_raw)
+    page = _parse_page(rest[-1]) if rest else 0
+    if page is None:
+        await callback.answer("Некорректная страница", show_alert=True)
+        return
+
+    if entity_type not in {ENTITY_COMPLAINT, ENTITY_APPEAL, "guarantor"}:
+        await callback.answer("Неизвестный тип чеклиста", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, callback.from_user)
+            if action == "toggle":
+                if len(rest) < 2:
+                    await callback.answer("Некорректный пункт", show_alert=True)
+                    return
+                item_code = rest[0]
+                toggled = await toggle_checklist_item(
+                    session,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    item_code=item_code,
+                    actor_user_id=actor.id,
+                )
+                if toggled is None:
+                    await callback.answer("Пункт не найден", show_alert=True)
+                    return
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor.id,
+                    action=ModerationAction.UPDATE_MODERATION_CHECKLIST,
+                    reason=f"Checklist {entity_type}:{entity_id}:{item_code}",
+                    payload={
+                        "entity_type": entity_type,
+                        "entity_id": entity_id,
+                        "item_code": item_code,
+                        "is_done": toggled.is_done,
+                    },
+                )
+
+            items = await ensure_checklist(session, entity_type=entity_type, entity_id=entity_id)
+
+    back_callback = _checklist_back_callback(entity_type=entity_type, entity_id=entity_id, page=page)
+    keyboard = moderation_checklist_keyboard(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        page=page,
+        items=items,
+        back_callback=back_callback,
+    )
+    title = {
+        ENTITY_COMPLAINT: f"Чеклист жалобы #{entity_id}",
+        ENTITY_APPEAL: f"Чеклист апелляции #{entity_id}",
+        "guarantor": f"Чеклист гаранта #{entity_id}",
+    }[entity_type]
+    await callback.message.edit_text(f"{title}\n\n{render_checklist_block(items)}", reply_markup=keyboard)
+    await callback.answer("Чеклист обновлен" if action == "toggle" else "")
 
 
 @router.callback_query(F.data.startswith("modrep:"))
@@ -1938,7 +2058,12 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
 
             refreshed_view = await load_complaint_view(session, complaint_id)
             if refreshed_view is not None:
-                updated_text = render_complaint_text(refreshed_view)
+                updated_text = await _append_checklist_block(
+                    session,
+                    entity_type=ENTITY_COMPLAINT,
+                    entity_id=complaint_id,
+                    text=render_complaint_text(refreshed_view),
+                )
 
     if auction_id is not None:
         await refresh_auction_posts(bot, auction_id)

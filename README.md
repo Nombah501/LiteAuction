@@ -55,6 +55,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Channel DM lot intake foundation (Bot API 9.2) via `direct_messages_topic_id` for `/newauction`
 - Suggested post moderation pipeline for channel DM topics (approve/decline + persisted review audit)
 - Draft-stream progress hints (`sendMessageDraft`) for long-running bot actions like `/modstats` and auction finalize
+- Moderation checklists for complaints, guarantor requests, and appeals with audit-logged checklist toggles
 - Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist
