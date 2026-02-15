@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     soft_gate_require_private_start: bool = True
     soft_gate_mode: str = "grace"
     soft_gate_hint_interval_hours: int = 24
+    private_topics_enabled: bool = True
+    private_topics_strict_routing: bool = True
+    private_topics_autocreate_on_start: bool = True
+    private_topic_title_auctions: str = "Лоты"
+    private_topic_title_support: str = "Поддержка"
+    private_topic_title_points: str = "Баллы"
+    private_topic_title_trades: str = "Сделки"
+    private_topic_title_moderation: str = "Модерация"
     auction_watcher_interval_seconds: int = 5
     fraud_alert_threshold: int = 60
     fraud_rapid_window_seconds: int = 120

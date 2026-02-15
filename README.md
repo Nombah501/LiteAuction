@@ -49,6 +49,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Section-based moderation topic routing and user feedback/guarantor intake commands (`/bug`, `/suggest`, `/guarant`, `/boostfeedback`, `/boostguarant`, `/boostappeal`)
 - Rewards ledger foundation with idempotent points accrual, advanced `/points`, moderator `/modpoints` + `/modpoints_history`, and admin user-page rewards widget
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
+- Full private-chat topic routing for bot DM (`Лоты`, `Поддержка`, `Баллы`, `Сделки`, `Модерация`) with strict command/topic enforcement and `/topics`
 
 ## Sprint 0 Checklist
 
@@ -393,6 +394,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 /tradefeedback <auction_id> <1..5> [комментарий]
 /points
 /points <1..20>
+/topics
 ```
 
 High-risk sellers cannot publish drafts until a guarantor request is assigned by moderation.
@@ -479,6 +481,26 @@ Topic-specific IDs are optional; when unset the bot falls back to `MODERATION_TH
 - `off` - disable gate logic entirely
 
 `SOFT_GATE_HINT_INTERVAL_HOURS` controls how often the onboarding hint can be shown in `grace` mode (per user).
+
+Private DM topics (Bot API 9.3/9.4):
+
+- `PRIVATE_TOPICS_ENABLED` - enables personal topic routing in bot private chat.
+- `PRIVATE_TOPICS_STRICT_ROUTING` - when enabled, commands are processed only in their assigned topic.
+- `PRIVATE_TOPICS_AUTOCREATE_ON_START` - bootstrap all personal topics on `/start`.
+- `PRIVATE_TOPIC_TITLE_*` - topic names for `auctions/support/points/trades/moderation`.
+
+Examples:
+
+```text
+PRIVATE_TOPICS_ENABLED=true
+PRIVATE_TOPICS_STRICT_ROUTING=true
+PRIVATE_TOPICS_AUTOCREATE_ON_START=true
+PRIVATE_TOPIC_TITLE_AUCTIONS=Лоты
+PRIVATE_TOPIC_TITLE_SUPPORT=Поддержка
+PRIVATE_TOPIC_TITLE_POINTS=Баллы
+PRIVATE_TOPIC_TITLE_TRADES=Сделки
+PRIVATE_TOPIC_TITLE_MODERATION=Модерация
+```
 
 - Optional Bot API 9.4 button icons (custom emoji IDs):
 

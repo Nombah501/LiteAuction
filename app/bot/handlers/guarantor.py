@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.bot.keyboards.moderation import guarantor_actions_keyboard
 from app.bot.states.guarantor_intake import GuarantorIntakeStates
+from app.config import settings
 from app.db.enums import GuarantorRequestStatus, ModerationAction
 from app.db.session import SessionFactory
 from app.services.guarantor_service import (
@@ -22,6 +23,11 @@ from app.services.guarantor_service import (
 )
 from app.services.moderation_service import has_moderator_access, log_moderation_action
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
+from app.services.private_topics_service import (
+    PrivateTopicPurpose,
+    enforce_message_topic,
+    send_user_topic_message,
+)
 from app.services.user_service import upsert_user
 
 router = Router(name="guarantor")
@@ -42,6 +48,30 @@ def _user_label(tg_user_id: int, username: str | None) -> str:
     if username:
         return f"@{username} ({tg_user_id})"
     return str(tg_user_id)
+
+
+async def _ensure_guarantor_state_thread(message: Message, state: FSMContext, bot: Bot | None) -> bool:
+    if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
+        return True
+
+    data = await state.get_data()
+    expected_thread_id = data.get("expected_thread_id")
+    if not isinstance(expected_thread_id, int):
+        return True
+    if message.message_thread_id == expected_thread_id:
+        return True
+
+    await message.answer("Этот шаг доступен в разделе «Поддержка».")
+    if bot is not None and message.chat is not None:
+        try:
+            await bot.send_message(
+                chat_id=message.chat.id,
+                message_thread_id=expected_thread_id,
+                text="Продолжим в разделе «Поддержка».",
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+    return False
 
 
 async def _create_request_item(*, message: Message, state: FSMContext, bot: Bot, details: str) -> None:
@@ -95,12 +125,30 @@ async def _create_request_item(*, message: Message, state: FSMContext, bot: Bot,
 
 @router.message(Command("guarant"), F.chat.type == ChatType.PRIVATE)
 async def command_guarant(message: Message, state: FSMContext, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.SUPPORT,
+                command_hint="/guarant",
+            ):
+                return
+
     payload = _extract_payload(message)
     if payload is not None:
         await _create_request_item(message=message, state=state, bot=bot, details=payload)
         return
 
     await state.set_state(GuarantorIntakeStates.waiting_request_text)
+    if isinstance(message.message_thread_id, int):
+        await state.update_data(expected_thread_id=message.message_thread_id)
     await message.answer("Опишите запрос на гаранта одним сообщением. Для отмены используйте /cancel")
 
 
@@ -125,6 +173,15 @@ async def command_boost_guarant(message: Message, bot: Bot) -> None:
     async with SessionFactory() as session:
         async with session.begin():
             submitter = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=submitter,
+                purpose=PrivateTopicPurpose.POINTS,
+                command_hint=f"/boostguarant {request_id}",
+            ):
+                return
             result = await redeem_guarantor_priority_boost(
                 session,
                 request_id=request_id,
@@ -163,11 +220,19 @@ async def command_boost_guarant(message: Message, bot: Bot) -> None:
 
 @router.message(GuarantorIntakeStates.waiting_request_text, F.text)
 async def waiting_guarantor_text(message: Message, state: FSMContext, bot: Bot) -> None:
+    if not await _ensure_guarantor_state_thread(message, state, bot):
+        return
     await _create_request_item(message=message, state=state, bot=bot, details=message.text or "")
 
 
 @router.message(GuarantorIntakeStates.waiting_request_text)
-async def waiting_guarantor_text_invalid(message: Message) -> None:
+async def waiting_guarantor_text_invalid(
+    message: Message,
+    state: FSMContext,
+    bot: Bot | None = None,
+) -> None:
+    if not await _ensure_guarantor_state_thread(message, state, bot):
+        return
     await message.answer("Нужен текст. Опишите запрос на гаранта одним сообщением")
 
 
@@ -188,10 +253,12 @@ async def _notify_submitter_decision(
     else:
         text = "Ваш запрос на гаранта отклонен модерацией."
 
-    try:
-        await bot.send_message(submitter_tg_user_id, text)
-    except TelegramForbiddenError:
-        return
+    await send_user_topic_message(
+        bot,
+        tg_user_id=submitter_tg_user_id,
+        purpose=PrivateTopicPurpose.SUPPORT,
+        text=text,
+    )
 
 
 @router.callback_query(F.data.startswith("modgr:"))

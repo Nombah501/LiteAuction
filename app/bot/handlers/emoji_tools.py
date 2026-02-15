@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.db.session import SessionFactory
+from app.services.private_topics_service import PrivateTopicPurpose, enforce_message_topic
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
+from app.services.user_service import upsert_user
 
 router = Router(name="emoji_tools")
 
@@ -78,14 +80,26 @@ def _env_template(ids: list[str]) -> str:
 
 
 @router.message(Command("emojiid"), F.chat.type == ChatType.PRIVATE)
-async def emoji_id(message: Message) -> None:
+async def emoji_id(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
 
-    allowed = is_moderator_tg_user(message.from_user.id)
-    if not allowed:
-        async with SessionFactory() as session:
-            allowed = await has_moderator_access(session, message.from_user.id)
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.MODERATION,
+                command_hint="/emojiid",
+            ):
+                return
+
+            allowed = is_moderator_tg_user(message.from_user.id)
+            if not allowed:
+                allowed = await has_moderator_access(session, message.from_user.id)
 
     if not allowed:
         await message.answer("Недостаточно прав")

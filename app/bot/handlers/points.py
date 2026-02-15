@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -26,6 +26,7 @@ from app.services.points_service import (
     get_user_points_summary,
     list_user_points_entries,
 )
+from app.services.private_topics_service import PrivateTopicPurpose, enforce_message_topic
 from app.services.user_service import upsert_user
 
 router = Router(name="points")
@@ -190,7 +191,7 @@ def _render_points_text(
 
 
 @router.message(Command("points"), F.chat.type == ChatType.PRIVATE)
-async def command_points(message: Message) -> None:
+async def command_points(message: Message, bot: Bot | None = None) -> None:
     if message.from_user is None:
         return
 
@@ -206,6 +207,15 @@ async def command_points(message: Message) -> None:
     async with SessionFactory() as session:
         async with session.begin():
             user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.POINTS,
+                command_hint="/points",
+            ):
+                return
             now = datetime.now(UTC)
             summary = await get_user_points_summary(session, user_id=user.id)
             entries = await list_user_points_entries(session, user_id=user.id, limit=limit)
