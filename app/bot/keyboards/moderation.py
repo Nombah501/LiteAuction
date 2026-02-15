@@ -617,7 +617,11 @@ def moderation_checklist_keyboard(
             styled_button(
                 text=f"{'[x]' if item.is_done else '[ ]'} {item.label}",
                 callback_data=f"modchk:toggle:{entity_type}:{entity_id}:{item.code}:{page}",
-            )
+            ),
+            styled_button(
+                text="Ответ",
+                callback_data=f"modchk:reply:{entity_type}:{entity_id}:{item.code}:{page}",
+            ),
         ]
         for item in items
     ]

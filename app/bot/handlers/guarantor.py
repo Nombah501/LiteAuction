@@ -21,7 +21,7 @@ from app.services.guarantor_service import (
     render_guarantor_request_text,
     set_guarantor_request_queue_message,
 )
-from app.services.moderation_checklist_service import ensure_checklist, render_checklist_block
+from app.services.moderation_checklist_service import ensure_checklist, list_checklist_replies, render_checklist_block
 from app.services.moderation_service import has_moderator_access, log_moderation_action
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import (
@@ -101,8 +101,14 @@ async def _create_request_item(*, message: Message, state: FSMContext, bot: Bot,
                 entity_type="guarantor",
                 entity_id=view.item.id,
             )
+            checklist_replies = await list_checklist_replies(
+                session,
+                entity_type="guarantor",
+                entity_id=view.item.id,
+            )
             queue_text = (
-                f"{render_guarantor_request_text(view)}\n\n{render_checklist_block(checklist_items)}"
+                f"{render_guarantor_request_text(view)}\n\n"
+                f"{render_checklist_block(checklist_items, replies_by_item=checklist_replies)}"
                 if checklist_items
                 else render_guarantor_request_text(view)
             )
@@ -212,8 +218,14 @@ async def command_boost_guarant(message: Message, bot: Bot) -> None:
                     entity_type="guarantor",
                     entity_id=view.item.id,
                 )
+                checklist_replies = await list_checklist_replies(
+                    session,
+                    entity_type="guarantor",
+                    entity_id=view.item.id,
+                )
                 queue_text = (
-                    f"{render_guarantor_request_text(view)}\n\n{render_checklist_block(checklist_items)}"
+                    f"{render_guarantor_request_text(view)}\n\n"
+                    f"{render_checklist_block(checklist_items, replies_by_item=checklist_replies)}"
                     if checklist_items
                     else render_guarantor_request_text(view)
                 )
@@ -361,8 +373,14 @@ async def guarantor_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 entity_type="guarantor",
                 entity_id=view.item.id,
             )
+            checklist_replies = await list_checklist_replies(
+                session,
+                entity_type="guarantor",
+                entity_id=view.item.id,
+            )
             updated_text = (
-                f"{render_guarantor_request_text(view)}\n\n{render_checklist_block(checklist_items)}"
+                f"{render_guarantor_request_text(view)}\n\n"
+                f"{render_checklist_block(checklist_items, replies_by_item=checklist_replies)}"
                 if checklist_items
                 else render_guarantor_request_text(view)
             )

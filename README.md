@@ -56,6 +56,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Suggested post moderation pipeline for channel DM topics (approve/decline + persisted review audit)
 - Draft-stream progress hints (`sendMessageDraft`) for long-running bot actions like `/modstats` and auction finalize
 - Moderation checklists for complaints, guarantor requests, and appeals with audit-logged checklist toggles
+- Task-scoped checklist replies in moderation flows with actor/timestamp audit trail
 - Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist

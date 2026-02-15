@@ -276,6 +276,26 @@ class ModerationChecklistItem(Base, TimestampMixin):
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ModerationChecklistReply(Base):
+    __tablename__ = "moderation_checklist_replies"
+    __table_args__ = (Index("ix_moderation_checklist_replies_item_created", "checklist_item_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    checklist_item_id: Mapped[int] = mapped_column(
+        ForeignKey("moderation_checklist_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reply_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+        index=True,
+    )
+
+
 class Complaint(Base):
     __tablename__ = "complaints"
     __table_args__ = (
