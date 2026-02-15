@@ -13,7 +13,7 @@ from app.db.enums import AuctionStatus, ModerationAction
 from app.db.models import Auction, ModerationLog, TradeFeedback, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import action_hide_trade_feedback, trade_feedback
+from app.web.main import action_hide_trade_feedback, action_unhide_trade_feedback, trade_feedback
 
 
 def _make_request(path: str, *, method: str = "GET") -> Request:
@@ -188,6 +188,222 @@ async def test_trade_feedback_hide_action_updates_status(monkeypatch, integratio
     assert log_row.payload.get("feedback_id") == feedback_id
     assert log_row.payload.get("from_status") == "VISIBLE"
     assert log_row.payload.get("to_status") == "HIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_trade_feedback_unhide_action_updates_status(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    auction_id = uuid.uuid4()
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=99714, username="seller_unhide")
+            winner = User(tg_user_id=99715, username="winner_unhide")
+            moderator = User(tg_user_id=99716, username="moderator_unhide")
+            session.add_all([seller, winner, moderator])
+            await session.flush()
+            moderator_user_id = moderator.id
+
+            session.add(
+                Auction(
+                    id=auction_id,
+                    seller_user_id=seller.id,
+                    winner_user_id=winner.id,
+                    description="ended lot",
+                    photo_file_id="photo",
+                    start_price=100,
+                    buyout_price=None,
+                    min_step=5,
+                    duration_hours=24,
+                    status=AuctionStatus.ENDED,
+                )
+            )
+            feedback = TradeFeedback(
+                auction_id=auction_id,
+                author_user_id=seller.id,
+                target_user_id=winner.id,
+                rating=3,
+                comment="hidden before unhide",
+                status="HIDDEN",
+                moderation_note="old note",
+            )
+            session.add(feedback)
+            await session.flush()
+            feedback_id = feedback.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+
+    async def _resolve_actor(_auth):
+        return moderator_user_id
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+
+    request = _make_request("/actions/trade-feedback/unhide", method="POST")
+    response = await action_unhide_trade_feedback(
+        request,
+        feedback_id=feedback_id,
+        reason="restored after review",
+        return_to="/trade-feedback?status=hidden",
+        csrf_token="ok",
+    )
+
+    assert response.status_code == 303
+
+    async with session_factory() as session:
+        row = await session.scalar(select(TradeFeedback).where(TradeFeedback.id == feedback_id))
+        log_row = await session.scalar(
+            select(ModerationLog)
+            .where(ModerationLog.action == ModerationAction.UNHIDE_TRADE_FEEDBACK)
+            .order_by(ModerationLog.id.desc())
+            .limit(1)
+        )
+
+    assert row is not None
+    assert row.status == "VISIBLE"
+    assert row.moderation_note == "restored after review"
+    assert row.moderator_user_id == moderator_user_id
+    assert log_row is not None
+    assert log_row.target_user_id == row.target_user_id
+    assert log_row.payload is not None
+    assert log_row.payload.get("feedback_id") == feedback_id
+    assert log_row.payload.get("from_status") == "HIDDEN"
+    assert log_row.payload.get("to_status") == "VISIBLE"
+
+
+@pytest.mark.asyncio
+async def test_trade_feedback_hide_action_requires_reason(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    auction_id = uuid.uuid4()
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=99717, username="seller_reason")
+            winner = User(tg_user_id=99718, username="winner_reason")
+            session.add_all([seller, winner])
+            await session.flush()
+
+            session.add(
+                Auction(
+                    id=auction_id,
+                    seller_user_id=seller.id,
+                    winner_user_id=winner.id,
+                    description="ended lot",
+                    photo_file_id="photo",
+                    start_price=100,
+                    buyout_price=None,
+                    min_step=5,
+                    duration_hours=24,
+                    status=AuctionStatus.ENDED,
+                )
+            )
+            feedback = TradeFeedback(
+                auction_id=auction_id,
+                author_user_id=seller.id,
+                target_user_id=winner.id,
+                rating=4,
+                comment="needs moderation reason",
+                status="VISIBLE",
+            )
+            session.add(feedback)
+            await session.flush()
+            feedback_id = feedback.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+
+    async def _resolve_actor(_auth):
+        return 1
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+
+    request = _make_request("/actions/trade-feedback/hide", method="POST")
+    response = await action_hide_trade_feedback(
+        request,
+        feedback_id=feedback_id,
+        reason="   ",
+        return_to="/trade-feedback?status=visible",
+        csrf_token="ok",
+    )
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 400
+    assert "Reason is required" in body
+
+    async with session_factory() as session:
+        row = await session.scalar(select(TradeFeedback).where(TradeFeedback.id == feedback_id))
+
+    assert row is not None
+    assert row.status == "VISIBLE"
+
+
+@pytest.mark.asyncio
+async def test_trade_feedback_unhide_action_requires_reason(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    auction_id = uuid.uuid4()
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=99719, username="seller_unhide_reason")
+            winner = User(tg_user_id=99720, username="winner_unhide_reason")
+            session.add_all([seller, winner])
+            await session.flush()
+
+            session.add(
+                Auction(
+                    id=auction_id,
+                    seller_user_id=seller.id,
+                    winner_user_id=winner.id,
+                    description="ended lot",
+                    photo_file_id="photo",
+                    start_price=100,
+                    buyout_price=None,
+                    min_step=5,
+                    duration_hours=24,
+                    status=AuctionStatus.ENDED,
+                )
+            )
+            feedback = TradeFeedback(
+                auction_id=auction_id,
+                author_user_id=seller.id,
+                target_user_id=winner.id,
+                rating=4,
+                comment="unhide needs reason",
+                status="HIDDEN",
+            )
+            session.add(feedback)
+            await session.flush()
+            feedback_id = feedback.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+
+    async def _resolve_actor(_auth):
+        return 1
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+
+    request = _make_request("/actions/trade-feedback/unhide", method="POST")
+    response = await action_unhide_trade_feedback(
+        request,
+        feedback_id=feedback_id,
+        reason="",
+        return_to="/trade-feedback?status=hidden",
+        csrf_token="ok",
+    )
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 400
+    assert "Reason is required" in body
+
+    async with session_factory() as session:
+        row = await session.scalar(select(TradeFeedback).where(TradeFeedback.id == feedback_id))
+
+    assert row is not None
+    assert row.status == "HIDDEN"
 
 
 @pytest.mark.asyncio

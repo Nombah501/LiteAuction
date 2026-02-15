@@ -44,10 +44,11 @@ Reduce complaint pressure and improve trust transparency without introducing hea
   - PR #70: points utility v3.5 monthly spend cap guardrail.
   - PR #71: integration DB safety hardening + docs sync.
   - PR #72: CI/test-db hardening and points stream pause.
+  - PR #73: trade feedback moderation ergonomics + manage-user trust links.
 - In progress:
-  - PR #73: moderation ergonomics pass on trade feedback queue and manage-user trust context.
+  - PR #74: trade feedback moderation action hardening (reason-required + unhide audit regression coverage).
 - Next:
-  - Continue trust/moderation feature stream after PR #73.
+  - Continue trust/moderation feature stream after PR #74.
 
 ## Functional Coverage Snapshot (After PR-70)
 
@@ -264,6 +265,12 @@ Acceptance:
 - Add trade feedback moderation filters by moderation state (`all`/`only`/`none`) and moderator TG user.
 - Surface moderation note in trade feedback table for faster review context.
 - Add manage-user quick links to open trade feedback moderation queue by received/hidden/authored views.
+
+### PR-74: Trade Feedback Visibility Action Hardening
+
+- Require non-empty moderation reason for web hide/unhide feedback actions.
+- Keep rejected hide/unhide attempts non-destructive when reason is blank.
+- Extend integration coverage for unhide action state/log payload and reason-required validation paths.
 
 ## Non-Goals for Sprint 32
 

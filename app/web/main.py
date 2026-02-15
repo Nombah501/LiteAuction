@@ -2650,8 +2650,12 @@ async def action_hide_trade_feedback(
     if not _validate_csrf_token(request, auth, csrf_token):
         return _csrf_failed_response(request, back_to=target)
 
-    actor_user_id = await _resolve_actor_user_id(auth)
     normalized_reason = reason.strip()
+    if not normalized_reason:
+        return _action_error_page(request, "Reason is required", back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+
     async with SessionFactory() as session:
         async with session.begin():
             result = await set_trade_feedback_visibility(
@@ -2700,8 +2704,12 @@ async def action_unhide_trade_feedback(
     if not _validate_csrf_token(request, auth, csrf_token):
         return _csrf_failed_response(request, back_to=target)
 
-    actor_user_id = await _resolve_actor_user_id(auth)
     normalized_reason = reason.strip()
+    if not normalized_reason:
+        return _action_error_page(request, "Reason is required", back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+
     async with SessionFactory() as session:
         async with session.begin():
             result = await set_trade_feedback_visibility(
