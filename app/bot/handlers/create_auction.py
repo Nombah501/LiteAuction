@@ -22,6 +22,7 @@ from app.services.channel_dm_intake_service import (
     resolve_auction_intake_actor,
     resolve_auction_intake_context,
 )
+from app.services.message_draft_service import send_progress_draft
 from app.services.moderation_service import is_tg_user_blacklisted
 from app.services.auction_service import create_draft_auction, load_auction_view, render_auction_caption
 from app.services.private_topics_service import (
@@ -77,15 +78,16 @@ async def _append_photo_file_id(state: FSMContext, file_id: str) -> tuple[int, b
 async def _store_expected_intake_scope(state: FSMContext, message: Message) -> None:
     context = resolve_auction_intake_context(message)
     thread_id = getattr(message, "message_thread_id", None)
-    payload: dict[str, object | None] = {
-        "expected_thread_id": None,
-        "expected_direct_messages_topic_id": None,
-    }
+    expected_thread_id: int | None = None
+    expected_direct_messages_topic_id: int | None = None
     if context.kind == AuctionIntakeKind.PRIVATE and isinstance(thread_id, int):
-        payload["expected_thread_id"] = thread_id
+        expected_thread_id = thread_id
     if context.kind == AuctionIntakeKind.CHANNEL_DM and isinstance(context.direct_messages_topic_id, int):
-        payload["expected_direct_messages_topic_id"] = context.direct_messages_topic_id
-    await state.update_data(**payload)
+        expected_direct_messages_topic_id = context.direct_messages_topic_id
+    await state.update_data(
+        expected_thread_id=expected_thread_id,
+        expected_direct_messages_topic_id=expected_direct_messages_topic_id,
+    )
 
 
 async def _handle_unsupported_newauction_context(message: Message) -> bool:
@@ -521,6 +523,14 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext, bo
     anti_sniper = callback.data.endswith(":1")
     await state.update_data(anti_sniper_enabled=anti_sniper)
     data = await state.get_data()
+
+    if isinstance(callback.message, Message):
+        await send_progress_draft(
+            bot,
+            callback.message,
+            text="Собираю черновик и проверяю условия публикации...",
+            scope_key="newauction-finalize",
+        )
 
     async with SessionFactory() as session:
         publish_gate = None

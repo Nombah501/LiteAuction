@@ -54,6 +54,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Full private-chat topic routing for bot DM (`Лоты`, `Поддержка`, `Баллы`, `Сделки`, `Модерация`) with strict command/topic enforcement and `/topics`
 - Channel DM lot intake foundation (Bot API 9.2) via `direct_messages_topic_id` for `/newauction`
 - Suggested post moderation pipeline for channel DM topics (approve/decline + persisted review audit)
+- Draft-stream progress hints (`sendMessageDraft`) for long-running bot actions like `/modstats` and auction finalize
 - Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist
@@ -534,6 +535,16 @@ Examples:
 ```text
 CHANNEL_DM_INTAKE_ENABLED=true
 CHANNEL_DM_INTAKE_CHAT_ID=-1001234567890
+```
+
+Message drafts (Bot API 9.3):
+
+- `MESSAGE_DRAFTS_ENABLED` - enables draft progress hints in long-running command paths.
+
+Example:
+
+```text
+MESSAGE_DRAFTS_ENABLED=true
 ```
 
 - Optional Bot API 9.4 button icons (custom emoji IDs):
