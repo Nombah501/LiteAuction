@@ -224,6 +224,38 @@ class ModerationLog(Base):
     )
 
 
+class SuggestedPostReview(Base, TimestampMixin):
+    __tablename__ = "suggested_post_reviews"
+    __table_args__ = (
+        UniqueConstraint("source_chat_id", "source_message_id", name="uq_suggested_post_reviews_source"),
+        CheckConstraint(
+            "status IN ('PENDING', 'APPROVED', 'DECLINED', 'FAILED')",
+            name="suggested_post_reviews_status_values",
+        ),
+        Index("ix_suggested_post_reviews_status_created_at", "status", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_direct_messages_topic_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    submitter_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submitter_tg_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    queue_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'PENDING'"), index=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
 class Complaint(Base):
     __tablename__ = "complaints"
     __table_args__ = (

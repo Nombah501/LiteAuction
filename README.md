@@ -11,7 +11,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Async SQLAlchemy setup
 - Basic bot startup with `/start`
 - Startup and container health checks for DB/Redis
-- FSM lot creation in private chat (`/newauction`)
+- FSM lot creation via private chat (and optional channel DM topics) using `/newauction`
 - Inline auction publishing via `auc_<id>` and `chosen_inline_result`
 - High-risk publish gate requiring assigned guarantor for risky sellers
 - Live post updates after bids (`top-3`, current price, ending time)
@@ -52,6 +52,8 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Rewards ledger foundation with idempotent points accrual, advanced `/points`, moderator `/modpoints` + `/modpoints_history`, and admin user-page rewards widget
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 - Full private-chat topic routing for bot DM (`Лоты`, `Поддержка`, `Баллы`, `Сделки`, `Модерация`) with strict command/topic enforcement and `/topics`
+- Channel DM lot intake foundation (Bot API 9.2) via `direct_messages_topic_id` for `/newauction`
+- Suggested post moderation pipeline for channel DM topics (approve/decline + persisted review audit)
 - Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist
@@ -506,6 +508,7 @@ Private DM topics (Bot API 9.3/9.4):
 - `PRIVATE_TOPICS_STRICT_ROUTING` - when enabled, commands are processed only in their assigned topic.
 - `PRIVATE_TOPICS_AUTOCREATE_ON_START` - bootstrap all personal topics on `/start`.
 - `PRIVATE_TOPIC_TITLE_*` - topic names for `auctions/support/points/trades/moderation`.
+- When Telegram reports `has_topics_enabled=false` for a user, bot falls back to regular private-chat flow.
 
 Examples:
 
@@ -518,6 +521,19 @@ PRIVATE_TOPIC_TITLE_SUPPORT=Поддержка
 PRIVATE_TOPIC_TITLE_POINTS=Баллы
 PRIVATE_TOPIC_TITLE_TRADES=Сделки
 PRIVATE_TOPIC_TITLE_MODERATION=Модерация
+```
+
+Channel DM lot intake (Bot API 9.2):
+
+- `CHANNEL_DM_INTAKE_ENABLED` - enables `/newauction` intake in channel DM topics.
+- `CHANNEL_DM_INTAKE_CHAT_ID` - optional chat allowlist; `0` allows any direct-messages chat.
+- Incoming `suggested_post_info` events from enabled channel DM chats are routed to moderation with approve/decline actions.
+
+Examples:
+
+```text
+CHANNEL_DM_INTAKE_ENABLED=true
+CHANNEL_DM_INTAKE_CHAT_ID=-1001234567890
 ```
 
 - Optional Bot API 9.4 button icons (custom emoji IDs):
