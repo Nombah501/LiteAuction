@@ -4,7 +4,7 @@ from aiogram import Bot
 from aiogram.enums import ChatType
 from aiogram.types import Message
 
-from app.config import settings
+from app.services.runtime_settings_service import get_runtime_setting_value
 
 
 def _draft_id_for_scope(*, chat_id: int, scope_key: str) -> int:
@@ -22,7 +22,8 @@ async def send_progress_draft(
     text: str,
     scope_key: str,
 ) -> bool:
-    if bot is None or not settings.message_drafts_enabled:
+    message_drafts_enabled = bool(await get_runtime_setting_value("message_drafts_enabled"))
+    if bot is None or not message_drafts_enabled:
         return False
 
     chat = getattr(message, "chat", None)

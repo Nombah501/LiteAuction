@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import Bid, BlacklistEntry, Complaint, FraudSignal, User
 from app.services.guarantor_service import has_assigned_guarantor_request
 from app.services.risk_eval_service import evaluate_user_risk_snapshot, format_risk_reason_label
+from app.services.runtime_settings_service import resolve_runtime_setting_value
 from app.services.verification_service import is_user_verified
 
 
@@ -79,7 +79,10 @@ async def evaluate_seller_publish_gate(
         is_verified_user=seller_verified,
     )
 
-    if not settings.publish_high_risk_requires_guarantor:
+    publish_requires_guarantor = bool(
+        await resolve_runtime_setting_value(session, "publish_high_risk_requires_guarantor")
+    )
+    if not publish_requires_guarantor:
         return SellerPublishGateResult(
             allowed=True,
             risk_level=risk.level,
@@ -98,7 +101,10 @@ async def evaluate_seller_publish_gate(
     has_assigned = await has_assigned_guarantor_request(
         session,
         submitter_user_id=seller_user_id,
-        max_age_days=max(settings.publish_guarantor_assignment_max_age_days, 0),
+        max_age_days=max(
+            int(await resolve_runtime_setting_value(session, "publish_guarantor_assignment_max_age_days")),
+            0,
+        ),
     )
     if has_assigned:
         return SellerPublishGateResult(
