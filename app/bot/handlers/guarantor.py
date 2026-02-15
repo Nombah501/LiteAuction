@@ -21,6 +21,7 @@ from app.services.guarantor_service import (
     render_guarantor_request_text,
     set_guarantor_request_queue_message,
 )
+from app.services.moderation_checklist_service import ensure_checklist, list_checklist_replies, render_checklist_block
 from app.services.moderation_service import has_moderator_access, log_moderation_action
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import (
@@ -95,7 +96,22 @@ async def _create_request_item(*, message: Message, state: FSMContext, bot: Bot,
                 await message.answer("Не удалось сохранить запрос")
                 return
 
-            queue_text = render_guarantor_request_text(view)
+            checklist_items = await ensure_checklist(
+                session,
+                entity_type="guarantor",
+                entity_id=view.item.id,
+            )
+            checklist_replies = await list_checklist_replies(
+                session,
+                entity_type="guarantor",
+                entity_id=view.item.id,
+            )
+            queue_text = (
+                f"{render_guarantor_request_text(view)}\n\n"
+                f"{render_checklist_block(checklist_items, replies_by_item=checklist_replies)}"
+                if checklist_items
+                else render_guarantor_request_text(view)
+            )
             queue_status = GuarantorRequestStatus(view.item.status)
             request_id = view.item.id
 
@@ -197,7 +213,22 @@ async def command_boost_guarant(message: Message, bot: Bot) -> None:
             if view is not None:
                 queue_chat_id = view.item.queue_chat_id
                 queue_message_id = view.item.queue_message_id
-                queue_text = render_guarantor_request_text(view)
+                checklist_items = await ensure_checklist(
+                    session,
+                    entity_type="guarantor",
+                    entity_id=view.item.id,
+                )
+                checklist_replies = await list_checklist_replies(
+                    session,
+                    entity_type="guarantor",
+                    entity_id=view.item.id,
+                )
+                queue_text = (
+                    f"{render_guarantor_request_text(view)}\n\n"
+                    f"{render_checklist_block(checklist_items, replies_by_item=checklist_replies)}"
+                    if checklist_items
+                    else render_guarantor_request_text(view)
+                )
                 queue_status = GuarantorRequestStatus(view.item.status)
 
     if queue_chat_id is not None and queue_message_id is not None and queue_status is not None:
@@ -337,7 +368,22 @@ async def guarantor_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                     notify_moderator_tg_user_id = view.moderator.tg_user_id
                     notify_moderator_username = view.moderator.username
 
-            updated_text = render_guarantor_request_text(view)
+            checklist_items = await ensure_checklist(
+                session,
+                entity_type="guarantor",
+                entity_id=view.item.id,
+            )
+            checklist_replies = await list_checklist_replies(
+                session,
+                entity_type="guarantor",
+                entity_id=view.item.id,
+            )
+            updated_text = (
+                f"{render_guarantor_request_text(view)}\n\n"
+                f"{render_checklist_block(checklist_items, replies_by_item=checklist_replies)}"
+                if checklist_items
+                else render_guarantor_request_text(view)
+            )
             updated_keyboard = guarantor_actions_keyboard(
                 request_id=request_id,
                 status=GuarantorRequestStatus(view.item.status),

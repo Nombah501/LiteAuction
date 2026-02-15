@@ -27,6 +27,10 @@ from app.db.enums import AuctionStatus
 from app.db.models import Auction, AuctionPhoto, AuctionPost, Bid, BlacklistEntry, Complaint, User
 from app.db.session import SessionFactory
 from app.services.fraud_service import evaluate_and_store_bid_fraud_signal
+from app.services.message_effects_service import (
+    AuctionMessageEffectEvent,
+    resolve_auction_message_effect_id,
+)
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 
 logger = logging.getLogger(__name__)
@@ -756,6 +760,9 @@ async def finalize_expired_auctions(bot: Bot) -> int:
             tg_user_id=result.seller_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Аукцион #{str(result.auction_id)[:8]} завершен.",
+            message_effect_id=resolve_auction_message_effect_id(
+                AuctionMessageEffectEvent.ENDED_SELLER
+            ),
         )
 
         if result.winner_tg_user_id is not None:
@@ -764,6 +771,9 @@ async def finalize_expired_auctions(bot: Bot) -> int:
                 tg_user_id=result.winner_tg_user_id,
                 purpose=PrivateTopicPurpose.AUCTIONS,
                 text=f"Вы победили в аукционе #{str(result.auction_id)[:8]}.",
+                message_effect_id=resolve_auction_message_effect_id(
+                    AuctionMessageEffectEvent.ENDED_WINNER
+                ),
             )
 
     return len(finalized_results)

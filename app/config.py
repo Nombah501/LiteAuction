@@ -74,11 +74,23 @@ class Settings(BaseSettings):
     private_topics_enabled: bool = True
     private_topics_strict_routing: bool = True
     private_topics_autocreate_on_start: bool = True
+    private_topics_user_topic_policy: str = "auto"
     private_topic_title_auctions: str = "Лоты"
     private_topic_title_support: str = "Поддержка"
     private_topic_title_points: str = "Баллы"
     private_topic_title_trades: str = "Сделки"
     private_topic_title_moderation: str = "Модерация"
+    bot_profile_photo_presets: str = ""
+    bot_profile_photo_default_preset: str = "default"
+    auction_message_effects_enabled: bool = False
+    auction_effect_outbid_id: str = ""
+    auction_effect_buyout_seller_id: str = ""
+    auction_effect_buyout_winner_id: str = ""
+    auction_effect_ended_seller_id: str = ""
+    auction_effect_ended_winner_id: str = ""
+    channel_dm_intake_enabled: bool = False
+    channel_dm_intake_chat_id: int = 0
+    message_drafts_enabled: bool = True
     auction_watcher_interval_seconds: int = 5
     fraud_alert_threshold: int = 60
     fraud_rapid_window_seconds: int = 120
@@ -198,6 +210,48 @@ class Settings(BaseSettings):
         if not normalized:
             return None
         return self.parsed_moderation_topic_ids().get(normalized)
+
+    def parsed_bot_profile_photo_presets(self) -> dict[str, str]:
+        presets: dict[str, str] = {}
+        for item in self.bot_profile_photo_presets.split(","):
+            normalized = item.strip()
+            if not normalized or "=" not in normalized:
+                continue
+            key_raw, value_raw = normalized.split("=", maxsplit=1)
+            key = key_raw.strip().lower()
+            value = value_raw.strip()
+            if not key or not value:
+                continue
+            presets[key] = value
+        return presets
+
+    def parsed_bot_profile_photo_default_preset(self) -> str | None:
+        normalized = self.bot_profile_photo_default_preset.strip().lower()
+        if not normalized:
+            return None
+        return normalized
+
+    def parsed_auction_effect_ids(self) -> dict[str, str]:
+        raw_map = {
+            "outbid": self.auction_effect_outbid_id,
+            "buyout_seller": self.auction_effect_buyout_seller_id,
+            "buyout_winner": self.auction_effect_buyout_winner_id,
+            "ended_seller": self.auction_effect_ended_seller_id,
+            "ended_winner": self.auction_effect_ended_winner_id,
+        }
+        parsed: dict[str, str] = {}
+        for event, value in raw_map.items():
+            normalized = value.strip()
+            if not normalized:
+                continue
+            parsed[event] = normalized
+        return parsed
+
+    def parsed_auction_effect_id(self, event: str) -> str | None:
+        normalized = event.strip().lower()
+        if not normalized:
+            return None
+        return self.parsed_auction_effect_ids().get(normalized)
 
 
 @lru_cache(1)

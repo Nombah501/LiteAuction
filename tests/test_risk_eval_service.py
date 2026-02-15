@@ -45,3 +45,31 @@ def test_evaluate_user_risk_snapshot_high_and_capped() -> None:
         "COMPLAINTS_AGAINST_3PLUS",
         "REMOVED_BIDS_3PLUS",
     )
+
+
+def test_evaluate_user_risk_snapshot_applies_verified_bonus_safely() -> None:
+    snapshot = evaluate_user_risk_snapshot(
+        complaints_against=1,
+        open_fraud_signals=0,
+        has_active_blacklist=False,
+        removed_bids=0,
+        is_verified_user=True,
+    )
+
+    assert snapshot.level == "LOW"
+    assert snapshot.score == 5
+    assert snapshot.reasons == ("COMPLAINTS_AGAINST",)
+
+
+def test_evaluate_user_risk_snapshot_does_not_discount_with_open_signal() -> None:
+    snapshot = evaluate_user_risk_snapshot(
+        complaints_against=1,
+        open_fraud_signals=1,
+        has_active_blacklist=False,
+        removed_bids=0,
+        is_verified_user=True,
+    )
+
+    assert snapshot.level == "MEDIUM"
+    assert snapshot.score == 55
+    assert snapshot.reasons == ("OPEN_FRAUD_SIGNAL", "COMPLAINTS_AGAINST")

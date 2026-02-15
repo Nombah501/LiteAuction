@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, cast
 
@@ -17,6 +18,7 @@ from app.bot.keyboards.moderation import (
     fraud_actions_keyboard,
     moderation_appeal_actions_keyboard,
     moderation_appeals_list_keyboard,
+    moderation_checklist_keyboard,
     moderation_frozen_actions_keyboard,
     moderation_frozen_list_keyboard,
     moderation_complaints_list_keyboard,
@@ -27,6 +29,11 @@ from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType
 from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
+from app.services.bot_profile_photo_service import (
+    apply_bot_profile_photo_preset,
+    list_bot_profile_photo_presets,
+    rollback_bot_profile_photo,
+)
 from app.services.appeal_service import (
     mark_appeal_in_review,
     reject_appeal,
@@ -65,6 +72,18 @@ from app.services.moderation_service import (
     unfreeze_auction,
 )
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
+from app.services.message_draft_service import send_progress_draft
+from app.services.chat_owner_guard_service import confirm_chat_owner_events
+from app.services.moderation_checklist_service import (
+    ENTITY_APPEAL,
+    ENTITY_COMPLAINT,
+    ENTITY_GUARANTOR,
+    add_checklist_reply,
+    ensure_checklist,
+    list_checklist_replies,
+    render_checklist_block,
+    toggle_checklist_item,
+)
 from app.services.points_service import (
     UserPointsSummary,
     count_user_points_entries,
@@ -81,16 +100,35 @@ from app.services.private_topics_service import (
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
+    SCOPE_DIRECT_MESSAGES_MANAGE,
     SCOPE_ROLE_MANAGE,
+    SCOPE_TRUST_MANAGE,
     SCOPE_USER_BAN,
 )
 from app.services.user_service import upsert_user
+from app.services.verification_service import (
+    get_user_verification_status,
+    load_verified_tg_user_ids,
+    set_chat_verification,
+    set_user_verification,
+)
 
 router = Router(name="moderation")
 PANEL_PAGE_SIZE = 5
 DEFAULT_POINTS_HISTORY_LIMIT = 5
 MAX_POINTS_HISTORY_LIMIT = 20
 MODPOINTS_HISTORY_PAGE_SIZE = 10
+
+
+@dataclass(slots=True)
+class _PendingChecklistReply:
+    entity_type: str
+    entity_id: int
+    item_code: str
+    page: int
+
+
+_PENDING_CHECKLIST_REPLIES: dict[int, _PendingChecklistReply] = {}
 
 
 def _appeal_deep_link(appeal_ref: str) -> str | None:
@@ -171,6 +209,42 @@ def _render_appeal_text(
     if appeal.resolved_at is not None:
         lines.append(f"Закрыта: {appeal.resolved_at}")
     return "\n".join(lines)
+
+
+async def _append_checklist_block(
+    session,
+    *,
+    entity_type: str,
+    entity_id: int,
+    text: str,
+) -> str:
+    items = await ensure_checklist(session, entity_type=entity_type, entity_id=entity_id)
+    if not items:
+        return text
+    replies_by_item = await list_checklist_replies(
+        session,
+        entity_type=entity_type,
+        entity_id=entity_id,
+    )
+    return f"{text}\n\n{render_checklist_block(items, replies_by_item=replies_by_item)}"
+
+
+def _checklist_title(*, entity_type: str, entity_id: int) -> str:
+    if entity_type == ENTITY_COMPLAINT:
+        return f"Чеклист жалобы #{entity_id}"
+    if entity_type == ENTITY_APPEAL:
+        return f"Чеклист апелляции #{entity_id}"
+    if entity_type == ENTITY_GUARANTOR:
+        return f"Чеклист гаранта #{entity_id}"
+    return f"Чеклист #{entity_id}"
+
+
+def _checklist_back_callback(*, entity_type: str, entity_id: int, page: int) -> str | None:
+    if entity_type == ENTITY_COMPLAINT:
+        return f"modui:complaint:{entity_id}:{page}"
+    if entity_type == ENTITY_APPEAL:
+        return f"modui:appeal:{entity_id}:{page}"
+    return None
 
 
 async def _build_appeals_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -405,6 +479,8 @@ def _scope_title(scope: str) -> str:
         return "бан/разбан пользователей"
     if scope == SCOPE_ROLE_MANAGE:
         return "управление ролями"
+    if scope == SCOPE_TRUST_MANAGE:
+        return "управление верификацией"
     return scope
 
 
@@ -616,6 +692,32 @@ def _parse_page(raw: str) -> int | None:
     return value
 
 
+def _parse_tg_user_and_description(text: str) -> tuple[int, str | None] | None:
+    parts = text.split(maxsplit=2)
+    if len(parts) < 2 or not parts[1].isdigit():
+        return None
+    tg_user_id = int(parts[1])
+    description = parts[2].strip() if len(parts) > 2 else None
+    if description == "":
+        description = None
+    return tg_user_id, description
+
+
+def _parse_chat_and_description(text: str) -> tuple[int, str | None] | None:
+    parts = text.split(maxsplit=2)
+    if len(parts) < 2:
+        return None
+    try:
+        chat_id = int(parts[1])
+    except ValueError:
+        return None
+
+    description = parts[2].strip() if len(parts) > 2 else None
+    if description == "":
+        description = None
+    return chat_id, description
+
+
 @router.message(Command("mod"), F.chat.type == ChatType.PRIVATE)
 async def mod_help(message: Message, bot: Bot) -> None:
     if not await _ensure_moderation_topic(message, bot, "/mod"):
@@ -639,6 +741,9 @@ async def mod_help(message: Message, bot: Bot) -> None:
                 "/freeze <auction_uuid> <reason>",
                 "/unfreeze <auction_uuid> <reason>",
                 "/end <auction_uuid> <reason>",
+                "/botphoto list",
+                "/botphoto set <preset>",
+                "/botphoto reset",
             ]
         )
     if SCOPE_BID_MANAGE in scopes:
@@ -667,6 +772,17 @@ async def mod_help(message: Message, bot: Bot) -> None:
                 "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost|aboost]",
             ]
         )
+    if SCOPE_TRUST_MANAGE in scopes:
+        commands.extend(
+            [
+                "/verifyuser <tg_user_id> [description]",
+                "/unverifyuser <tg_user_id>",
+                "/verifychat <chat_id> [description]",
+                "/unverifychat <chat_id>",
+            ]
+        )
+    if SCOPE_DIRECT_MESSAGES_MANAGE in scopes:
+        commands.append("/confirmowner <chat_id>")
 
     await message.answer("Команды модерации:\n" + "\n".join(commands))
 
@@ -677,7 +793,85 @@ async def mod_stats(message: Message, bot: Bot | None = None) -> None:
         return
     if not await _require_moderator(message):
         return
+
+    await send_progress_draft(
+        bot,
+        message,
+        text="Собираю модераторскую статистику...",
+        scope_key="modstats",
+    )
     await message.answer(await _render_mod_stats_text())
+
+
+@router.message(Command("botphoto"), F.chat.type == ChatType.PRIVATE)
+async def mod_botphoto(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/botphoto"):
+        return
+    if (
+        not await _require_scope_message(message, SCOPE_AUCTION_MANAGE)
+        or message.from_user is None
+        or message.text is None
+    ):
+        return
+
+    parts = message.text.split(maxsplit=2)
+    action = "list" if len(parts) == 1 else parts[1].strip().lower()
+
+    if action == "list":
+        presets = list_bot_profile_photo_presets()
+        if not presets:
+            await message.answer(
+                "Preset-ы не настроены. Добавьте BOT_PROFILE_PHOTO_PRESETS в env "
+                "(пример: default=file_id,campaign=file_id)."
+            )
+            return
+
+        default_preset = settings.parsed_bot_profile_photo_default_preset()
+        lines = ["Доступные preset-ы фото бота:"]
+        for preset in presets:
+            suffix = " (default)" if default_preset == preset else ""
+            lines.append(f"- {preset}{suffix}")
+        lines.append("")
+        lines.append("Команды: /botphoto set <preset> | /botphoto reset")
+        await message.answer("\n".join(lines))
+        return
+
+    if action == "set":
+        if len(parts) != 3:
+            await message.answer("Формат: /botphoto set <preset>")
+            return
+        result = await apply_bot_profile_photo_preset(bot, preset=parts[2])
+    elif action == "reset":
+        if len(parts) != 2:
+            await message.answer("Формат: /botphoto reset")
+            return
+        result = await rollback_bot_profile_photo(bot)
+    else:
+        await message.answer(
+            "Формат:\n"
+            "/botphoto list\n"
+            "/botphoto set <preset>\n"
+            "/botphoto reset"
+        )
+        return
+
+    if not result.ok:
+        await message.answer(result.message)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, message.from_user)
+            if result.action is not None and result.reason is not None:
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor.id,
+                    action=result.action,
+                    reason=result.reason,
+                    payload=result.payload,
+                )
+
+    await message.answer(result.message)
 
 
 @router.message(Command("role"), F.chat.type == ChatType.PRIVATE)
@@ -1334,6 +1528,46 @@ async def mod_audit(message: Message, bot: Bot) -> None:
     await message.answer("\n".join(lines[:30]))
 
 
+@router.message(Command("confirmowner"), F.chat.type == ChatType.PRIVATE)
+async def mod_confirm_owner(message: Message, bot: Bot | None = None) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/confirmowner"):
+        return
+    if (
+        not await _require_scope_message(message, SCOPE_DIRECT_MESSAGES_MANAGE)
+        or message.from_user is None
+        or message.text is None
+    ):
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) != 2:
+        await message.answer("Формат: /confirmowner <chat_id>")
+        return
+
+    try:
+        chat_id = int(parts[1].strip())
+    except ValueError:
+        await message.answer("chat_id должен быть числом")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, message.from_user)
+            resolved = await confirm_chat_owner_events(
+                session,
+                chat_id=chat_id,
+                actor_user_id=actor.id,
+            )
+
+    if resolved == 0:
+        await message.answer("Нет неподтвержденных owner-событий для этого DM-чата.")
+        return
+
+    await message.answer(
+        f"Подтверждено событий: {resolved}. Пауза автообработки для чата <code>{chat_id}</code> снята."
+    )
+
+
 @router.message(Command("risk"), F.chat.type == ChatType.PRIVATE)
 async def mod_risk(message: Message, bot: Bot) -> None:
     if not await _ensure_moderation_topic(message, bot, "/risk"):
@@ -1351,6 +1585,16 @@ async def mod_risk(message: Message, bot: Bot) -> None:
 
     async with SessionFactory() as session:
         signals = await list_fraud_signals(session, auction_id=auction_id, status="OPEN")
+        user_map: dict[int, User] = {}
+        verified_tg_ids: set[int] = set()
+        if signals:
+            user_ids = sorted({signal.user_id for signal in signals})
+            users = (await session.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+            user_map = {user.id: user for user in users}
+            verified_tg_ids = await load_verified_tg_user_ids(
+                session,
+                tg_user_ids=[user.tg_user_id for user in users],
+            )
 
     if not signals:
         await message.answer("Открытые фрод-сигналы не найдены")
@@ -1358,10 +1602,135 @@ async def mod_risk(message: Message, bot: Bot) -> None:
 
     lines = ["Открытые фрод-сигналы:"]
     for signal in signals:
+        user = user_map.get(signal.user_id)
+        tg_user_id = user.tg_user_id if user is not None else signal.user_id
+        verified_marker = " [verified]" if tg_user_id in verified_tg_ids else ""
         lines.append(
-            f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={signal.user_id} | score={signal.score}"
+            f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={tg_user_id}{verified_marker} | score={signal.score}"
         )
     await message.answer("\n".join(lines[:30]))
+
+
+@router.message(Command("verifyuser"), F.chat.type == ChatType.PRIVATE)
+async def mod_verify_user(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/verifyuser"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_tg_user_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /verifyuser <tg_user_id> [description]")
+        return
+
+    tg_user_id, description = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_user_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                target_tg_user_id=tg_user_id,
+                verify=True,
+                custom_description=description,
+            )
+
+    await message.answer(result.message)
+
+
+@router.message(Command("unverifyuser"), F.chat.type == ChatType.PRIVATE)
+async def mod_unverify_user(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/unverifyuser"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_tg_user_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /unverifyuser <tg_user_id>")
+        return
+
+    tg_user_id, _ = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_user_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                target_tg_user_id=tg_user_id,
+                verify=False,
+            )
+
+    await message.answer(result.message)
+
+
+@router.message(Command("verifychat"), F.chat.type == ChatType.PRIVATE)
+async def mod_verify_chat(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/verifychat"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_chat_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /verifychat <chat_id> [description]")
+        return
+
+    chat_id, description = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_chat_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                chat_id=chat_id,
+                verify=True,
+                custom_description=description,
+            )
+
+    await message.answer(result.message)
+
+
+@router.message(Command("unverifychat"), F.chat.type == ChatType.PRIVATE)
+async def mod_unverify_chat(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/unverifychat"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_chat_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /unverifychat <chat_id>")
+        return
+
+    chat_id, _ = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_chat_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                chat_id=chat_id,
+                verify=False,
+            )
+
+    await message.answer(result.message)
 
 
 @router.callback_query(F.data.startswith("modui:"))
@@ -1431,9 +1800,15 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
             resolver = None
             if appeal.resolver_user_id is not None:
                 resolver = await session.scalar(select(User).where(User.id == appeal.resolver_user_id))
+            appeal_text = await _append_checklist_block(
+                session,
+                entity_type=ENTITY_APPEAL,
+                entity_id=appeal_id,
+                text=_render_appeal_text(appeal, appellant=appellant, resolver=resolver),
+            )
 
         status = AppealStatus(appeal.status)
-        keyboard = moderation_appeal_back_keyboard(page=page)
+        keyboard = moderation_appeal_back_keyboard(appeal_id=appeal.id, page=page)
         if status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
             keyboard = moderation_appeal_actions_keyboard(
                 appeal_id=appeal.id,
@@ -1441,7 +1816,7 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 show_take=status == AppealStatus.OPEN,
             )
         await callback.message.edit_text(
-            _render_appeal_text(appeal, appellant=appellant, resolver=resolver),
+            appeal_text,
             reply_markup=keyboard,
         )
         await callback.answer()
@@ -1616,17 +1991,34 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 limit=PANEL_PAGE_SIZE + 1,
                 offset=offset,
             )
+            visible_user_ids = sorted({signal.user_id for signal in signals[:PANEL_PAGE_SIZE]})
+            users = (
+                (await session.execute(select(User).where(User.id.in_(visible_user_ids)))).scalars().all()
+                if visible_user_ids
+                else []
+            )
+            users_by_id = {user.id: user for user in users}
+            verified_tg_ids = await load_verified_tg_user_ids(
+                session,
+                tg_user_ids=[user.tg_user_id for user in users],
+            )
 
         has_next = len(signals) > PANEL_PAGE_SIZE
         visible = signals[:PANEL_PAGE_SIZE]
-        items = [
-            (signal.id, f"Сигнал #{signal.id} | score {signal.score}")
-            for signal in visible
-        ]
+        items = []
+        for signal in visible:
+            user = users_by_id.get(signal.user_id)
+            tg_user_id = user.tg_user_id if user is not None else signal.user_id
+            verified_marker = " ✅" if tg_user_id in verified_tg_ids else ""
+            items.append((signal.id, f"Сигнал #{signal.id} | score {signal.score}{verified_marker}"))
+
         text_lines = [f"Открытые фрод-сигналы, стр. {page + 1}"]
         for signal in visible:
+            user = users_by_id.get(signal.user_id)
+            tg_user_id = user.tg_user_id if user is not None else signal.user_id
+            verified_marker = " [verified]" if tg_user_id in verified_tg_ids else ""
             text_lines.append(
-                f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={signal.user_id} | score={signal.score}"
+                f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={tg_user_id}{verified_marker} | score={signal.score}"
             )
         if not visible:
             text_lines.append("- нет записей")
@@ -1744,15 +2136,24 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
 
         async with SessionFactory() as session:
             view = await load_complaint_view(session, complaint_id)
+            complaint_text = None
+            if view is not None:
+                complaint_text = await _append_checklist_block(
+                    session,
+                    entity_type=ENTITY_COMPLAINT,
+                    entity_id=complaint_id,
+                    text=render_complaint_text(view),
+                )
         if view is None:
             await callback.answer("Жалоба не найдена", show_alert=True)
             return
 
         await callback.message.edit_text(
-            render_complaint_text(view),
+            complaint_text or render_complaint_text(view),
             reply_markup=complaint_actions_keyboard(
                 complaint_id,
                 back_callback=f"modui:complaints:{page}",
+                checklist_page=page,
             ),
         )
         await callback.answer()
@@ -1770,12 +2171,20 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
 
         async with SessionFactory() as session:
             view = await load_fraud_signal_view(session, signal_id)
+            verification = None
+            if view is not None:
+                verification = await get_user_verification_status(
+                    session,
+                    tg_user_id=view.user.tg_user_id,
+                )
         if view is None:
             await callback.answer("Сигнал не найден", show_alert=True)
             return
 
+        verification_line = "Верификация пользователя: yes" if verification and verification.is_verified else "Верификация пользователя: no"
+
         await callback.message.edit_text(
-            render_fraud_signal_text(view),
+            f"{render_fraud_signal_text(view)}\n{verification_line}",
             reply_markup=fraud_actions_keyboard(
                 signal_id,
                 back_callback=f"modui:signals:{page}",
@@ -1785,6 +2194,184 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
         return
 
     await callback.answer("Неизвестный раздел", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("modchk:"))
+async def mod_checklist_callbacks(callback: CallbackQuery) -> None:
+    if not await _require_moderator_callback(callback):
+        return
+    if callback.data is None or callback.message is None or callback.from_user is None:
+        return
+
+    parts = callback.data.split(":")
+    if len(parts) < 5:
+        await callback.answer("Некорректный чеклист", show_alert=True)
+        return
+
+    _, action, entity_type, entity_id_raw, *rest = parts
+    if not entity_id_raw.isdigit():
+        await callback.answer("Некорректный id", show_alert=True)
+        return
+    entity_id = int(entity_id_raw)
+
+    item_code: str | None = None
+    if action in {"toggle", "reply"}:
+        if len(rest) != 2:
+            await callback.answer("Некорректный пункт", show_alert=True)
+            return
+        item_code = rest[0]
+        page = _parse_page(rest[1])
+    else:
+        if len(rest) != 1:
+            await callback.answer("Некорректная страница", show_alert=True)
+            return
+        page = _parse_page(rest[0])
+
+    if page is None:
+        await callback.answer("Некорректная страница", show_alert=True)
+        return
+
+    if entity_type not in {ENTITY_COMPLAINT, ENTITY_APPEAL, ENTITY_GUARANTOR}:
+        await callback.answer("Неизвестный тип чеклиста", show_alert=True)
+        return
+
+    action_message = ""
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, callback.from_user)
+            if action == "toggle":
+                toggled = await toggle_checklist_item(
+                    session,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    item_code=item_code or "",
+                    actor_user_id=actor.id,
+                )
+                if toggled is None:
+                    await callback.answer("Пункт не найден", show_alert=True)
+                    return
+                await log_moderation_action(
+                    session,
+                    actor_user_id=actor.id,
+                    action=ModerationAction.UPDATE_MODERATION_CHECKLIST,
+                    reason=f"Checklist {entity_type}:{entity_id}:{item_code}",
+                    payload={
+                        "entity_type": entity_type,
+                        "entity_id": entity_id,
+                        "item_code": item_code,
+                        "is_done": toggled.is_done,
+                    },
+                )
+                action_message = "Чеклист обновлен"
+
+            if action == "reply":
+                _PENDING_CHECKLIST_REPLIES[callback.from_user.id] = _PendingChecklistReply(
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    item_code=item_code or "",
+                    page=page,
+                )
+                action_message = "Отправьте ответ одним сообщением в чат модерации"
+
+            items = await ensure_checklist(session, entity_type=entity_type, entity_id=entity_id)
+            replies_by_item = await list_checklist_replies(
+                session,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+
+    back_callback = _checklist_back_callback(entity_type=entity_type, entity_id=entity_id, page=page)
+    keyboard = moderation_checklist_keyboard(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        page=page,
+        items=items,
+        back_callback=back_callback,
+    )
+    title = _checklist_title(entity_type=entity_type, entity_id=entity_id)
+    checklist_text = render_checklist_block(items, replies_by_item=replies_by_item)
+    await callback.message.edit_text(f"{title}\n\n{checklist_text}", reply_markup=keyboard)
+    await callback.answer(action_message)
+
+
+@router.message(F.text)
+async def mod_checklist_reply_message(message: Message, bot: Bot) -> None:
+    if message.from_user is None or message.text is None:
+        return
+
+    pending = _PENDING_CHECKLIST_REPLIES.get(message.from_user.id)
+    if pending is None:
+        return
+
+    if not await _ensure_moderation_topic(message, bot, "/modpanel"):
+        return
+    if not await _require_moderator(message):
+        return
+
+    raw = message.text.strip()
+    if raw == "/cancel":
+        _PENDING_CHECKLIST_REPLIES.pop(message.from_user.id, None)
+        await message.answer("Ответ к чеклисту отменен")
+        return
+    if len(raw) < 2:
+        await message.answer("Ответ слишком короткий. Отправьте текст или /cancel")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, message.from_user)
+            reply = await add_checklist_reply(
+                session,
+                entity_type=pending.entity_type,
+                entity_id=pending.entity_id,
+                item_code=pending.item_code,
+                actor_user_id=actor.id,
+                reply_text=raw,
+            )
+            if reply is None:
+                await message.answer("Не удалось сохранить ответ для этого пункта")
+                return
+
+            await log_moderation_action(
+                session,
+                actor_user_id=actor.id,
+                action=ModerationAction.UPDATE_MODERATION_CHECKLIST,
+                reason=f"Checklist reply {pending.entity_type}:{pending.entity_id}:{pending.item_code}",
+                payload={
+                    "entity_type": pending.entity_type,
+                    "entity_id": pending.entity_id,
+                    "item_code": pending.item_code,
+                    "reply_text": raw,
+                },
+            )
+
+            items = await ensure_checklist(
+                session,
+                entity_type=pending.entity_type,
+                entity_id=pending.entity_id,
+            )
+            replies_by_item = await list_checklist_replies(
+                session,
+                entity_type=pending.entity_type,
+                entity_id=pending.entity_id,
+            )
+
+    _PENDING_CHECKLIST_REPLIES.pop(message.from_user.id, None)
+    back_callback = _checklist_back_callback(
+        entity_type=pending.entity_type,
+        entity_id=pending.entity_id,
+        page=pending.page,
+    )
+    keyboard = moderation_checklist_keyboard(
+        entity_type=pending.entity_type,
+        entity_id=pending.entity_id,
+        page=pending.page,
+        items=items,
+        back_callback=back_callback,
+    )
+    title = _checklist_title(entity_type=pending.entity_type, entity_id=pending.entity_id)
+    checklist_text = render_checklist_block(items, replies_by_item=replies_by_item)
+    await message.answer(f"{title}\n\n{checklist_text}", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("modrep:"))
@@ -1930,7 +2517,12 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
 
             refreshed_view = await load_complaint_view(session, complaint_id)
             if refreshed_view is not None:
-                updated_text = render_complaint_text(refreshed_view)
+                updated_text = await _append_checklist_block(
+                    session,
+                    entity_type=ENTITY_COMPLAINT,
+                    entity_id=complaint_id,
+                    text=render_complaint_text(refreshed_view),
+                )
 
     if auction_id is not None:
         await refresh_auction_posts(bot, auction_id)
@@ -2062,7 +2654,12 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
 
             refreshed = await load_fraud_signal_view(session, signal_id)
             if refreshed is not None:
-                updated_text = render_fraud_signal_text(refreshed)
+                verification = await get_user_verification_status(
+                    session,
+                    tg_user_id=refreshed.user.tg_user_id,
+                )
+                verification_line = "Верификация пользователя: yes" if verification.is_verified else "Верификация пользователя: no"
+                updated_text = f"{render_fraud_signal_text(refreshed)}\n{verification_line}"
 
     if auction_id is not None:
         await refresh_auction_posts(bot, auction_id)

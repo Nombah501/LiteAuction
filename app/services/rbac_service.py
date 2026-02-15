@@ -11,6 +11,8 @@ SCOPE_AUCTION_MANAGE = "auction:manage"
 SCOPE_BID_MANAGE = "bid:manage"
 SCOPE_USER_BAN = "user:ban"
 SCOPE_ROLE_MANAGE = "role:manage"
+SCOPE_DIRECT_MESSAGES_MANAGE = "direct-messages:manage"
+SCOPE_TRUST_MANAGE = "trust:manage"
 
 ALL_MANAGE_SCOPES = frozenset(
     {
@@ -18,10 +20,19 @@ ALL_MANAGE_SCOPES = frozenset(
         SCOPE_BID_MANAGE,
         SCOPE_USER_BAN,
         SCOPE_ROLE_MANAGE,
+        SCOPE_DIRECT_MESSAGES_MANAGE,
+        SCOPE_TRUST_MANAGE,
     }
 )
 
-OPERATOR_SCOPES = frozenset({SCOPE_AUCTION_MANAGE, SCOPE_BID_MANAGE})
+OPERATOR_SCOPES = frozenset(
+    {
+        SCOPE_AUCTION_MANAGE,
+        SCOPE_BID_MANAGE,
+        SCOPE_DIRECT_MESSAGES_MANAGE,
+        SCOPE_TRUST_MANAGE,
+    }
+)
 VIEWER_SCOPES = frozenset()
 
 
