@@ -52,6 +52,56 @@ class User(Base, TimestampMixin):
     )
 
 
+class TelegramUserVerification(Base):
+    __tablename__ = "telegram_user_verifications"
+    __table_args__ = (UniqueConstraint("tg_user_id", name="uq_telegram_user_verifications_tg_user_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tg_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), index=True)
+    custom_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+        index=True,
+    )
+
+
+class TelegramChatVerification(Base):
+    __tablename__ = "telegram_chat_verifications"
+    __table_args__ = (UniqueConstraint("chat_id", name="uq_telegram_chat_verifications_chat_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), index=True)
+    custom_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+        index=True,
+    )
+
+
 class UserPrivateTopic(Base, TimestampMixin):
     __tablename__ = "user_private_topics"
     __table_args__ = (

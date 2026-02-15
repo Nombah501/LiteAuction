@@ -49,6 +49,7 @@ from app.services.timeline_service import build_auction_timeline_page
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
+    SCOPE_TRUST_MANAGE,
     SCOPE_ROLE_MANAGE,
     SCOPE_USER_BAN,
 )
@@ -83,6 +84,11 @@ from app.services.trade_feedback_service import (
     get_trade_feedback_summary,
     list_received_trade_feedback,
     set_trade_feedback_visibility,
+)
+from app.services.verification_service import (
+    get_user_verification_status,
+    load_verified_user_ids,
+    set_user_verification,
 )
 from app.web.auth import (
     AdminAuthContext,
@@ -319,6 +325,7 @@ async def _load_user_risk_snapshot_map(
             )
         ).scalars().all()
     )
+    verified_user_ids = await load_verified_user_ids(session, user_ids=unique_user_ids)
 
     risk_map = {}
     for user_id in unique_user_ids:
@@ -327,6 +334,7 @@ async def _load_user_risk_snapshot_map(
             open_fraud_signals=open_fraud_counts.get(user_id, 0),
             has_active_blacklist=user_id in active_blacklist_user_ids,
             removed_bids=removed_bid_counts.get(user_id, 0),
+            is_verified_user=user_id in verified_user_ids,
         )
     return risk_map
 
@@ -607,6 +615,8 @@ def _scope_title(scope: str) -> str:
         return "бан/разбан пользователей"
     if scope == SCOPE_ROLE_MANAGE:
         return "управление ролями"
+    if scope == SCOPE_TRUST_MANAGE:
+        return "управление верификацией"
     return scope
 
 
@@ -1804,9 +1814,11 @@ async def manage_user(
 
         trade_feedback_summary = await get_trade_feedback_summary(session, target_user_id=user.id)
         trade_feedback_received = await list_received_trade_feedback(session, target_user_id=user.id, limit=10)
+        verification_status = await get_user_verification_status(session, tg_user_id=user.tg_user_id)
 
     can_ban_users = auth.can(SCOPE_USER_BAN)
     can_manage_roles = auth.can(SCOPE_ROLE_MANAGE)
+    can_manage_trust = auth.can(SCOPE_TRUST_MANAGE)
     csrf_input = _csrf_hidden_input(request, auth)
 
     controls_blocks: list[str] = []
@@ -1851,6 +1863,25 @@ async def manage_user(
             )
         controls_blocks.append(role_block)
 
+    if can_manage_trust:
+        if verification_status.is_verified:
+            controls_blocks.append(
+                f"<form method='post' action='{escape(_path_with_auth(request, '/actions/user/unverify'))}'>"
+                f"<input type='hidden' name='target_tg_user_id' value='{user.tg_user_id}'>"
+                f"<input type='hidden' name='return_to' value='{escape(f'/manage/user/{user.id}')}'>"
+                f"{csrf_input}"
+                "<button type='submit'>Снять верификацию</button></form>"
+            )
+        else:
+            controls_blocks.append(
+                f"<form method='post' action='{escape(_path_with_auth(request, '/actions/user/verify'))}'>"
+                f"<input type='hidden' name='target_tg_user_id' value='{user.tg_user_id}'>"
+                f"<input type='hidden' name='return_to' value='{escape(f'/manage/user/{user.id}')}'>"
+                f"{csrf_input}"
+                "<input name='custom_description' placeholder='Описание для Telegram (необязательно)' style='width:360px'>"
+                "<button type='submit'>Подтвердить верификацию</button></form>"
+            )
+
     controls = "<p><i>Только просмотр (нет прав на управление пользователями).</i></p>"
     if controls_blocks:
         controls = "<br>".join(controls_blocks)
@@ -1860,6 +1891,7 @@ async def manage_user(
         open_fraud_signals=fraud_open,
         has_active_blacklist=active_blacklist_entry is not None,
         removed_bids=bids_removed,
+        is_verified_user=verification_status.is_verified,
     )
     risk_reasons_text = "-"
     if risk_snapshot.reasons:
@@ -1974,6 +2006,8 @@ async def manage_user(
     roles_text = ", ".join(sorted(role.value for role in user_roles)) if user_roles else "-"
     moderator_text = "yes" if has_moderator_access else "no"
     blacklist_status = "active" if active_blacklist_entry is not None else "no"
+    verification_text = "verified" if verification_status.is_verified else "no"
+    verification_desc = verification_status.custom_description or "-"
     feedback_boost_policy_status = "on" if settings.feedback_priority_boost_enabled else "off"
     guarantor_boost_policy_status = "on" if settings.guarantor_priority_boost_enabled else "off"
     appeal_boost_policy_status = "on" if settings.appeal_priority_boost_enabled else "off"
@@ -2034,7 +2068,8 @@ async def manage_user(
         f"<p><a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a> | "
         f"<a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"<p><b>TG User ID:</b> {user.tg_user_id} | <b>Username:</b> {escape(user.username or '-')}</p>"
-        f"<p><b>Moderator:</b> {moderator_text} | <b>Roles:</b> {escape(roles_text)} | <b>Blacklisted:</b> {blacklist_status}</p>"
+        f"<p><b>Moderator:</b> {moderator_text} | <b>Roles:</b> {escape(roles_text)} | <b>Blacklisted:</b> {blacklist_status} | <b>Verified:</b> {verification_text}</p>"
+        f"<p><b>Verification description:</b> {escape(verification_desc)}</p>"
         f"<div class='kpi'><b>Ставок:</b> {bids_total}</div>"
         f"<div class='kpi'><b>Снято ставок:</b> {bids_removed}</div>"
         f"<div class='kpi'><b>Жалоб создано:</b> {complaints_created}</div>"
@@ -2134,6 +2169,7 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         role_user_ids: set[int] = set()
         banned_user_ids: set[int] = set()
         risk_by_user_id = await _load_user_risk_snapshot_map(session, user_ids=user_ids, now=now)
+        verified_user_ids = await load_verified_user_ids(session, user_ids=user_ids)
 
         if user_ids:
             role_user_ids = set(
@@ -2172,6 +2208,7 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         is_dynamic_mod = user.id in role_user_ids
         moderator_text = "yes (allowlist)" if is_allowlist_mod else ("yes" if is_dynamic_mod else "no")
         banned_text = "yes" if user.id in banned_user_ids else "no"
+        verified_text = "yes" if user.id in verified_user_ids else "no"
         risk_snapshot = risk_by_user_id.get(user.id, default_risk_snapshot)
 
         rows.append(
@@ -2181,6 +2218,7 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
             f"<td>{escape(user.username or '-')}</td>"
             f"<td>{moderator_text}</td>"
             f"<td>{banned_text}</td>"
+            f"<td>{verified_text}</td>"
             f"<td>{_risk_snapshot_inline_html(risk_snapshot)}</td>"
             f"<td>{escape(_fmt_ts(user.created_at))}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{user.id}'))}'>open</a></td>"
@@ -2220,8 +2258,8 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         "<button type='submit'>Поиск</button>"
         "</form>"
         f"{moderator_grant_form}"
-        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
-        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=8><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table>"
+        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Verified</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
+        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=9><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
     return HTMLResponse(_render_page("Manage Users", body))
@@ -3148,6 +3186,124 @@ async def action_ban_user(
                 target_tg_user_id=target_tg_user_id,
                 reason=f"[web] {reason}",
             )
+    if not result.ok:
+        return _action_error_page(request, result.message, back_to=target)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/user/verify")
+async def action_verify_user(
+    request: Request,
+    target_tg_user_id: int = Form(...),
+    custom_description: str | None = Form(None),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+    confirmed: str | None = Form(None),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_TRUST_MANAGE)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/manage/users")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    description = (custom_description or "").strip()
+    if not _is_confirmed(confirmed):
+        return _render_confirmation_page(
+            request,
+            auth,
+            title="Подтверждение верификации пользователя",
+            message=f"Подтвердить Telegram верификацию для TG user {target_tg_user_id}?",
+            action_path="/actions/user/verify",
+            fields={
+                "target_tg_user_id": str(target_tg_user_id),
+                "custom_description": description,
+                "return_to": target,
+            },
+            back_to=target,
+        )
+
+    token = settings.bot_token.strip()
+    if not token:
+        return _action_error_page(request, "BOT_TOKEN is empty", back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    bot = Bot(
+        token=token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    try:
+        async with SessionFactory() as session:
+            async with session.begin():
+                result = await set_user_verification(
+                    session,
+                    bot,
+                    actor_user_id=actor_user_id,
+                    target_tg_user_id=target_tg_user_id,
+                    verify=True,
+                    custom_description=description,
+                )
+    finally:
+        await bot.session.close()
+
+    if not result.ok:
+        return _action_error_page(request, result.message, back_to=target)
+    return RedirectResponse(url=_path_with_auth(request, target), status_code=303)
+
+
+@app.post("/actions/user/unverify")
+async def action_unverify_user(
+    request: Request,
+    target_tg_user_id: int = Form(...),
+    return_to: str | None = Form(None),
+    csrf_token: str = Form(...),
+    confirmed: str | None = Form(None),
+) -> Response:
+    response, auth = _require_scope_permission(request, SCOPE_TRUST_MANAGE)
+    if response is not None:
+        return response
+
+    target = _safe_return_to(return_to, "/manage/users")
+    if not _validate_csrf_token(request, auth, csrf_token):
+        return _csrf_failed_response(request, back_to=target)
+
+    if not _is_confirmed(confirmed):
+        return _render_confirmation_page(
+            request,
+            auth,
+            title="Подтверждение снятия верификации",
+            message=f"Снять Telegram верификацию для TG user {target_tg_user_id}?",
+            action_path="/actions/user/unverify",
+            fields={
+                "target_tg_user_id": str(target_tg_user_id),
+                "return_to": target,
+            },
+            back_to=target,
+        )
+
+    token = settings.bot_token.strip()
+    if not token:
+        return _action_error_page(request, "BOT_TOKEN is empty", back_to=target)
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    bot = Bot(
+        token=token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    try:
+        async with SessionFactory() as session:
+            async with session.begin():
+                result = await set_user_verification(
+                    session,
+                    bot,
+                    actor_user_id=actor_user_id,
+                    target_tg_user_id=target_tg_user_id,
+                    verify=False,
+                )
+    finally:
+        await bot.session.close()
+
     if not result.ok:
         return _action_error_page(request, result.message, back_to=target)
     return RedirectResponse(url=_path_with_auth(request, target), status_code=303)

@@ -5,7 +5,7 @@ from starlette.requests import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.enums import AuctionStatus
-from app.db.models import Auction, Complaint, FraudSignal, User
+from app.db.models import Auction, Complaint, FraudSignal, TelegramUserVerification, User
 from app.services.rbac_service import SCOPE_AUCTION_MANAGE, SCOPE_BID_MANAGE, SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
 from app.web.main import auctions, manage_users
@@ -90,6 +90,12 @@ async def test_manage_users_shows_risk_column(monkeypatch, integration_engine) -
                     status="OPEN",
                 )
             )
+            session.add(
+                TelegramUserVerification(
+                    tg_user_id=safe.tg_user_id,
+                    is_verified=True,
+                )
+            )
 
     monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
     monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
@@ -99,9 +105,11 @@ async def test_manage_users_shows_risk_column(monkeypatch, integration_engine) -
 
     body = bytes(response.body).decode("utf-8")
     assert response.status_code == 200
+    assert "<th>Verified</th>" in body
     assert "<th>Risk</th>" in body
     assert "HIGH (" in body
     assert "LOW (0)" in body
+    assert "yes</td>" in body
 
 
 @pytest.mark.asyncio
