@@ -533,6 +533,7 @@ Channel DM lot intake (Bot API 9.2):
 - `CHANNEL_DM_INTAKE_ENABLED` - enables `/newauction` intake in channel DM topics.
 - `CHANNEL_DM_INTAKE_CHAT_ID` - optional chat allowlist; `0` allows any direct-messages chat.
 - Incoming `suggested_post_info` events from enabled channel DM chats are routed to moderation with approve/decline actions.
+- `chat_owner_changed` / `chat_owner_left` service events from monitored channel DM chats are saved to audit and pause auto-processing until operator confirmation (`/confirmowner <chat_id>`).
 
 Examples:
 

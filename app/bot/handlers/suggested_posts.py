@@ -9,12 +9,19 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
+from app.config import settings
 from app.db.models import SuggestedPostReview
 from app.db.session import SessionFactory
 from app.services.channel_dm_intake_service import (
     AuctionIntakeKind,
     resolve_auction_intake_actor,
     resolve_auction_intake_context,
+)
+from app.services.chat_owner_guard_service import (
+    build_chat_owner_guard_alert_text,
+    is_chat_owner_confirmation_required,
+    parse_chat_owner_service_event,
+    record_chat_owner_service_event,
 )
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.rbac_service import SCOPE_DIRECT_MESSAGES_MANAGE, resolve_tg_user_scopes
@@ -37,6 +44,28 @@ class SuggestedPostDecision:
     review_id: int
     approve: bool
     decline_reason_code: str | None = None
+
+
+def _resolve_monitored_channel_dm_chat_id(message: Message) -> int | None:
+    chat = getattr(message, "chat", None)
+    if chat is None:
+        return None
+    if getattr(chat, "type", None) != ChatType.SUPERGROUP:
+        return None
+    if not bool(getattr(chat, "is_direct_messages", False)):
+        return None
+    if not settings.channel_dm_intake_enabled:
+        return None
+
+    chat_id = getattr(chat, "id", None)
+    if not isinstance(chat_id, int):
+        return None
+
+    allowed_chat_id = int(settings.channel_dm_intake_chat_id)
+    if allowed_chat_id and chat_id != allowed_chat_id:
+        return None
+
+    return chat_id
 
 
 def _build_review_keyboard(review_id: int) -> InlineKeyboardMarkup:
@@ -119,6 +148,42 @@ def _review_intro_text(*, review_id: int, message: Message) -> str:
 
 
 @router.message(F.chat.type == ChatType.SUPERGROUP)
+async def capture_chat_owner_service_events(message: Message, bot: Bot) -> None:
+    parsed_event = parse_chat_owner_service_event(message)
+    if parsed_event is None:
+        return
+
+    monitored_chat_id = _resolve_monitored_channel_dm_chat_id(message)
+    if monitored_chat_id is None:
+        return
+
+    message_id = getattr(message, "message_id", None)
+    normalized_message_id = message_id if isinstance(message_id, int) else None
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            persisted = await record_chat_owner_service_event(
+                session,
+                chat_id=monitored_chat_id,
+                message_id=normalized_message_id,
+                event=parsed_event,
+            )
+
+    if not persisted.created:
+        return
+
+    await send_section_message(
+        bot,
+        section=ModerationTopicSection.BUGS,
+        text=build_chat_owner_guard_alert_text(
+            chat_id=monitored_chat_id,
+            event=parsed_event,
+            audit_id=persisted.audit_id,
+        ),
+    )
+
+
+@router.message(F.chat.type == ChatType.SUPERGROUP)
 async def capture_suggested_post(message: Message, bot: Bot) -> None:
     if getattr(message, "suggested_post_info", None) is None:
         return
@@ -133,6 +198,9 @@ async def capture_suggested_post(message: Message, bot: Bot) -> None:
     actor = resolve_auction_intake_actor(message)
     async with SessionFactory() as session:
         async with session.begin():
+            if await is_chat_owner_confirmation_required(session, chat_id=context.chat_id):
+                return
+
             existing = await session.scalar(
                 select(SuggestedPostReview).where(
                     SuggestedPostReview.source_chat_id == context.chat_id,
@@ -229,6 +297,13 @@ async def handle_suggested_post_decision(callback: CallbackQuery, bot: Bot) -> N
 
             if review.status != "PENDING":
                 await callback.answer("Решение уже принято", show_alert=True)
+                return
+
+            if await is_chat_owner_confirmation_required(session, chat_id=review.source_chat_id):
+                await callback.answer(
+                    f"Автообработка на паузе. Нужна команда /confirmowner {review.source_chat_id}",
+                    show_alert=True,
+                )
                 return
 
             try:

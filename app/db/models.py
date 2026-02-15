@@ -256,6 +256,45 @@ class SuggestedPostReview(Base, TimestampMixin):
     payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
+class ChatOwnerServiceEventAudit(Base):
+    __tablename__ = "chat_owner_service_events"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "message_id", "event_type", name="uq_chat_owner_service_events_message"),
+        Index(
+            "ix_chat_owner_service_events_chat_pending",
+            "chat_id",
+            "requires_confirmation",
+            "resolved_at",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    old_owner_tg_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    new_owner_tg_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    requires_confirmation: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("true"),
+        index=True,
+    )
+    resolved_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+        index=True,
+    )
+
+
 class ModerationChecklistItem(Base, TimestampMixin):
     __tablename__ = "moderation_checklist_items"
     __table_args__ = (
