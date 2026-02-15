@@ -147,7 +147,12 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
         async with session.begin():
             user = await upsert_user(session, message.from_user, mark_private_started=True)
             if settings.private_topics_enabled and settings.private_topics_autocreate_on_start:
-                topics_overview = await render_user_topics_overview(session, bot, user=user)
+                topics_overview = await render_user_topics_overview(
+                    session,
+                    bot,
+                    user=user,
+                    telegram_user=message.from_user,
+                )
             if payload is not None and payload.startswith("appeal_"):
                 appeal_ref = payload[len("appeal_") :] or "manual"
                 appeal = await create_appeal_from_ref(
@@ -190,7 +195,12 @@ async def command_topics(message: Message, bot: Bot) -> None:
     async with SessionFactory() as session:
         async with session.begin():
             user = await upsert_user(session, message.from_user, mark_private_started=True)
-            overview = await render_user_topics_overview(session, bot, user=user)
+            overview = await render_user_topics_overview(
+                session,
+                bot,
+                user=user,
+                telegram_user=message.from_user,
+            )
 
     await message.answer(overview)
 

@@ -27,6 +27,7 @@ from app.services.complaint_service import (
     render_complaint_text,
     set_complaint_queue_message,
 )
+from app.services.moderation_checklist_service import ensure_checklist, render_checklist_block
 from app.services.fraud_service import (
     load_fraud_signal_view,
     render_fraud_signal_text,
@@ -480,7 +481,16 @@ async def handle_report_action(callback: CallbackQuery, bot: Bot) -> None:
                     return
 
                 complaint_id = created.complaint.id
-                complaint_text = render_complaint_text(view)
+                checklist_items = await ensure_checklist(
+                    session,
+                    entity_type="complaint",
+                    entity_id=created.complaint.id,
+                )
+                complaint_text = (
+                    f"{render_complaint_text(view)}\n\n{render_checklist_block(checklist_items)}"
+                    if checklist_items
+                    else render_complaint_text(view)
+                )
                 if soft_gate_hint:
                     show_soft_gate_hint, hint_ts = _should_emit_soft_gate_hint(
                         reporter.soft_gate_hint_sent_at
