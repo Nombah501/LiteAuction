@@ -1,7 +1,7 @@
 """add telegram verification state tables
 
-Revision ID: 0028_verification_state
-Revises: 0027_checklist_replies
+Revision ID: 0029_verification_state
+Revises: 0028_chat_owner_guard
 Create Date: 2026-02-16 11:25:00
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0028_verification_state"
-down_revision: str | None = "0027_checklist_replies"
+revision: str = "0029_verification_state"
+down_revision: str | None = "0028_chat_owner_guard"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
