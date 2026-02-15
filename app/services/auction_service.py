@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards.auction import auction_active_keyboard
 from app.config import settings
 from app.db.enums import AuctionStatus
-from app.db.models import Auction, AuctionPost, Bid, BlacklistEntry, Complaint, User
+from app.db.models import Auction, AuctionPhoto, AuctionPost, Bid, BlacklistEntry, Complaint, User
 from app.db.session import SessionFactory
 from app.services.fraud_service import evaluate_and_store_bid_fraud_signal
 
@@ -41,6 +41,7 @@ class AuctionView:
     current_price: int
     minimum_next_bid: int
     open_complaints: int
+    photo_count: int
 
 
 @dataclass(slots=True)
@@ -178,6 +179,7 @@ def render_auction_caption(view: AuctionView, *, publish_pending: bool = False) 
         f"Стартовая цена: ${view.auction.start_price}",
         f"Выкуп: {'$' + str(view.auction.buyout_price) if view.auction.buyout_price is not None else 'нет'}",
         f"Мин. шаг: ${view.auction.min_step}",
+        f"Фото: {view.photo_count}",
         f"Жалобы: {view.open_complaints}",
         f"Антиснайпер: {anti_sniper_text}",
         f"Окончание: <b>{ending_line}</b>",
@@ -197,6 +199,7 @@ async def create_draft_auction(
     *,
     seller_user_id: int,
     photo_file_id: str,
+    photo_file_ids: list[str] | None,
     description: str,
     start_price: int,
     buyout_price: int | None,
@@ -217,7 +220,31 @@ async def create_draft_auction(
     )
     session.add(auction)
     await session.flush()
+
+    raw_photo_ids = (photo_file_ids or [photo_file_id])[:10]
+    normalized_photo_ids: list[str] = []
+    seen: set[str] = set()
+    for item in raw_photo_ids:
+        if item and item not in seen:
+            normalized_photo_ids.append(item)
+            seen.add(item)
+    if not normalized_photo_ids:
+        normalized_photo_ids = [photo_file_id]
+
+    for index, file_id in enumerate(normalized_photo_ids):
+        session.add(AuctionPhoto(auction_id=auction.id, file_id=file_id, position=index))
+
+    await session.flush()
     return auction
+
+
+async def load_auction_photo_ids(session: AsyncSession, auction_id: uuid.UUID) -> list[str]:
+    rows = await session.execute(
+        select(AuctionPhoto.file_id)
+        .where(AuctionPhoto.auction_id == auction_id)
+        .order_by(AuctionPhoto.position.asc(), AuctionPhoto.id.asc())
+    )
+    return list(rows.scalars().all())
 
 
 async def get_auction_by_id(
@@ -280,6 +307,14 @@ async def load_auction_view(session: AsyncSession, auction_id: uuid.UUID) -> Auc
         )
     ) or 0
 
+    photo_count = (
+        await session.scalar(
+            select(func.count(AuctionPhoto.id)).where(AuctionPhoto.auction_id == auction.id)
+        )
+    ) or 0
+    if photo_count <= 0:
+        photo_count = 1
+
     return AuctionView(
         auction=auction,
         seller=seller,
@@ -288,6 +323,7 @@ async def load_auction_view(session: AsyncSession, auction_id: uuid.UUID) -> Auc
         current_price=current_price,
         minimum_next_bid=minimum_next_bid,
         open_complaints=int(open_complaints),
+        photo_count=int(photo_count),
     )
 
 
@@ -510,6 +546,7 @@ async def refresh_auction_posts(bot: Bot, auction_id: uuid.UUID) -> None:
             auction_id=str(view.auction.id),
             min_step=view.auction.min_step,
             has_buyout=view.auction.buyout_price is not None,
+            photo_count=view.photo_count,
         )
 
     for post in posts:

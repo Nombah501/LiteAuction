@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramForbiddenError
-from aiogram.types import CallbackQuery
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.types import CallbackQuery, InputMediaPhoto
 
 from app.bot.keyboards.moderation import complaint_actions_keyboard, fraud_actions_keyboard
 from app.config import settings
@@ -16,6 +16,8 @@ from app.services.anti_fool_service import (
     arm_or_confirm_action,
 )
 from app.services.auction_service import (
+    load_auction_photo_ids,
+    load_auction_view,
     process_bid_action,
     refresh_auction_posts,
 )
@@ -106,6 +108,62 @@ def _parse_report_payload(data: str) -> uuid.UUID | None:
         return uuid.UUID(auction_raw)
     except ValueError:
         return None
+
+
+def _parse_gallery_payload(data: str) -> uuid.UUID | None:
+    parts = data.split(":")
+    if len(parts) != 2:
+        return None
+    _, auction_raw = parts
+    try:
+        return uuid.UUID(auction_raw)
+    except ValueError:
+        return None
+
+
+@router.callback_query(F.data.startswith("gallery:"))
+async def handle_gallery_action(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+
+    auction_id = _parse_gallery_payload(callback.data)
+    if auction_id is None:
+        await callback.answer("Некорректная галерея", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        view = await load_auction_view(session, auction_id)
+        if view is None:
+            await callback.answer("Лот не найден", show_alert=True)
+            return
+        photo_ids = await load_auction_photo_ids(session, auction_id)
+
+    if not photo_ids:
+        photo_ids = [view.auction.photo_file_id]
+
+    caption = f"Фото лота #{str(auction_id)[:8]}"
+    try:
+        if len(photo_ids) == 1:
+            await bot.send_photo(callback.from_user.id, photo=photo_ids[0], caption=caption)
+        else:
+            for chunk_start in range(0, len(photo_ids), 10):
+                chunk = photo_ids[chunk_start : chunk_start + 10]
+                media = [
+                    InputMediaPhoto(
+                        media=file_id,
+                        caption=caption if chunk_start == 0 and idx == 0 else None,
+                    )
+                    for idx, file_id in enumerate(chunk)
+                ]
+                await bot.send_media_group(chat_id=callback.from_user.id, media=media)
+    except TelegramForbiddenError:
+        await callback.answer(_soft_gate_alert_text(), show_alert=True)
+        return
+    except TelegramBadRequest:
+        await callback.answer("Не удалось отправить фото. Попробуйте еще раз.", show_alert=True)
+        return
+
+    await callback.answer("Отправил фото в личку")
 
 
 async def _notify_moderators_about_complaint(

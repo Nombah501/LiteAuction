@@ -64,6 +64,14 @@ def buyout_choice_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def photos_done_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [styled_button(text="Готово", callback_data="create:photos:done", style="success")],
+        ]
+    )
+
+
 def duration_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -90,7 +98,7 @@ def anti_sniper_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def draft_publish_keyboard(auction_id: str) -> InlineKeyboardMarkup:
+def draft_publish_keyboard(auction_id: str, photo_count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -101,13 +109,32 @@ def draft_publish_keyboard(auction_id: str) -> InlineKeyboardMarkup:
                     icon_custom_emoji_id=_icon(settings.ui_emoji_publish_id),
                 )
             ],
+            [
+                styled_button(
+                    text=f"Все фото ({photo_count})",
+                    callback_data=f"gallery:{auction_id}",
+                    style="primary",
+                )
+            ],
             [styled_button(text="Создать новый лот", callback_data="create:new")],
         ]
     )
 
 
-def auction_active_keyboard(auction_id: str, min_step: int, has_buyout: bool) -> InlineKeyboardMarkup:
+def auction_active_keyboard(
+    auction_id: str,
+    min_step: int,
+    has_buyout: bool,
+    photo_count: int = 1,
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
+        [
+            styled_button(
+                text=f"Все фото ({photo_count})",
+                callback_data=f"gallery:{auction_id}",
+                style="primary",
+            )
+        ],
         [
             styled_button(
                 text=f"+ ${min_step} x1",

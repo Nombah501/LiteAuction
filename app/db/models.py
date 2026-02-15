@@ -105,6 +105,23 @@ class Auction(Base, TimestampMixin):
     )
 
 
+class AuctionPhoto(Base):
+    __tablename__ = "auction_photos"
+    __table_args__ = (
+        UniqueConstraint("auction_id", "position", name="uq_auction_photos_auction_position"),
+        Index("ix_auction_photos_auction_id", "auction_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    auction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("auctions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    file_id: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+
 class Bid(Base):
     __tablename__ = "bids"
     __table_args__ = (CheckConstraint("amount >= 1", name="bids_amount_positive"),)
