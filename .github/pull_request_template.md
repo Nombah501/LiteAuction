@@ -2,10 +2,14 @@
 
 - 
 
+## Linked Issue
+
+- Closes #
+
 ## Scope
 
 - Type: feature / fix / test / refactor / docs
-- Sprint: Sprint XX
+- Sprint label on PR: `sprint:...`
 
 ## Validation
 
@@ -36,3 +40,8 @@
 ## Reviewer Focus
 
 - 
+
+## Policy Gate
+
+- [ ] PR body includes `Closes #<issue_id>`
+- [ ] PR has at least one `sprint:*` label

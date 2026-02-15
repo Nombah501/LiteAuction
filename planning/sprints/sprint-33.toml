@@ -1,0 +1,21 @@
+sprint = "Sprint 33"
+milestone = "Sprint 33"
+milestone_description = "Planning automation and session bootstrap hardening"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S33-001"
+title = "Automate sprint sync and bootstrap agent workflow"
+description = "Add sprint manifest sync tooling, PR policy checks, and AGENTS bootstrap docs so every session follows issue-first GitHub workflow."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:chore", "area:process", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = false
+acceptance = [
+  "Sprint manifest can sync milestone and issue into GitHub",
+  "PR policy check enforces linked issue and sprint label",
+  "AGENTS bootstrap guide and planning status docs are present in repo",
+]
