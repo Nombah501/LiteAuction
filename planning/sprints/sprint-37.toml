@@ -1,0 +1,56 @@
+sprint = "Sprint 37"
+milestone = "Sprint 37"
+milestone_description = "Configuration simplification: minimal env, TOML defaults, and owner-only runtime overrides"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S37-001"
+title = "Split minimal and full environment examples"
+description = "Shrink .env.example to must-have runtime values, move full option catalog to .env.full.example, and refresh setup docs for quick onboarding."
+priority = "P1"
+estimate = "S"
+tech_debt = true
+labels = ["type:chore", "area:docs", "area:process", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "`.env.example` documents only required infra/secrets/operator bootstrap values",
+  "`.env.full.example` contains complete setting catalog grouped by domain",
+  "README setup path clearly separates quick start vs full tuning",
+]
+
+[[items]]
+id = "S37-002"
+title = "Add TOML config source for non-secret defaults"
+description = "Introduce file-based defaults via config/defaults.toml and load them through Settings while keeping env variables as override layer for backward compatibility."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:config", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Settings load defaults from TOML file",
+  "APP_CONFIG_FILE can point to alternate TOML path",
+  "Environment and .env still override TOML values",
+  "Config loading precedence is covered by tests",
+]
+
+[[items]]
+id = "S37-003"
+title = "Implement owner-only runtime settings overrides"
+description = "Add persistent runtime overrides in DB for allowlisted operational keys, expose owner-only admin page/actions, and apply overrides with safe validation and audit trail."
+priority = "P1"
+estimate = "L"
+tech_debt = false
+labels = ["type:feature", "area:ops", "area:admin", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Override records are stored in DB with actor and timestamps",
+  "Only owner role can create/update/delete runtime overrides",
+  "Only allowlisted keys are mutable in runtime layer",
+  "Invalid override values are rejected with clear feedback",
+  "Runtime changes are visible in admin UI and audited",
+]
