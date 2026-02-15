@@ -1,0 +1,75 @@
+name: Sprint task
+description: Planned implementation task linked to a sprint/milestone
+title: "[Sprint XX][TASK-ID]: "
+labels:
+  - type:feature
+body:
+  - type: input
+    id: sprint
+    attributes:
+      label: Sprint
+      placeholder: "Sprint 33"
+    validations:
+      required: true
+
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID
+      placeholder: "S33-001"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0
+        - P1
+        - P2
+        - P3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - bot
+        - web
+        - moderation
+        - infra/ci
+        - process
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What outcome should this task deliver?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One checklist item per line
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Delivery checklist
+      options:
+        - label: I will link the implementation PR with `Closes #<issue>`
+          required: true
+        - label: I will add a `sprint:*` label to the PR
+          required: true

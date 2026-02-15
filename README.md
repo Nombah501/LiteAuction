@@ -2,6 +2,8 @@
 
 MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Docker Compose.
 
+For agent-driven sessions and planning workflow, start with `AGENTS.md` and `planning/STATUS.md`.
+
 This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27 + Sprint 28 + Sprint 29 + Sprint 30**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
@@ -50,6 +52,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Rewards ledger foundation with idempotent points accrual, advanced `/points`, moderator `/modpoints` + `/modpoints_history`, and admin user-page rewards widget
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
 - Full private-chat topic routing for bot DM (`Лоты`, `Поддержка`, `Баллы`, `Сделки`, `Модерация`) with strict command/topic enforcement and `/topics`
+- Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist
 
@@ -330,6 +333,21 @@ TEST_DATABASE_URL="postgresql+asyncpg://auction:auction@${DB_IP}:5432/auction_te
 ```
 
 Integration tests refuse to run unless `TEST_DATABASE_URL` is set and points to a database name containing `test`.
+
+- Sync sprint plan to GitHub issues/milestone:
+
+```bash
+cp planning/sprints/sprint-template.toml planning/sprints/sprint-33.toml
+python scripts/sprint_sync.py --manifest planning/sprints/sprint-33.toml
+```
+
+- Create draft PR scaffolds for each sprint task:
+
+```bash
+python scripts/sprint_sync.py --manifest planning/sprints/sprint-33.toml --create-draft-prs
+```
+
+This sync also updates `planning/STATUS.md` so recovery after context loss stays deterministic.
 
 - Open moderation command list in bot private chat:
 

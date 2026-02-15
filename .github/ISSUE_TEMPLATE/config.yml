@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sprint planning docs
+    url: https://github.com/Nombah501/LiteAuction/tree/main/planning/sprints
+    about: Use sprint manifest workflow for planned work streams.

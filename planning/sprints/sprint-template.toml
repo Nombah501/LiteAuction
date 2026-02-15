@@ -1,0 +1,37 @@
+sprint = "Sprint 33"
+milestone = "Sprint 33"
+milestone_description = "Execution plan and issue/PR scaffolds for Sprint 33"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S33-001"
+title = "Implement sprint planning automation"
+description = "Create automation that syncs sprint tasks to GitHub issues and draft PRs."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:chore", "area:process", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Manifest can create/update milestone and issue",
+  "Issue has sprint metadata and acceptance checklist",
+  "Draft PR is linked to issue with closing keyword",
+]
+
+[[items]]
+id = "S33-002"
+title = "Add PR policy checks"
+description = "Enforce linked issue and sprint label requirements on pull requests."
+priority = "P1"
+estimate = "S"
+tech_debt = true
+labels = ["type:chore", "area:ci", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "PR check fails when no linked issue is present",
+  "PR check fails when no sprint label is present",
+  "PR check passes when both conditions are met",
+]
