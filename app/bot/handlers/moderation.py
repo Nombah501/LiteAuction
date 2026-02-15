@@ -68,6 +68,7 @@ from app.services.moderation_service import (
 )
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
 from app.services.message_draft_service import send_progress_draft
+from app.services.chat_owner_guard_service import confirm_chat_owner_events
 from app.services.moderation_checklist_service import (
     ENTITY_APPEAL,
     ENTITY_COMPLAINT,
@@ -94,6 +95,7 @@ from app.services.private_topics_service import (
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
+    SCOPE_DIRECT_MESSAGES_MANAGE,
     SCOPE_ROLE_MANAGE,
     SCOPE_USER_BAN,
 )
@@ -727,6 +729,8 @@ async def mod_help(message: Message, bot: Bot) -> None:
                 "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost|aboost]",
             ]
         )
+    if SCOPE_DIRECT_MESSAGES_MANAGE in scopes:
+        commands.append("/confirmowner <chat_id>")
 
     await message.answer("Команды модерации:\n" + "\n".join(commands))
 
@@ -1399,6 +1403,46 @@ async def mod_audit(message: Message, bot: Bot) -> None:
             f"- {log.created_at.strftime('%d.%m %H:%M')} | {log.action} | {target} | reason: {log.reason}"
         )
     await message.answer("\n".join(lines[:30]))
+
+
+@router.message(Command("confirmowner"), F.chat.type == ChatType.PRIVATE)
+async def mod_confirm_owner(message: Message, bot: Bot | None = None) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/confirmowner"):
+        return
+    if (
+        not await _require_scope_message(message, SCOPE_DIRECT_MESSAGES_MANAGE)
+        or message.from_user is None
+        or message.text is None
+    ):
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) != 2:
+        await message.answer("Формат: /confirmowner <chat_id>")
+        return
+
+    try:
+        chat_id = int(parts[1].strip())
+    except ValueError:
+        await message.answer("chat_id должен быть числом")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, message.from_user)
+            resolved = await confirm_chat_owner_events(
+                session,
+                chat_id=chat_id,
+                actor_user_id=actor.id,
+            )
+
+    if resolved == 0:
+        await message.answer("Нет неподтвержденных owner-событий для этого DM-чата.")
+        return
+
+    await message.answer(
+        f"Подтверждено событий: {resolved}. Пауза автообработки для чата <code>{chat_id}</code> снята."
+    )
 
 
 @router.message(Command("risk"), F.chat.type == ChatType.PRIVATE)
