@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, cast
 
@@ -70,7 +71,10 @@ from app.services.message_draft_service import send_progress_draft
 from app.services.moderation_checklist_service import (
     ENTITY_APPEAL,
     ENTITY_COMPLAINT,
+    ENTITY_GUARANTOR,
+    add_checklist_reply,
     ensure_checklist,
+    list_checklist_replies,
     render_checklist_block,
     toggle_checklist_item,
 )
@@ -100,6 +104,17 @@ PANEL_PAGE_SIZE = 5
 DEFAULT_POINTS_HISTORY_LIMIT = 5
 MAX_POINTS_HISTORY_LIMIT = 20
 MODPOINTS_HISTORY_PAGE_SIZE = 10
+
+
+@dataclass(slots=True)
+class _PendingChecklistReply:
+    entity_type: str
+    entity_id: int
+    item_code: str
+    page: int
+
+
+_PENDING_CHECKLIST_REPLIES: dict[int, _PendingChecklistReply] = {}
 
 
 def _appeal_deep_link(appeal_ref: str) -> str | None:
@@ -192,7 +207,22 @@ async def _append_checklist_block(
     items = await ensure_checklist(session, entity_type=entity_type, entity_id=entity_id)
     if not items:
         return text
-    return f"{text}\n\n{render_checklist_block(items)}"
+    replies_by_item = await list_checklist_replies(
+        session,
+        entity_type=entity_type,
+        entity_id=entity_id,
+    )
+    return f"{text}\n\n{render_checklist_block(items, replies_by_item=replies_by_item)}"
+
+
+def _checklist_title(*, entity_type: str, entity_id: int) -> str:
+    if entity_type == ENTITY_COMPLAINT:
+        return f"Чеклист жалобы #{entity_id}"
+    if entity_type == ENTITY_APPEAL:
+        return f"Чеклист апелляции #{entity_id}"
+    if entity_type == ENTITY_GUARANTOR:
+        return f"Чеклист гаранта #{entity_id}"
+    return f"Чеклист #{entity_id}"
 
 
 def _checklist_back_callback(*, entity_type: str, entity_id: int, page: int) -> str | None:
@@ -1847,7 +1877,7 @@ async def mod_checklist_callbacks(callback: CallbackQuery) -> None:
         return
 
     parts = callback.data.split(":")
-    if len(parts) < 6:
+    if len(parts) < 5:
         await callback.answer("Некорректный чеклист", show_alert=True)
         return
 
@@ -1856,28 +1886,38 @@ async def mod_checklist_callbacks(callback: CallbackQuery) -> None:
         await callback.answer("Некорректный id", show_alert=True)
         return
     entity_id = int(entity_id_raw)
-    page = _parse_page(rest[-1]) if rest else 0
+
+    item_code: str | None = None
+    if action in {"toggle", "reply"}:
+        if len(rest) != 2:
+            await callback.answer("Некорректный пункт", show_alert=True)
+            return
+        item_code = rest[0]
+        page = _parse_page(rest[1])
+    else:
+        if len(rest) != 1:
+            await callback.answer("Некорректная страница", show_alert=True)
+            return
+        page = _parse_page(rest[0])
+
     if page is None:
         await callback.answer("Некорректная страница", show_alert=True)
         return
 
-    if entity_type not in {ENTITY_COMPLAINT, ENTITY_APPEAL, "guarantor"}:
+    if entity_type not in {ENTITY_COMPLAINT, ENTITY_APPEAL, ENTITY_GUARANTOR}:
         await callback.answer("Неизвестный тип чеклиста", show_alert=True)
         return
 
+    action_message = ""
     async with SessionFactory() as session:
         async with session.begin():
             actor = await upsert_user(session, callback.from_user)
             if action == "toggle":
-                if len(rest) < 2:
-                    await callback.answer("Некорректный пункт", show_alert=True)
-                    return
-                item_code = rest[0]
                 toggled = await toggle_checklist_item(
                     session,
                     entity_type=entity_type,
                     entity_id=entity_id,
-                    item_code=item_code,
+                    item_code=item_code or "",
                     actor_user_id=actor.id,
                 )
                 if toggled is None:
@@ -1895,8 +1935,23 @@ async def mod_checklist_callbacks(callback: CallbackQuery) -> None:
                         "is_done": toggled.is_done,
                     },
                 )
+                action_message = "Чеклист обновлен"
+
+            if action == "reply":
+                _PENDING_CHECKLIST_REPLIES[callback.from_user.id] = _PendingChecklistReply(
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    item_code=item_code or "",
+                    page=page,
+                )
+                action_message = "Отправьте ответ одним сообщением в чат модерации"
 
             items = await ensure_checklist(session, entity_type=entity_type, entity_id=entity_id)
+            replies_by_item = await list_checklist_replies(
+                session,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
 
     back_callback = _checklist_back_callback(entity_type=entity_type, entity_id=entity_id, page=page)
     keyboard = moderation_checklist_keyboard(
@@ -1906,13 +1961,90 @@ async def mod_checklist_callbacks(callback: CallbackQuery) -> None:
         items=items,
         back_callback=back_callback,
     )
-    title = {
-        ENTITY_COMPLAINT: f"Чеклист жалобы #{entity_id}",
-        ENTITY_APPEAL: f"Чеклист апелляции #{entity_id}",
-        "guarantor": f"Чеклист гаранта #{entity_id}",
-    }[entity_type]
-    await callback.message.edit_text(f"{title}\n\n{render_checklist_block(items)}", reply_markup=keyboard)
-    await callback.answer("Чеклист обновлен" if action == "toggle" else "")
+    title = _checklist_title(entity_type=entity_type, entity_id=entity_id)
+    checklist_text = render_checklist_block(items, replies_by_item=replies_by_item)
+    await callback.message.edit_text(f"{title}\n\n{checklist_text}", reply_markup=keyboard)
+    await callback.answer(action_message)
+
+
+@router.message(F.text)
+async def mod_checklist_reply_message(message: Message, bot: Bot) -> None:
+    if message.from_user is None or message.text is None:
+        return
+
+    pending = _PENDING_CHECKLIST_REPLIES.get(message.from_user.id)
+    if pending is None:
+        return
+
+    if not await _ensure_moderation_topic(message, bot, "/modpanel"):
+        return
+    if not await _require_moderator(message):
+        return
+
+    raw = message.text.strip()
+    if raw == "/cancel":
+        _PENDING_CHECKLIST_REPLIES.pop(message.from_user.id, None)
+        await message.answer("Ответ к чеклисту отменен")
+        return
+    if len(raw) < 2:
+        await message.answer("Ответ слишком короткий. Отправьте текст или /cancel")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor = await upsert_user(session, message.from_user)
+            reply = await add_checklist_reply(
+                session,
+                entity_type=pending.entity_type,
+                entity_id=pending.entity_id,
+                item_code=pending.item_code,
+                actor_user_id=actor.id,
+                reply_text=raw,
+            )
+            if reply is None:
+                await message.answer("Не удалось сохранить ответ для этого пункта")
+                return
+
+            await log_moderation_action(
+                session,
+                actor_user_id=actor.id,
+                action=ModerationAction.UPDATE_MODERATION_CHECKLIST,
+                reason=f"Checklist reply {pending.entity_type}:{pending.entity_id}:{pending.item_code}",
+                payload={
+                    "entity_type": pending.entity_type,
+                    "entity_id": pending.entity_id,
+                    "item_code": pending.item_code,
+                    "reply_text": raw,
+                },
+            )
+
+            items = await ensure_checklist(
+                session,
+                entity_type=pending.entity_type,
+                entity_id=pending.entity_id,
+            )
+            replies_by_item = await list_checklist_replies(
+                session,
+                entity_type=pending.entity_type,
+                entity_id=pending.entity_id,
+            )
+
+    _PENDING_CHECKLIST_REPLIES.pop(message.from_user.id, None)
+    back_callback = _checklist_back_callback(
+        entity_type=pending.entity_type,
+        entity_id=pending.entity_id,
+        page=pending.page,
+    )
+    keyboard = moderation_checklist_keyboard(
+        entity_type=pending.entity_type,
+        entity_id=pending.entity_id,
+        page=pending.page,
+        items=items,
+        back_callback=back_callback,
+    )
+    title = _checklist_title(entity_type=pending.entity_type, entity_id=pending.entity_id)
+    checklist_text = render_checklist_block(items, replies_by_item=replies_by_item)
+    await message.answer(f"{title}\n\n{checklist_text}", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("modrep:"))
