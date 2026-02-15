@@ -5,6 +5,7 @@ from aiogram.types import InlineKeyboardMarkup
 from app.bot.keyboards.auction import styled_button
 from app.config import settings
 from app.db.enums import FeedbackStatus, GuarantorRequestStatus
+from app.services.moderation_checklist_service import ChecklistItemView
 
 
 def _icon(value: str) -> str | None:
@@ -24,6 +25,7 @@ def complaint_actions_keyboard(
     complaint_id: int,
     *,
     back_callback: str | None = None,
+    checklist_page: int = 0,
 ) -> InlineKeyboardMarkup:
     rows = [
         [
@@ -64,6 +66,12 @@ def complaint_actions_keyboard(
                     settings.ui_emoji_mod_panel_id,
                 ),
             ),
+        ],
+        [
+            styled_button(
+                text="Чеклист",
+                callback_data=f"modchk:open:complaint:{complaint_id}:{checklist_page}",
+            )
         ],
     ]
     if back_callback is not None:
@@ -470,6 +478,14 @@ def moderation_appeal_actions_keyboard(*, appeal_id: int, page: int, show_take: 
     rows.append(
         [
             styled_button(
+                text="Чеклист",
+                callback_data=f"modchk:open:appeal:{appeal_id}:{page}",
+            )
+        ]
+    )
+    rows.append(
+        [
+            styled_button(
                 text="Назад",
                 callback_data=f"modui:appeals:{page}",
                 icon_custom_emoji_id=_icon_fallback(
@@ -483,9 +499,15 @@ def moderation_appeal_actions_keyboard(*, appeal_id: int, page: int, show_take: 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def moderation_appeal_back_keyboard(*, page: int) -> InlineKeyboardMarkup:
+def moderation_appeal_back_keyboard(*, appeal_id: int, page: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                styled_button(
+                    text="Чеклист",
+                    callback_data=f"modchk:open:appeal:{appeal_id}:{page}",
+                )
+            ],
             [
                 styled_button(
                     text="Назад",
@@ -571,5 +593,34 @@ def guarantor_actions_keyboard(*, request_id: int, status: GuarantorRequestStatu
                     ),
                 ),
             ]
+            ,
+            [
+                styled_button(
+                    text="Чеклист",
+                    callback_data=f"modchk:open:guarantor:{request_id}:0",
+                )
+            ],
         ]
     )
+
+
+def moderation_checklist_keyboard(
+    *,
+    entity_type: str,
+    entity_id: int,
+    page: int,
+    items: list[ChecklistItemView],
+    back_callback: str | None,
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            styled_button(
+                text=f"{'[x]' if item.is_done else '[ ]'} {item.label}",
+                callback_data=f"modchk:toggle:{entity_type}:{entity_id}:{item.code}:{page}",
+            )
+        ]
+        for item in items
+    ]
+    if back_callback is not None:
+        rows.append([styled_button(text="Назад", callback_data=back_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
