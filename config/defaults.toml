@@ -1,0 +1,185 @@
+# Non-secret application defaults.
+#
+# Loading order (high -> low priority):
+# 1) init kwargs
+# 2) environment variables
+# 3) .env file
+# 4) this TOML file
+# 5) hardcoded fallback defaults in app/config.py
+
+# -----------------------------------------------------------------------------
+# Logging and web auth policy
+# -----------------------------------------------------------------------------
+log_level = "INFO"
+admin_web_auth_max_age_seconds = 86400
+admin_web_cookie_secure = false
+admin_web_csrf_ttl_seconds = 7200
+
+# -----------------------------------------------------------------------------
+# Optional Bot API custom emoji IDs (button icons)
+# -----------------------------------------------------------------------------
+ui_emoji_create_auction_id = ""
+ui_emoji_publish_id = ""
+ui_emoji_bid_id = ""
+ui_emoji_bid_x1_id = ""
+ui_emoji_bid_x3_id = ""
+ui_emoji_bid_x5_id = ""
+ui_emoji_buyout_id = ""
+ui_emoji_report_id = ""
+ui_emoji_copy_publish_id = ""
+ui_emoji_gallery_id = ""
+ui_emoji_new_lot_id = ""
+ui_emoji_photos_done_id = ""
+ui_emoji_mod_panel_id = ""
+ui_emoji_mod_complaints_id = ""
+ui_emoji_mod_signals_id = ""
+ui_emoji_mod_frozen_id = ""
+ui_emoji_mod_appeals_id = ""
+ui_emoji_mod_stats_id = ""
+ui_emoji_mod_refresh_id = ""
+ui_emoji_mod_freeze_id = ""
+ui_emoji_mod_unfreeze_id = ""
+ui_emoji_mod_remove_top_id = ""
+ui_emoji_mod_ban_id = ""
+ui_emoji_mod_ignore_id = ""
+ui_emoji_mod_take_id = ""
+ui_emoji_mod_approve_id = ""
+ui_emoji_mod_reject_id = ""
+ui_emoji_mod_assign_guarantor_id = ""
+ui_emoji_mod_back_id = ""
+ui_emoji_mod_menu_id = ""
+ui_emoji_mod_prev_id = ""
+ui_emoji_mod_next_id = ""
+
+# -----------------------------------------------------------------------------
+# Auction and anti-spam behavior
+# -----------------------------------------------------------------------------
+anti_sniper_window_minutes = 2
+anti_sniper_extend_minutes = 3
+anti_sniper_max_extensions = 3
+bid_cooldown_seconds = 2
+duplicate_bid_window_seconds = 15
+confirmation_ttl_seconds = 5
+complaint_cooldown_seconds = 60
+auction_watcher_interval_seconds = 5
+
+# -----------------------------------------------------------------------------
+# Onboarding and private topics
+# -----------------------------------------------------------------------------
+soft_gate_require_private_start = true
+soft_gate_mode = "grace"
+soft_gate_hint_interval_hours = 24
+
+private_topics_enabled = true
+private_topics_strict_routing = true
+private_topics_autocreate_on_start = true
+private_topics_user_topic_policy = "auto"
+private_topic_title_auctions = "Лоты"
+private_topic_title_support = "Поддержка"
+private_topic_title_points = "Баллы"
+private_topic_title_trades = "Сделки"
+private_topic_title_moderation = "Модерация"
+
+bot_profile_photo_presets = ""
+bot_profile_photo_default_preset = "default"
+
+auction_message_effects_enabled = false
+auction_effect_outbid_id = ""
+auction_effect_buyout_seller_id = ""
+auction_effect_buyout_winner_id = ""
+auction_effect_ended_seller_id = ""
+auction_effect_ended_winner_id = ""
+
+channel_dm_intake_enabled = false
+channel_dm_intake_chat_id = 0
+message_drafts_enabled = true
+
+# -----------------------------------------------------------------------------
+# Fraud heuristics tuning
+# -----------------------------------------------------------------------------
+fraud_alert_threshold = 60
+fraud_rapid_window_seconds = 120
+fraud_rapid_min_bids = 5
+fraud_dominance_window_seconds = 300
+fraud_dominance_min_total_bids = 8
+fraud_dominance_ratio = 0.7
+fraud_duopoly_window_seconds = 300
+fraud_duopoly_min_total_bids = 10
+fraud_duopoly_pair_ratio = 0.85
+fraud_alternating_recent_bids = 8
+fraud_alternating_min_switches = 6
+fraud_baseline_window_seconds = 3600
+fraud_baseline_min_bids = 6
+fraud_baseline_spike_factor = 4.0
+fraud_baseline_min_increment = 50
+fraud_baseline_spike_score = 25
+fraud_historical_completed_auctions = 30
+fraud_historical_min_points = 25
+fraud_historical_spike_factor = 3.0
+fraud_historical_min_increment = 40
+fraud_historical_spike_score = 20
+fraud_historical_start_ratio_low = 0.5
+fraud_historical_start_ratio_high = 2.0
+
+# -----------------------------------------------------------------------------
+# Appeals
+# -----------------------------------------------------------------------------
+appeal_sla_open_hours = 24
+appeal_sla_in_review_hours = 12
+appeal_escalation_enabled = true
+appeal_escalation_interval_seconds = 60
+appeal_escalation_batch_size = 50
+appeal_escalation_actor_tg_user_id = -1
+
+# -----------------------------------------------------------------------------
+# Feedback and points
+# -----------------------------------------------------------------------------
+feedback_intake_min_length = 10
+feedback_intake_cooldown_seconds = 90
+feedback_bug_reward_points = 30
+feedback_suggestion_reward_points = 20
+feedback_priority_boost_enabled = true
+feedback_priority_boost_cost_points = 25
+feedback_priority_boost_daily_limit = 2
+feedback_priority_boost_cooldown_seconds = 0
+
+points_redemption_enabled = true
+points_redemption_cooldown_seconds = 60
+points_redemption_daily_limit = 0
+points_redemption_weekly_limit = 0
+points_redemption_daily_spend_cap = 0
+points_redemption_weekly_spend_cap = 0
+points_redemption_monthly_spend_cap = 0
+points_redemption_min_balance = 0
+points_redemption_min_account_age_seconds = 0
+points_redemption_min_earned_points = 0
+
+appeal_priority_boost_enabled = true
+appeal_priority_boost_cost_points = 20
+appeal_priority_boost_daily_limit = 1
+appeal_priority_boost_cooldown_seconds = 0
+
+# -----------------------------------------------------------------------------
+# Guarantor and publish policy
+# -----------------------------------------------------------------------------
+guarantor_intake_min_length = 10
+guarantor_intake_cooldown_seconds = 180
+guarantor_priority_boost_enabled = true
+guarantor_priority_boost_cost_points = 40
+guarantor_priority_boost_daily_limit = 1
+guarantor_priority_boost_cooldown_seconds = 0
+publish_high_risk_requires_guarantor = true
+publish_guarantor_assignment_max_age_days = 30
+
+# -----------------------------------------------------------------------------
+# GitHub outbox worker behavior
+# -----------------------------------------------------------------------------
+github_automation_enabled = false
+github_repo_owner = "Nombah501"
+github_repo_name = "LiteAuction"
+outbox_watcher_interval_seconds = 20
+outbox_batch_size = 20
+outbox_max_attempts = 5
+outbox_retry_base_seconds = 30
+outbox_retry_max_seconds = 1800
+feedback_github_actor_tg_user_id = -998

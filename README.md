@@ -294,7 +294,12 @@ Optional: use `.env.full.example` as reference for all advanced tuning keys.
 
 3. Ensure timezone is set (default: `Asia/Tashkent`).
 
-4. Run services:
+4. Tune non-secret behavior defaults in `config/defaults.toml`.
+
+- You can keep `.env` small (tokens, IDs, URLs) and move policy/tuning values into TOML.
+- Optional: set `APP_CONFIG_FILE` in `.env` to use an alternate TOML file path.
+
+5. Run services:
 
 ```bash
 docker compose up -d --build
@@ -302,7 +307,7 @@ docker compose up -d --build
 
 Admin panel will be available at `http://localhost:8080`.
 
-5. Check logs:
+6. Check logs:
 
 ```bash
 docker compose logs -f bot
@@ -477,6 +482,8 @@ FEEDBACK_GITHUB_ACTOR_TG_USER_ID=-998
 For full non-secret tuning keys (fraud thresholds, points limits, boosts, private topic policy, feature flags, UI emojis), use `.env.full.example`.
 
 Topic-specific IDs are optional; when unset the bot falls back to `MODERATION_THREAD_ID`.
+
+Configuration precedence (high -> low): init kwargs -> environment -> `.env` -> `config/defaults.toml` -> hardcoded fallback defaults.
 
 `SOFT_GATE_MODE` behavior:
 

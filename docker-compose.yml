@@ -37,6 +37,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://auction:auction@db:5432/auction}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       TZ: ${TZ:-Asia/Tashkent}
+      APP_CONFIG_FILE: ${APP_CONFIG_FILE:-config/defaults.toml}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
       ADMIN_OPERATOR_USER_IDS: ${ADMIN_OPERATOR_USER_IDS:-}
@@ -148,6 +149,7 @@ services:
       BOT_USERNAME: ${BOT_USERNAME:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://auction:auction@db:5432/auction}
       TZ: ${TZ:-Asia/Tashkent}
+      APP_CONFIG_FILE: ${APP_CONFIG_FILE:-config/defaults.toml}
       ADMIN_PANEL_TOKEN: ${ADMIN_PANEL_TOKEN:-}
       ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
       ADMIN_OPERATOR_USER_IDS: ${ADMIN_OPERATOR_USER_IDS:-}
