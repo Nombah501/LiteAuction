@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     private_topics_enabled: bool = True
     private_topics_strict_routing: bool = True
     private_topics_autocreate_on_start: bool = True
+    private_topics_user_topic_policy: str = "auto"
     private_topic_title_auctions: str = "Лоты"
     private_topic_title_support: str = "Поддержка"
     private_topic_title_points: str = "Баллы"
