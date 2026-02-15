@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     private_topics_enabled: bool = True
     private_topics_strict_routing: bool = True
     private_topics_autocreate_on_start: bool = True
+    private_topics_user_topic_policy: str = "auto"
     private_topic_title_auctions: str = "Лоты"
     private_topic_title_support: str = "Поддержка"
     private_topic_title_points: str = "Баллы"
@@ -81,6 +82,9 @@ class Settings(BaseSettings):
     private_topic_title_moderation: str = "Модерация"
     bot_profile_photo_presets: str = ""
     bot_profile_photo_default_preset: str = "default"
+    channel_dm_intake_enabled: bool = False
+    channel_dm_intake_chat_id: int = 0
+    message_drafts_enabled: bool = True
     auction_watcher_interval_seconds: int = 5
     fraud_alert_threshold: int = 60
     fraud_rapid_window_seconds: int = 120

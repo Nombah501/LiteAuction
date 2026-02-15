@@ -1,7 +1,7 @@
 """add bot profile photo moderation actions
 
-Revision ID: 0025_bot_profile_photo_actions
-Revises: 0024_add_user_private_topics
+Revision ID: 0028_bot_profile_photo_actions
+Revises: 0027_checklist_replies
 Create Date: 2026-02-16 09:30:00
 """
 
@@ -10,8 +10,8 @@ from typing import Sequence
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0025_bot_profile_photo_actions"
-down_revision: str | None = "0024_add_user_private_topics"
+revision: str = "0028_bot_profile_photo_actions"
+down_revision: str | None = "0027_checklist_replies"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
