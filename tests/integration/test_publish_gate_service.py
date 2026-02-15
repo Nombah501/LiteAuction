@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.enums import AuctionStatus, GuarantorRequestStatus
-from app.db.models import Auction, Complaint, FraudSignal, GuarantorRequest, User
+from app.db.models import Auction, Complaint, FraudSignal, GuarantorRequest, TelegramUserVerification, User
 from app.services.publish_gate_service import evaluate_seller_publish_gate
 
 
@@ -206,3 +206,43 @@ async def test_publish_gate_blocks_with_stale_assigned_guarantor(integration_eng
     assert gate.allowed is False
     assert gate.risk_level == "HIGH"
     assert gate.block_message is not None
+
+
+@pytest.mark.asyncio
+async def test_publish_gate_consumes_verified_user_state_safely(integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=93941, username="verified_seller")
+            reporter = User(tg_user_id=93942, username="reporter4")
+            session.add_all([seller, reporter])
+            await session.flush()
+
+            auction = _make_auction(seller_user_id=seller.id, description="verified-lot")
+            session.add(auction)
+            await session.flush()
+
+            session.add(
+                Complaint(
+                    auction_id=auction.id,
+                    reporter_user_id=reporter.id,
+                    target_user_id=seller.id,
+                    reason="single complaint",
+                    status="OPEN",
+                )
+            )
+            session.add(
+                TelegramUserVerification(
+                    tg_user_id=seller.tg_user_id,
+                    is_verified=True,
+                    custom_description="trusted",
+                )
+            )
+            await session.flush()
+
+            gate = await evaluate_seller_publish_gate(session, seller_user_id=seller.id)
+
+    assert gate.allowed is True
+    assert gate.risk_level == "LOW"
+    assert gate.risk_score == 5

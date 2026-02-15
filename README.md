@@ -57,6 +57,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Draft-stream progress hints (`sendMessageDraft`) for long-running bot actions like `/modstats` and auction finalize
 - Moderation checklists for complaints, guarantor requests, and appeals with audit-logged checklist toggles
 - Task-scoped checklist replies in moderation flows with actor/timestamp audit trail
+- Seller/chat verification workflow (`verifyUser`/`verifyChat`) with scope-gated operator commands and trust-aware risk integration
 - Sprint planning automation via TOML manifests + GitHub issue/draft-PR sync + PR policy gate (`Closes #...` + `sprint:*` label)
 
 ## Sprint 0 Checklist
@@ -550,6 +551,16 @@ Example:
 ```text
 MESSAGE_DRAFTS_ENABLED=true
 ```
+
+Verification workflow (Bot API verify/remove verification):
+
+- Scope `trust:manage` can run moderation commands:
+  - `/verifyuser <tg_user_id> [description]`
+  - `/unverifyuser <tg_user_id>`
+  - `/verifychat <chat_id> [description]`
+  - `/unverifychat <chat_id>`
+- User verification state is shown in web `/manage/users` and `/manage/user/<id>` surfaces.
+- Risk/trust scoring consumes verification in a conservative way (bonus applies only when there is no active blacklist and no open fraud signals).
 
 - Optional Bot API 9.4 button icons (custom emoji IDs):
 

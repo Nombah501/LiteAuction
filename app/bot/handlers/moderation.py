@@ -94,10 +94,17 @@ from app.services.private_topics_service import (
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
+    SCOPE_TRUST_MANAGE,
     SCOPE_ROLE_MANAGE,
     SCOPE_USER_BAN,
 )
 from app.services.user_service import upsert_user
+from app.services.verification_service import (
+    get_user_verification_status,
+    load_verified_tg_user_ids,
+    set_chat_verification,
+    set_user_verification,
+)
 
 router = Router(name="moderation")
 PANEL_PAGE_SIZE = 5
@@ -465,6 +472,8 @@ def _scope_title(scope: str) -> str:
         return "бан/разбан пользователей"
     if scope == SCOPE_ROLE_MANAGE:
         return "управление ролями"
+    if scope == SCOPE_TRUST_MANAGE:
+        return "управление верификацией"
     return scope
 
 
@@ -676,6 +685,32 @@ def _parse_page(raw: str) -> int | None:
     return value
 
 
+def _parse_tg_user_and_description(text: str) -> tuple[int, str | None] | None:
+    parts = text.split(maxsplit=2)
+    if len(parts) < 2 or not parts[1].isdigit():
+        return None
+    tg_user_id = int(parts[1])
+    description = parts[2].strip() if len(parts) > 2 else None
+    if description == "":
+        description = None
+    return tg_user_id, description
+
+
+def _parse_chat_and_description(text: str) -> tuple[int, str | None] | None:
+    parts = text.split(maxsplit=2)
+    if len(parts) < 2:
+        return None
+    try:
+        chat_id = int(parts[1])
+    except ValueError:
+        return None
+
+    description = parts[2].strip() if len(parts) > 2 else None
+    if description == "":
+        description = None
+    return chat_id, description
+
+
 @router.message(Command("mod"), F.chat.type == ChatType.PRIVATE)
 async def mod_help(message: Message, bot: Bot) -> None:
     if not await _ensure_moderation_topic(message, bot, "/mod"):
@@ -725,6 +760,15 @@ async def mod_help(message: Message, bot: Bot) -> None:
                 "/modpoints <tg_user_id> <limit>",
                 "/modpoints <tg_user_id> <amount> <reason>",
                 "/modpoints_history <tg_user_id> [page] [all|feedback|manual|boost|gboost|aboost]",
+            ]
+        )
+    if SCOPE_TRUST_MANAGE in scopes:
+        commands.extend(
+            [
+                "/verifyuser <tg_user_id> [description]",
+                "/unverifyuser <tg_user_id>",
+                "/verifychat <chat_id> [description]",
+                "/unverifychat <chat_id>",
             ]
         )
 
@@ -1418,6 +1462,16 @@ async def mod_risk(message: Message, bot: Bot) -> None:
 
     async with SessionFactory() as session:
         signals = await list_fraud_signals(session, auction_id=auction_id, status="OPEN")
+        user_map: dict[int, User] = {}
+        verified_tg_ids: set[int] = set()
+        if signals:
+            user_ids = sorted({signal.user_id for signal in signals})
+            users = (await session.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+            user_map = {user.id: user for user in users}
+            verified_tg_ids = await load_verified_tg_user_ids(
+                session,
+                tg_user_ids=[user.tg_user_id for user in users],
+            )
 
     if not signals:
         await message.answer("Открытые фрод-сигналы не найдены")
@@ -1425,10 +1479,135 @@ async def mod_risk(message: Message, bot: Bot) -> None:
 
     lines = ["Открытые фрод-сигналы:"]
     for signal in signals:
+        user = user_map.get(signal.user_id)
+        tg_user_id = user.tg_user_id if user is not None else signal.user_id
+        verified_marker = " [verified]" if tg_user_id in verified_tg_ids else ""
         lines.append(
-            f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={signal.user_id} | score={signal.score}"
+            f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={tg_user_id}{verified_marker} | score={signal.score}"
         )
     await message.answer("\n".join(lines[:30]))
+
+
+@router.message(Command("verifyuser"), F.chat.type == ChatType.PRIVATE)
+async def mod_verify_user(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/verifyuser"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_tg_user_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /verifyuser <tg_user_id> [description]")
+        return
+
+    tg_user_id, description = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_user_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                target_tg_user_id=tg_user_id,
+                verify=True,
+                custom_description=description,
+            )
+
+    await message.answer(result.message)
+
+
+@router.message(Command("unverifyuser"), F.chat.type == ChatType.PRIVATE)
+async def mod_unverify_user(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/unverifyuser"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_tg_user_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /unverifyuser <tg_user_id>")
+        return
+
+    tg_user_id, _ = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_user_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                target_tg_user_id=tg_user_id,
+                verify=False,
+            )
+
+    await message.answer(result.message)
+
+
+@router.message(Command("verifychat"), F.chat.type == ChatType.PRIVATE)
+async def mod_verify_chat(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/verifychat"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_chat_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /verifychat <chat_id> [description]")
+        return
+
+    chat_id, description = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_chat_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                chat_id=chat_id,
+                verify=True,
+                custom_description=description,
+            )
+
+    await message.answer(result.message)
+
+
+@router.message(Command("unverifychat"), F.chat.type == ChatType.PRIVATE)
+async def mod_unverify_chat(message: Message, bot: Bot) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/unverifychat"):
+        return
+    if not await _require_scope_message(message, SCOPE_TRUST_MANAGE) or message.text is None:
+        return
+    actor = message.from_user
+    if actor is None:
+        return
+
+    parsed = _parse_chat_and_description(message.text)
+    if parsed is None:
+        await message.answer("Формат: /unverifychat <chat_id>")
+        return
+
+    chat_id, _ = parsed
+    async with SessionFactory() as session:
+        async with session.begin():
+            actor_user = await upsert_user(session, actor)
+            result = await set_chat_verification(
+                session,
+                bot,
+                actor_user_id=actor_user.id,
+                chat_id=chat_id,
+                verify=False,
+            )
+
+    await message.answer(result.message)
 
 
 @router.callback_query(F.data.startswith("modui:"))
@@ -1689,17 +1868,34 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 limit=PANEL_PAGE_SIZE + 1,
                 offset=offset,
             )
+            visible_user_ids = sorted({signal.user_id for signal in signals[:PANEL_PAGE_SIZE]})
+            users = (
+                (await session.execute(select(User).where(User.id.in_(visible_user_ids)))).scalars().all()
+                if visible_user_ids
+                else []
+            )
+            users_by_id = {user.id: user for user in users}
+            verified_tg_ids = await load_verified_tg_user_ids(
+                session,
+                tg_user_ids=[user.tg_user_id for user in users],
+            )
 
         has_next = len(signals) > PANEL_PAGE_SIZE
         visible = signals[:PANEL_PAGE_SIZE]
-        items = [
-            (signal.id, f"Сигнал #{signal.id} | score {signal.score}")
-            for signal in visible
-        ]
+        items = []
+        for signal in visible:
+            user = users_by_id.get(signal.user_id)
+            tg_user_id = user.tg_user_id if user is not None else signal.user_id
+            verified_marker = " ✅" if tg_user_id in verified_tg_ids else ""
+            items.append((signal.id, f"Сигнал #{signal.id} | score {signal.score}{verified_marker}"))
+
         text_lines = [f"Открытые фрод-сигналы, стр. {page + 1}"]
         for signal in visible:
+            user = users_by_id.get(signal.user_id)
+            tg_user_id = user.tg_user_id if user is not None else signal.user_id
+            verified_marker = " [verified]" if tg_user_id in verified_tg_ids else ""
             text_lines.append(
-                f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={signal.user_id} | score={signal.score}"
+                f"- #{signal.id} | auc={str(signal.auction_id)[:8]} | user={tg_user_id}{verified_marker} | score={signal.score}"
             )
         if not visible:
             text_lines.append("- нет записей")
@@ -1852,12 +2048,20 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
 
         async with SessionFactory() as session:
             view = await load_fraud_signal_view(session, signal_id)
+            verification = None
+            if view is not None:
+                verification = await get_user_verification_status(
+                    session,
+                    tg_user_id=view.user.tg_user_id,
+                )
         if view is None:
             await callback.answer("Сигнал не найден", show_alert=True)
             return
 
+        verification_line = "Верификация пользователя: yes" if verification and verification.is_verified else "Верификация пользователя: no"
+
         await callback.message.edit_text(
-            render_fraud_signal_text(view),
+            f"{render_fraud_signal_text(view)}\n{verification_line}",
             reply_markup=fraud_actions_keyboard(
                 signal_id,
                 back_callback=f"modui:signals:{page}",
@@ -2327,7 +2531,12 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
 
             refreshed = await load_fraud_signal_view(session, signal_id)
             if refreshed is not None:
-                updated_text = render_fraud_signal_text(refreshed)
+                verification = await get_user_verification_status(
+                    session,
+                    tg_user_id=refreshed.user.tg_user_id,
+                )
+                verification_line = "Верификация пользователя: yes" if verification.is_verified else "Верификация пользователя: no"
+                updated_text = f"{render_fraud_signal_text(refreshed)}\n{verification_line}"
 
     if auction_id is not None:
         await refresh_auction_posts(bot, auction_id)

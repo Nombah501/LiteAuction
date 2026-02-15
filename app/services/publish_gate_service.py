@@ -6,9 +6,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models import Bid, BlacklistEntry, Complaint, FraudSignal
+from app.db.models import Bid, BlacklistEntry, Complaint, FraudSignal, User
 from app.services.guarantor_service import has_assigned_guarantor_request
 from app.services.risk_eval_service import evaluate_user_risk_snapshot, format_risk_reason_label
+from app.services.verification_service import is_user_verified
 
 
 @dataclass(slots=True, frozen=True)
@@ -65,12 +66,17 @@ async def evaluate_seller_publish_gate(
         )
         or 0
     )
+    seller = await session.scalar(select(User).where(User.id == seller_user_id))
+    seller_verified = False
+    if seller is not None:
+        seller_verified = await is_user_verified(session, tg_user_id=seller.tg_user_id)
 
     risk = evaluate_user_risk_snapshot(
         complaints_against=complaints_against,
         open_fraud_signals=open_fraud_signals,
         has_active_blacklist=has_active_blacklist,
         removed_bids=removed_bids,
+        is_verified_user=seller_verified,
     )
 
     if not settings.publish_high_risk_requires_guarantor:
