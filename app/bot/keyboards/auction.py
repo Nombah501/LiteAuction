@@ -10,6 +10,14 @@ def _icon(value: str) -> str | None:
     return raw if raw else None
 
 
+def _first_icon(*values: str) -> str | None:
+    for value in values:
+        icon = _icon(value)
+        if icon is not None:
+            return icon
+    return None
+
+
 def styled_button(
     *,
     text: str,
@@ -70,7 +78,17 @@ def buyout_choice_keyboard() -> InlineKeyboardMarkup:
 def photos_done_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [styled_button(text="Готово", callback_data="create:photos:done", style="success")],
+            [
+                styled_button(
+                    text="Готово",
+                    callback_data="create:photos:done",
+                    style="success",
+                    icon_custom_emoji_id=_first_icon(
+                        settings.ui_emoji_photos_done_id,
+                        settings.ui_emoji_create_auction_id,
+                    ),
+                )
+            ],
         ]
     )
 
@@ -117,6 +135,10 @@ def draft_publish_keyboard(auction_id: str, photo_count: int) -> InlineKeyboardM
                     text="Скопировать /publish",
                     copy_text=f"/publish {auction_id}",
                     style="success",
+                    icon_custom_emoji_id=_first_icon(
+                        settings.ui_emoji_copy_publish_id,
+                        settings.ui_emoji_publish_id,
+                    ),
                 )
             ],
             [
@@ -124,9 +146,22 @@ def draft_publish_keyboard(auction_id: str, photo_count: int) -> InlineKeyboardM
                     text=f"Все фото ({photo_count})",
                     callback_data=f"gallery:{auction_id}",
                     style="primary",
+                    icon_custom_emoji_id=_first_icon(
+                        settings.ui_emoji_gallery_id,
+                        settings.ui_emoji_publish_id,
+                    ),
                 )
             ],
-            [styled_button(text="Создать новый лот", callback_data="create:new")],
+            [
+                styled_button(
+                    text="Создать новый лот",
+                    callback_data="create:new",
+                    icon_custom_emoji_id=_first_icon(
+                        settings.ui_emoji_new_lot_id,
+                        settings.ui_emoji_create_auction_id,
+                    ),
+                )
+            ],
         ]
     )
 
@@ -143,6 +178,10 @@ def auction_active_keyboard(
                 text=f"Все фото ({photo_count})",
                 callback_data=f"gallery:{auction_id}",
                 style="primary",
+                icon_custom_emoji_id=_first_icon(
+                    settings.ui_emoji_gallery_id,
+                    settings.ui_emoji_publish_id,
+                ),
             )
         ],
         [
@@ -150,19 +189,28 @@ def auction_active_keyboard(
                 text=f"+ ${min_step} x1",
                 callback_data=f"bid:{auction_id}:1",
                 style="primary",
-                icon_custom_emoji_id=_icon(settings.ui_emoji_bid_id),
+                icon_custom_emoji_id=_first_icon(
+                    settings.ui_emoji_bid_x1_id,
+                    settings.ui_emoji_bid_id,
+                ),
             ),
             styled_button(
                 text=f"+ ${min_step * 3} x3",
                 callback_data=f"bid:{auction_id}:3",
                 style="success",
-                icon_custom_emoji_id=_icon(settings.ui_emoji_bid_id),
+                icon_custom_emoji_id=_first_icon(
+                    settings.ui_emoji_bid_x3_id,
+                    settings.ui_emoji_bid_id,
+                ),
             ),
             styled_button(
                 text=f"+ ${min_step * 5} x5",
                 callback_data=f"bid:{auction_id}:5",
                 style="success",
-                icon_custom_emoji_id=_icon(settings.ui_emoji_bid_id),
+                icon_custom_emoji_id=_first_icon(
+                    settings.ui_emoji_bid_x5_id,
+                    settings.ui_emoji_bid_id,
+                ),
             ),
         ]
     ]
