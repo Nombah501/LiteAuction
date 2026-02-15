@@ -390,6 +390,9 @@ The web action uses an idempotent key per form submit (`action_id`) to prevent d
 
 ```text
 /modpanel
+/botphoto list
+/botphoto set <preset>
+/botphoto reset
 ```
 
 - Extract custom emoji IDs for Bot API 9.4 button icons:
@@ -527,6 +530,8 @@ PRIVATE_TOPIC_TITLE_SUPPORT=Поддержка
 PRIVATE_TOPIC_TITLE_POINTS=Баллы
 PRIVATE_TOPIC_TITLE_TRADES=Сделки
 PRIVATE_TOPIC_TITLE_MODERATION=Модерация
+BOT_PROFILE_PHOTO_PRESETS=default=AgACAgIAAxk...,campaign=AgACAgIAAxk...
+BOT_PROFILE_PHOTO_DEFAULT_PRESET=default
 AUCTION_MESSAGE_EFFECTS_ENABLED=false
 AUCTION_EFFECT_OUTBID_ID=
 AUCTION_EFFECT_BUYOUT_SELLER_ID=
@@ -534,6 +539,12 @@ AUCTION_EFFECT_BUYOUT_WINNER_ID=
 AUCTION_EFFECT_ENDED_SELLER_ID=
 AUCTION_EFFECT_ENDED_WINNER_ID=
 ```
+
+Bot profile photo presets (`/botphoto` command for operators with `auction:manage`):
+
+- `BOT_PROFILE_PHOTO_PRESETS` - comma-separated `preset=file_id` map used by `/botphoto set <preset>`.
+- `BOT_PROFILE_PHOTO_DEFAULT_PRESET` - preset name used by `/botphoto reset`; if missing, reset falls back to `removeMyProfilePhoto`.
+- Successful set/reset actions are written to moderation audit log.
 
 Auction message effects for critical auction notifications:
 
