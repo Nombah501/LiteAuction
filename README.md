@@ -518,7 +518,19 @@ PRIVATE_TOPIC_TITLE_SUPPORT=Поддержка
 PRIVATE_TOPIC_TITLE_POINTS=Баллы
 PRIVATE_TOPIC_TITLE_TRADES=Сделки
 PRIVATE_TOPIC_TITLE_MODERATION=Модерация
+AUCTION_MESSAGE_EFFECTS_ENABLED=false
+AUCTION_EFFECT_OUTBID_ID=
+AUCTION_EFFECT_BUYOUT_SELLER_ID=
+AUCTION_EFFECT_BUYOUT_WINNER_ID=
+AUCTION_EFFECT_ENDED_SELLER_ID=
+AUCTION_EFFECT_ENDED_WINNER_ID=
 ```
+
+Auction message effects for critical auction notifications:
+
+- `AUCTION_MESSAGE_EFFECTS_ENABLED` - global kill-switch for all auction effect usage.
+- `AUCTION_EFFECT_*_ID` - per-event effect IDs (`outbid`, `buyout seller/winner`, `ended seller/winner`).
+- If effect delivery is rejected by Telegram (unsupported effect/client/chat), bot retries the same text notification without `message_effect_id`.
 
 - Optional Bot API 9.4 button icons (custom emoji IDs):
 

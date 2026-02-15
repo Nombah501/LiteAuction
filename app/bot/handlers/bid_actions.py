@@ -32,6 +32,10 @@ from app.services.fraud_service import (
     render_fraud_signal_text,
     set_fraud_signal_queue_message,
 )
+from app.services.message_effects_service import (
+    AuctionMessageEffectEvent,
+    resolve_auction_message_effect_id,
+)
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.user_service import upsert_user
@@ -227,6 +231,7 @@ async def _notify_outbid(bot: Bot, outbid_user_tg_id: int | None, actor_tg_id: i
         tg_user_id=outbid_user_tg_id,
         purpose=PrivateTopicPurpose.AUCTIONS,
         text="Вашу ставку перебили. Откройте аукцион и сделайте новую.",
+        message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.OUTBID),
     )
 
 
@@ -244,6 +249,9 @@ async def _notify_auction_finish(
             tg_user_id=seller_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Аукцион #{short_id} завершен (выкуп).",
+            message_effect_id=resolve_auction_message_effect_id(
+                AuctionMessageEffectEvent.BUYOUT_SELLER
+            ),
         )
     if winner_tg_id is not None:
         await send_user_topic_message(
@@ -251,6 +259,9 @@ async def _notify_auction_finish(
             tg_user_id=winner_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Вы выиграли аукцион #{short_id} через выкуп.",
+            message_effect_id=resolve_auction_message_effect_id(
+                AuctionMessageEffectEvent.BUYOUT_WINNER
+            ),
         )
 
 

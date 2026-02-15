@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     private_topic_title_points: str = "Баллы"
     private_topic_title_trades: str = "Сделки"
     private_topic_title_moderation: str = "Модерация"
+    auction_message_effects_enabled: bool = False
+    auction_effect_outbid_id: str = ""
+    auction_effect_buyout_seller_id: str = ""
+    auction_effect_buyout_winner_id: str = ""
+    auction_effect_ended_seller_id: str = ""
+    auction_effect_ended_winner_id: str = ""
     auction_watcher_interval_seconds: int = 5
     fraud_alert_threshold: int = 60
     fraud_rapid_window_seconds: int = 120
@@ -198,6 +204,28 @@ class Settings(BaseSettings):
         if not normalized:
             return None
         return self.parsed_moderation_topic_ids().get(normalized)
+
+    def parsed_auction_effect_ids(self) -> dict[str, str]:
+        raw_map = {
+            "outbid": self.auction_effect_outbid_id,
+            "buyout_seller": self.auction_effect_buyout_seller_id,
+            "buyout_winner": self.auction_effect_buyout_winner_id,
+            "ended_seller": self.auction_effect_ended_seller_id,
+            "ended_winner": self.auction_effect_ended_winner_id,
+        }
+        parsed: dict[str, str] = {}
+        for event, value in raw_map.items():
+            normalized = value.strip()
+            if not normalized:
+                continue
+            parsed[event] = normalized
+        return parsed
+
+    def parsed_auction_effect_id(self, event: str) -> str | None:
+        normalized = event.strip().lower()
+        if not normalized:
+            return None
+        return self.parsed_auction_effect_ids().get(normalized)
 
 
 @lru_cache(1)
