@@ -44,17 +44,39 @@ def styled_button(
     return InlineKeyboardButton.model_validate(payload)
 
 
-def start_private_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                styled_button(
-                    text="Создать аукцион",
-                    callback_data="create:new",
-                    style="primary",
-                    icon_custom_emoji_id=_icon(settings.ui_emoji_create_auction_id),
-                )
-            ],
+def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            styled_button(
+                text="Создать аукцион",
+                callback_data="create:new",
+                style="primary",
+                icon_custom_emoji_id=_icon(settings.ui_emoji_create_auction_id),
+            )
+        ],
+        [
+            styled_button(
+                text="Мои аукционы",
+                callback_data="dash:my_auctions",
+                style="primary",
+            )
+        ],
+        [
+            styled_button(
+                text="Настройки",
+                callback_data="dash:settings",
+            )
+        ],
+        [
+            styled_button(
+                text="Баланс",
+                callback_data="dash:balance",
+            )
+        ],
+    ]
+
+    if show_moderation_button:
+        rows.append(
             [
                 styled_button(
                     text="Мод-панель",
@@ -62,9 +84,10 @@ def start_private_keyboard() -> InlineKeyboardMarkup:
                     style="success",
                     icon_custom_emoji_id=_icon(settings.ui_emoji_mod_panel_id),
                 )
-            ],
-        ]
-    )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def buyout_choice_keyboard() -> InlineKeyboardMarkup:

@@ -1,11 +1,11 @@
 # Planning Status
 
-Last sync: 2026-02-16 02:45 UTC
-Active sprint: Sprint 39
+Last sync: 2026-02-16 03:22 UTC
+Active sprint: Sprint 40
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S39-001 | Fix misleading album photo progress message in create flow | [#123](https://github.com/Nombah501/LiteAuction/issues/123) (open) | - |
+| S40-001 | Redesign private dashboard menu and add callbacks | [#125](https://github.com/Nombah501/LiteAuction/issues/125) (open) | - |
 
 ## Recovery Checklist
 
