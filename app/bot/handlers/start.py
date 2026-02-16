@@ -20,6 +20,7 @@ from app.config import settings
 from app.db.enums import AuctionStatus
 from app.db.session import SessionFactory
 from app.services.appeal_service import create_appeal_from_ref, redeem_appeal_priority_boost
+from app.services.auction_service import refresh_auction_posts
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import (
@@ -34,6 +35,7 @@ from app.services.seller_dashboard_service import (
     SellerAuctionPostItem,
     SellerBidLogItem,
     is_valid_my_auctions_filter,
+    is_valid_my_auctions_sort,
     list_seller_auction_bid_logs,
     list_seller_auction_posts,
     list_seller_auctions,
@@ -81,6 +83,12 @@ MY_AUCTIONS_FILTER_LABELS: dict[str, str] = {
     "l": "Все",
 }
 
+MY_AUCTIONS_SORT_LABELS: dict[str, str] = {
+    "n": "Новые",
+    "e": "Скоро финиш",
+    "b": "Больше ставок",
+}
+
 
 def _auction_status_label(status: AuctionStatus) -> str:
     labels = {
@@ -103,29 +111,41 @@ def _parse_non_negative_int(raw: str) -> int | None:
     return value
 
 
-def _parse_my_auctions_list_payload(data: str) -> tuple[str, int] | None:
+def _parse_my_auctions_list_payload(data: str) -> tuple[str, str, int] | None:
     parts = data.split(":")
-    if len(parts) != 5:
+    if len(parts) == 5:
+        _, scope, action, filter_key, page_raw = parts
+        sort_key = "n"
+    elif len(parts) == 6:
+        _, scope, action, filter_key, sort_key, page_raw = parts
+    else:
         return None
-    _, scope, action, filter_key, page_raw = parts
     if scope != "my" or action != "list":
         return None
     if not is_valid_my_auctions_filter(filter_key):
         return None
+    if not is_valid_my_auctions_sort(sort_key):
+        return None
     page = _parse_non_negative_int(page_raw)
     if page is None:
         return None
-    return filter_key, page
+    return filter_key, sort_key, page
 
 
-def _parse_my_auctions_item_payload(data: str, *, action: str) -> tuple[uuid.UUID, str, int] | None:
+def _parse_my_auctions_item_payload(data: str, *, action: str) -> tuple[uuid.UUID, str, str, int] | None:
     parts = data.split(":")
-    if len(parts) != 6:
+    if len(parts) == 6:
+        _, scope, payload_action, auction_raw, filter_key, page_raw = parts
+        sort_key = "n"
+    elif len(parts) == 7:
+        _, scope, payload_action, auction_raw, filter_key, sort_key, page_raw = parts
+    else:
         return None
-    _, scope, payload_action, auction_raw, filter_key, page_raw = parts
     if scope != "my" or payload_action != action:
         return None
     if not is_valid_my_auctions_filter(filter_key):
+        return None
+    if not is_valid_my_auctions_sort(sort_key):
         return None
     page = _parse_non_negative_int(page_raw)
     if page is None:
@@ -134,7 +154,7 @@ def _parse_my_auctions_item_payload(data: str, *, action: str) -> tuple[uuid.UUI
         auction_id = uuid.UUID(auction_raw)
     except ValueError:
         return None
-    return auction_id, filter_key, page
+    return auction_id, filter_key, sort_key, page
 
 
 def _format_time_left(ends_at: datetime | None) -> str:
@@ -158,11 +178,13 @@ def _render_my_auctions_list_text(
     *,
     items: list[SellerAuctionListItem],
     filter_key: str,
+    sort_key: str,
     page: int,
     total_items: int,
 ) -> str:
     filter_label = MY_AUCTIONS_FILTER_LABELS.get(filter_key, "Все")
-    header = f"<b>Мои аукционы</b> · {filter_label}"
+    sort_label = MY_AUCTIONS_SORT_LABELS.get(sort_key, "Новые")
+    header = f"<b>Мои аукционы</b> · {filter_label} · {sort_label}"
     if not items:
         return (
             f"{header}\n\n"
@@ -193,13 +215,31 @@ def _auction_list_button_label(item: SellerAuctionListItem) -> str:
 
 def _render_my_auction_detail_text(item: SellerAuctionListItem) -> str:
     ends_at_text = item.ends_at.astimezone(UTC).strftime("%d.%m.%Y %H:%M UTC") if item.ends_at else "-"
+    growth_abs = item.current_price - item.start_price
+    growth_percent = 0.0
+    if item.start_price > 0:
+        growth_percent = (growth_abs / item.start_price) * 100
+    growth_sign = "+" if growth_abs >= 0 else ""
+
+    avg_growth_per_bid = 0.0
+    if item.bid_count > 0:
+        avg_growth_per_bid = growth_abs / item.bid_count
+
+    outcome_label = "Финальная цена" if item.status in {
+        AuctionStatus.ENDED,
+        AuctionStatus.BOUGHT_OUT,
+        AuctionStatus.CANCELLED,
+    } else "Текущая цена"
+
     return "\n".join(
         [
             f"<b>Лот #{str(item.auction_id)[:8]}</b>",
             f"Статус: <b>{_auction_status_label(item.status)}</b>",
-            f"Текущая цена: <b>${item.current_price}</b>",
+            f"{outcome_label}: <b>${item.current_price}</b>",
             f"Стартовая цена: ${item.start_price}",
             f"Кол-во ставок: {item.bid_count}",
+            f"Прирост к старту: {growth_sign}${growth_abs} ({growth_sign}{growth_percent:.1f}%)",
+            f"Ср. прирост на ставку: ${avg_growth_per_bid:.2f}",
             f"Окончание: {ends_at_text}",
             "",
             "Используйте кнопки ниже для просмотра ставок и публикаций.",
@@ -499,8 +539,10 @@ async def _show_my_auctions_list(
     callback: CallbackQuery,
     *,
     filter_key: str,
+    sort_key: str,
     page: int,
     edit_message: bool,
+    answer_callback: bool = True,
 ) -> None:
     if callback.from_user is None:
         return
@@ -515,6 +557,7 @@ async def _show_my_auctions_list(
                 session,
                 seller_user_id=user.id,
                 filter_key=filter_key,
+                sort_key=sort_key,
                 page=page,
                 page_size=MY_AUCTIONS_PAGE_SIZE,
             )
@@ -524,18 +567,21 @@ async def _show_my_auctions_list(
     text = _render_my_auctions_list_text(
         items=items,
         filter_key=filter_key,
+        sort_key=sort_key,
         page=page,
         total_items=total_items,
     )
     keyboard = my_auctions_list_keyboard(
         auctions=[(str(item.auction_id), _auction_list_button_label(item)) for item in items],
         current_filter=filter_key,
+        current_sort=sort_key,
         page=page,
         has_prev=has_prev,
         has_next=has_next,
     )
 
-    await callback.answer()
+    if answer_callback:
+        await callback.answer()
     if edit_message:
         try:
             await callback.message.edit_text(
@@ -557,10 +603,13 @@ async def _show_my_auctions_list(
 async def _show_my_auction_details(
     callback: CallbackQuery,
     *,
+    bot: Bot,
     auction_id: uuid.UUID,
     filter_key: str,
+    sort_key: str,
     page: int,
     edit_message: bool,
+    answer_callback: bool = True,
 ) -> None:
     if callback.from_user is None:
         return
@@ -579,8 +628,13 @@ async def _show_my_auction_details(
         return
 
     first_post_url: str | None = None
+    username_cache: dict[int, str | None] = {}
     for post in posts:
-        first_post_url = _resolve_post_link(post.chat_id, post.message_id, username=None)
+        if post.chat_id is not None:
+            username = await _chat_username_by_id(bot, post.chat_id, username_cache)
+        else:
+            username = None
+        first_post_url = _resolve_post_link(post.chat_id, post.message_id, username=username)
         if first_post_url is not None:
             break
 
@@ -588,11 +642,14 @@ async def _show_my_auction_details(
     keyboard = my_auction_detail_keyboard(
         auction_id=str(item.auction_id),
         filter_key=filter_key,
+        sort_key=sort_key,
         page=page,
+        status=item.status,
         first_post_url=first_post_url,
     )
 
-    await callback.answer()
+    if answer_callback:
+        await callback.answer()
     if edit_message:
         try:
             await callback.message.edit_text(
@@ -613,7 +670,7 @@ async def _show_my_auction_details(
 
 @router.callback_query(F.data == "dash:my_auctions")
 async def callback_my_auctions(callback: CallbackQuery) -> None:
-    await _show_my_auctions_list(callback, filter_key="a", page=0, edit_message=False)
+    await _show_my_auctions_list(callback, filter_key="a", sort_key="n", page=0, edit_message=False)
 
 
 @router.callback_query(F.data.startswith("dash:my:list:"))
@@ -625,12 +682,18 @@ async def callback_my_auctions_list(callback: CallbackQuery) -> None:
         await callback.answer("Некорректная навигация", show_alert=True)
         return
 
-    filter_key, page = payload
-    await _show_my_auctions_list(callback, filter_key=filter_key, page=page, edit_message=True)
+    filter_key, sort_key, page = payload
+    await _show_my_auctions_list(
+        callback,
+        filter_key=filter_key,
+        sort_key=sort_key,
+        page=page,
+        edit_message=True,
+    )
 
 
 @router.callback_query(F.data.startswith("dash:my:view:"))
-async def callback_my_auction_details(callback: CallbackQuery) -> None:
+async def callback_my_auction_details(callback: CallbackQuery, bot: Bot) -> None:
     if callback.data is None:
         return
     payload = _parse_my_auctions_item_payload(callback.data, action="view")
@@ -638,11 +701,13 @@ async def callback_my_auction_details(callback: CallbackQuery) -> None:
         await callback.answer("Некорректный лот", show_alert=True)
         return
 
-    auction_id, filter_key, page = payload
+    auction_id, filter_key, sort_key, page = payload
     await _show_my_auction_details(
         callback,
+        bot=bot,
         auction_id=auction_id,
         filter_key=filter_key,
+        sort_key=sort_key,
         page=page,
         edit_message=True,
     )
@@ -660,7 +725,7 @@ async def callback_my_auction_bids(callback: CallbackQuery) -> None:
         await callback.answer("Не удалось открыть ставки", show_alert=True)
         return
 
-    auction_id, filter_key, page = payload
+    auction_id, filter_key, sort_key, page = payload
     async with SessionFactory() as session:
         async with session.begin():
             user = await upsert_user(session, callback.from_user, mark_private_started=True)
@@ -682,6 +747,7 @@ async def callback_my_auction_bids(callback: CallbackQuery) -> None:
         reply_markup=my_auction_subview_keyboard(
             auction_id=str(item.auction_id),
             filter_key=filter_key,
+            sort_key=sort_key,
             page=page,
         ),
         disable_web_page_preview=True,
@@ -700,7 +766,7 @@ async def callback_my_auction_posts(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Не удалось открыть публикации", show_alert=True)
         return
 
-    auction_id, filter_key, page = payload
+    auction_id, filter_key, sort_key, page = payload
     async with SessionFactory() as session:
         async with session.begin():
             user = await upsert_user(session, callback.from_user, mark_private_started=True)
@@ -727,9 +793,51 @@ async def callback_my_auction_posts(callback: CallbackQuery, bot: Bot) -> None:
         reply_markup=my_auction_subview_keyboard(
             auction_id=str(item.auction_id),
             filter_key=filter_key,
+            sort_key=sort_key,
             page=page,
         ),
         disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(F.data.startswith("dash:my:refresh:"))
+async def callback_my_auction_refresh_posts(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось обновить карточку", show_alert=True)
+        return
+
+    payload = _parse_my_auctions_item_payload(callback.data, action="refresh")
+    if payload is None:
+        await callback.answer("Некорректный лот", show_alert=True)
+        return
+
+    auction_id, filter_key, sort_key, page = payload
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            item = await load_seller_auction(session, seller_user_id=user.id, auction_id=auction_id)
+
+    if item is None:
+        await callback.answer("Лот не найден", show_alert=True)
+        return
+
+    if item.status not in {AuctionStatus.ACTIVE, AuctionStatus.FROZEN}:
+        await callback.answer("Обновление доступно только для активных лотов", show_alert=True)
+        return
+
+    await refresh_auction_posts(bot, item.auction_id)
+    await callback.answer("Посты обновлены")
+    await _show_my_auction_details(
+        callback,
+        bot=bot,
+        auction_id=item.auction_id,
+        filter_key=filter_key,
+        sort_key=sort_key,
+        page=page,
+        edit_message=True,
+        answer_callback=False,
     )
 
 
