@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -47,7 +48,7 @@ router = Router(name="bid_actions")
 def _soft_gate_alert_text() -> str:
     username = settings.bot_username.strip()
     if username:
-        return f"Сначала откройте @{username} в личке и нажмите /start. Можно через кнопку 'Открыть бота' внизу поста."
+        return f"Сначала откройте @{username} в личке и нажмите /start. Можно через кнопку 'Бот' внизу поста."
     return "Сначала откройте бота в личке и нажмите /start"
 
 
@@ -56,6 +57,31 @@ def _soft_gate_hint_text(action_done_text: str) -> str:
     if username:
         return f"{action_done_text}. Для уведомлений откройте @{username} в личке и нажмите /start"
     return f"{action_done_text}. Для уведомлений откройте бота в личке и нажмите /start"
+
+
+def _extract_amount_from_alert_text(alert_text: str) -> int | None:
+    match = re.search(r"\$(\d+)", alert_text)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _compose_bid_success_alert(*, alert_text: str, placed_bid_amount: int | None, include_soft_gate_hint: bool) -> str:
+    amount = placed_bid_amount
+    if amount is None:
+        amount = _extract_amount_from_alert_text(alert_text)
+
+    if amount is not None:
+        if "выкуп" in alert_text.lower():
+            base = f"✅ Выкуп оформлен: ${amount}"
+        else:
+            base = f"✅ Ставка зафиксирована: ${amount}"
+    else:
+        base = alert_text
+
+    if include_soft_gate_hint:
+        return _soft_gate_hint_text(base)
+    return base
 
 
 def _soft_gate_decision(*, private_started: bool) -> tuple[bool, bool]:
@@ -278,19 +304,6 @@ async def handle_bid_action(callback: CallbackQuery, bot: Bot) -> None:
 
     auction_id, multiplier = payload
 
-    if multiplier in {3, 5}:
-        needs_confirm = await arm_or_confirm_action(
-            auction_id,
-            callback.from_user.id,
-            action=f"x{multiplier}",
-        )
-        if needs_confirm:
-            await callback.answer(
-                f"Подтвердите ставку +x{multiplier}: нажмите кнопку еще раз в течение {settings.confirmation_ttl_seconds} сек.",
-                show_alert=True,
-            )
-            return
-
     if not await acquire_bid_cooldown(auction_id, callback.from_user.id):
         await callback.answer(
             f"Слишком часто. Подождите {settings.bid_cooldown_seconds} сек.",
@@ -328,10 +341,17 @@ async def handle_bid_action(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Не удалось обработать ставку", show_alert=True)
         return
 
-    if result.success and show_soft_gate_hint:
-        await callback.answer(_soft_gate_hint_text("Ставка принята"), show_alert=True)
+    if result.success:
+        await callback.answer(
+            _compose_bid_success_alert(
+                alert_text=result.alert_text,
+                placed_bid_amount=result.placed_bid_amount,
+                include_soft_gate_hint=show_soft_gate_hint,
+            ),
+            show_alert=True,
+        )
     else:
-        await callback.answer(result.alert_text, show_alert=not result.success)
+        await callback.answer(result.alert_text, show_alert=True)
 
     if result.should_refresh:
         await refresh_auction_posts(bot, auction_id)

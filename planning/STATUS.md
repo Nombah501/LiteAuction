@@ -1,14 +1,15 @@
 # Planning Status
 
-Last sync: 2026-02-15 22:11 UTC
-Active sprint: Sprint 37
+Last sync: 2026-02-16 02:25 UTC
+Active sprint: Sprint 38
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S37-001 | Split minimal and full environment examples | [#107](https://github.com/Nombah501/LiteAuction/issues/107) (closed) | - |
-| S37-002 | Add TOML config source for non-secret defaults | [#108](https://github.com/Nombah501/LiteAuction/issues/108) (closed) | - |
-| S37-003 | Implement owner-only runtime settings overrides | [#109](https://github.com/Nombah501/LiteAuction/issues/109) (closed) | - |
-| S37-004 | Refresh planning status and sprint manifest docs | [#113](https://github.com/Nombah501/LiteAuction/issues/113) (open) | - |
+| S38-001 | Redesign auction caption copy and structure | [#117](https://github.com/Nombah501/LiteAuction/issues/117) (open) | - |
+| S38-002 | Compact active auction keyboard and unify bid button style | [#118](https://github.com/Nombah501/LiteAuction/issues/118) (open) | - |
+| S38-003 | Enable one-tap bids and show exact bid amount in alerts | [#119](https://github.com/Nombah501/LiteAuction/issues/119) (open) | - |
+| S38-004 | Add regression tests for keyboard and bid feedback | [#120](https://github.com/Nombah501/LiteAuction/issues/120) (open) | - |
+| S38-005 | Refresh docs and rollout checklist for auction UX changes | [#121](https://github.com/Nombah501/LiteAuction/issues/121) (open) | - |
 
 ## Recovery Checklist
 

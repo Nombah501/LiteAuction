@@ -29,6 +29,13 @@ def _button_by_text(rows: list[list[InlineKeyboardButton]], text: str) -> Inline
     raise AssertionError(f"Button not found: {text}")
 
 
+def _button_by_url(rows: list[list[InlineKeyboardButton]], url: str) -> InlineKeyboardButton:
+    for button in _all_buttons(rows):
+        if button.url == url:
+            return button
+    raise AssertionError(f"Button not found by url: {url}")
+
+
 def test_auction_keyboard_uses_granular_emoji_ids(monkeypatch) -> None:
     monkeypatch.setattr(settings, "ui_emoji_bid_id", "bid-base")
     monkeypatch.setattr(settings, "ui_emoji_bid_x1_id", "bid-x1")
@@ -40,12 +47,30 @@ def test_auction_keyboard_uses_granular_emoji_ids(monkeypatch) -> None:
     monkeypatch.setattr(settings, "ui_emoji_create_auction_id", "create-base")
     monkeypatch.setattr(settings, "ui_emoji_new_lot_id", "new-lot")
     monkeypatch.setattr(settings, "ui_emoji_photos_done_id", "photos-done")
+    monkeypatch.setattr(settings, "bot_username", "liteauctionbot")
 
     active = auction_active_keyboard("auc", min_step=2, has_buyout=True, photo_count=3)
     assert _button_by_callback(active.inline_keyboard, "bid:auc:1").icon_custom_emoji_id == "bid-x1"
     assert _button_by_callback(active.inline_keyboard, "bid:auc:3").icon_custom_emoji_id == "bid-x3"
     assert _button_by_callback(active.inline_keyboard, "bid:auc:5").icon_custom_emoji_id == "bid-x5"
     assert _button_by_callback(active.inline_keyboard, "gallery:auc").icon_custom_emoji_id == "gallery"
+    assert _button_by_callback(active.inline_keyboard, "bid:auc:1").text == "+$2"
+    assert _button_by_callback(active.inline_keyboard, "bid:auc:3").text == "+$6"
+    assert _button_by_callback(active.inline_keyboard, "bid:auc:5").text == "+$10"
+    assert _button_by_callback(active.inline_keyboard, "bid:auc:1").style == "success"
+    assert _button_by_callback(active.inline_keyboard, "bid:auc:3").style == "success"
+    assert _button_by_callback(active.inline_keyboard, "bid:auc:5").style == "success"
+    assert _button_by_callback(active.inline_keyboard, "buy:auc").text == "Выкуп"
+    assert _button_by_callback(active.inline_keyboard, "report:auc").text == "Жалоба"
+    assert _button_by_callback(active.inline_keyboard, "gallery:auc").text == "Фото 3"
+    bot_button = _button_by_url(active.inline_keyboard, "https://t.me/liteauctionbot?start=auction_gate")
+    assert bot_button.text == "Бот"
+
+    utility_rows = [
+        row for row in active.inline_keyboard if any(button.callback_data == "gallery:auc" for button in row)
+    ]
+    assert len(utility_rows) == 1
+    assert [button.text for button in utility_rows[0]] == ["Фото 3", "Жалоба", "Бот"]
 
     draft = draft_publish_keyboard("auc", photo_count=3)
     assert _button_by_text(draft.inline_keyboard, "Скопировать /publish").icon_custom_emoji_id == "copy-publish"
@@ -66,6 +91,7 @@ def test_auction_keyboard_emoji_fallbacks(monkeypatch) -> None:
     monkeypatch.setattr(settings, "ui_emoji_create_auction_id", "create-base")
     monkeypatch.setattr(settings, "ui_emoji_new_lot_id", "")
     monkeypatch.setattr(settings, "ui_emoji_photos_done_id", "")
+    monkeypatch.setattr(settings, "bot_username", "")
 
     active = auction_active_keyboard("auc", min_step=2, has_buyout=False, photo_count=2)
     assert _button_by_callback(active.inline_keyboard, "bid:auc:1").icon_custom_emoji_id == "bid-base"

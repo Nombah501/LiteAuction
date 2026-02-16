@@ -67,6 +67,7 @@ class BidActionResult:
     winner_tg_user_id: int | None = None
     seller_tg_user_id: int | None = None
     auction_finished: bool = False
+    placed_bid_amount: int | None = None
     created_bid_id: uuid.UUID | None = None
     fraud_signal_id: int | None = None
 
@@ -117,13 +118,14 @@ def _format_user_mention(user: User | None) -> str:
 
 
 def _format_top_bids(top_bids: list[TopBidView]) -> str:
+    medal = ["🥇", "🥈", "🥉"]
     if not top_bids:
-        return "1) —\n2) —\n3) —"
+        return "\n".join(f"{icon} —" for icon in medal)
 
     lines: list[str] = []
     for idx in range(3):
         if idx >= len(top_bids):
-            lines.append(f"{idx + 1}) —")
+            lines.append(f"{medal[idx]} —")
             continue
         bid = top_bids[idx]
         if bid.username:
@@ -131,7 +133,7 @@ def _format_top_bids(top_bids: list[TopBidView]) -> str:
         else:
             fallback = html.escape(bid.first_name or "Пользователь")
             actor = f'<a href="tg://user?id={bid.tg_user_id}">{fallback}</a>'
-        lines.append(f"{idx + 1}) ${bid.amount} — {actor}")
+        lines.append(f"{medal[idx]} ${bid.amount} — {actor}")
     return "\n".join(lines)
 
 
@@ -152,6 +154,18 @@ def _human_time_left(ends_at: datetime | None) -> str:
     if minutes > 0:
         return f"{minutes}м {seconds}с"
     return f"{seconds}с"
+
+
+def _status_hook_line(status: AuctionStatus) -> str:
+    hooks = {
+        AuctionStatus.DRAFT: "🧪 Лот в подготовке - доведите карточку до идеала.",
+        AuctionStatus.ACTIVE: "⚡ Торги в разгаре: ловите момент и перебивайте ставку.",
+        AuctionStatus.ENDED: "🏁 Торги завершены. Спасибо всем за участие!",
+        AuctionStatus.BOUGHT_OUT: "💥 Лот забрали моментально через выкуп.",
+        AuctionStatus.CANCELLED: "🛑 Аукцион остановлен владельцем.",
+        AuctionStatus.FROZEN: "🧊 Лот временно заморожен модератором.",
+    }
+    return hooks[status]
 
 
 def render_auction_caption(view: AuctionView, *, publish_pending: bool = False) -> str:
@@ -180,25 +194,26 @@ def render_auction_caption(view: AuctionView, *, publish_pending: bool = False) 
         ending_line = f"{ending_line} ({_human_time_left(view.auction.ends_at)})"
 
     pending_line = "\n⏳ Публикуется..." if publish_pending else ""
+    hook_line = _status_hook_line(view.auction.status)
 
     lines = [
-        f"<b>Аукцион #{str(view.auction.id)[:8]}</b>{pending_line}",
+        f"<b>🔥 Аукцион #{str(view.auction.id)[:8]}</b>{pending_line}",
         "",
-        description,
+        f"📝 {description}",
+        hook_line,
         "",
-        f"Статус: <b>{status_text}</b>",
-        f"Продавец: {_format_user_mention(view.seller)}",
-        f"Текущая цена: <b>${view.current_price}</b>",
-        f"Мин. следующий шаг: <b>${view.minimum_next_bid}</b>",
-        f"Стартовая цена: ${view.auction.start_price}",
-        f"Выкуп: {'$' + str(view.auction.buyout_price) if view.auction.buyout_price is not None else 'нет'}",
-        f"Мин. шаг: ${view.auction.min_step}",
-        f"Фото: {view.photo_count}",
-        f"Жалобы: {view.open_complaints}",
-        f"Антиснайпер: {anti_sniper_text}",
-        f"Окончание: <b>{ending_line}</b>",
+        f"🎯 Статус: <b>{status_text}</b>",
+        f"👤 Продавец: {_format_user_mention(view.seller)}",
+        f"💸 Текущая ставка: <b>${view.current_price}</b>",
+        f"⏭ Следующая ставка: <b>${view.minimum_next_bid}</b>",
+        f"🏁 Старт: ${view.auction.start_price}",
+        f"💰 Выкуп: {'$' + str(view.auction.buyout_price) if view.auction.buyout_price is not None else 'нет'}",
+        f"📈 Шаг: ${view.auction.min_step}",
+        f"🖼 Фото: {view.photo_count} | 🚨 Жалобы: {view.open_complaints}",
+        f"🛡 Антиснайпер: {anti_sniper_text}",
+        f"⏰ Финиш: <b>{ending_line}</b>",
         "",
-        "<b>Топ-3 ставок</b>",
+        "🏆 <b>Топ-3 ставок</b>",
         _format_top_bids(view.top_bids),
     ]
 
@@ -556,6 +571,7 @@ async def process_bid_action(
             winner_tg_user_id=winner_tg_user_id,
             seller_tg_user_id=seller_tg_user_id,
             auction_finished=True,
+            placed_bid_amount=bid_amount,
             outbid_tg_user_id=outbid_tg_user_id,
             created_bid_id=created_bid.id,
             fraud_signal_id=fraud_signal_id,
@@ -576,6 +592,7 @@ async def process_bid_action(
         success=True,
         should_refresh=True,
         alert_text=f"Ставка принята: ${bid_amount}",
+        placed_bid_amount=bid_amount,
         outbid_tg_user_id=outbid_tg_user_id,
         created_bid_id=created_bid.id,
         fraud_signal_id=fraud_signal_id,

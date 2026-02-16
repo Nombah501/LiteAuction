@@ -1,0 +1,89 @@
+sprint = "Sprint 38"
+milestone = "Sprint 38"
+milestone_description = "Auction post UX refresh: compact keyboard, expressive copy, one-tap bids, precise bid alerts"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S38-001"
+title = "Redesign auction caption copy and structure"
+description = "Refresh auction caption with more expressive, compact, and readable layout while preserving all critical auction data."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:ux", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Caption has a clearer visual hierarchy and more emotional tone",
+  "Core fields remain present: status, seller, current price, next minimum, timer, anti-sniper, top bids",
+  "Top bids block remains stable and readable for empty, partial, and full states",
+  "Caption always fits Telegram 1024-char limit without truncating critical fields",
+]
+
+[[items]]
+id = "S38-002"
+title = "Compact active auction keyboard and unify bid button style"
+description = "Rework active auction keyboard layout: compact secondary actions, remove x1/x3/x5 suffixes from bid labels, and set all bid buttons to green style."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:ux", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Bid button labels display only amounts (+$N) without x1/x3/x5",
+  "All bid buttons use green style",
+  "Secondary actions (photos, report, open bot) are shorter and more compact",
+  "Existing callback payloads for bid, buy, report, and gallery remain backward-compatible",
+]
+
+[[items]]
+id = "S38-003"
+title = "Enable one-tap bids and show exact bid amount in alerts"
+description = "Remove bid-only double-tap confirmation and ensure callback alert always includes the exact placed amount, including soft-gate hint scenarios."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:bidding", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Bid actions are accepted on first tap without arm/confirm step",
+  "Successful bid alert always includes the exact final amount (for example, $95)",
+  "Soft-gate hint flow preserves the exact amount text in the same alert",
+  "Buyout and report confirmation behavior remains unchanged",
+]
+
+[[items]]
+id = "S38-004"
+title = "Add regression tests for keyboard and bid feedback"
+description = "Extend tests to cover new keyboard labels/styles/layout and precise bid alert behavior with and without soft-gate hints."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:test", "area:bot", "area:ux", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Keyboard tests assert amount-only labels and green style for all bid buttons",
+  "Tests assert compact secondary action texts and layout",
+  "Tests assert bid success alert includes exact amount in normal and soft-gate-hint paths",
+  "Existing custom emoji fallback tests remain green",
+]
+
+[[items]]
+id = "S38-005"
+title = "Refresh docs and rollout checklist for auction UX changes"
+description = "Update README behavior notes and add concise Telegram smoke checklist for one-tap bids and updated keyboard and caption UX."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:chore", "area:docs", "area:process", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "README reflects one-tap bid behavior and exact-amount bid alerts",
+  "README no longer states confirmation for x3/x5 bids",
+  "PR checklist includes Telegram smoke steps for updated auction post UX",
+]
