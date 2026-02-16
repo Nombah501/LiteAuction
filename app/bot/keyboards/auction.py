@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
+from app.db.enums import AuctionStatus
 
 
 def _icon(value: str) -> str | None:
@@ -96,10 +97,17 @@ def _filter_button_text(*, filter_key: str, current_filter: str, label: str) -> 
     return label
 
 
+def _sort_button_text(*, sort_key: str, current_sort: str, label: str) -> str:
+    if sort_key == current_sort:
+        return f"[{label}]"
+    return label
+
+
 def my_auctions_list_keyboard(
     *,
     auctions: list[tuple[str, str]],
     current_filter: str,
+    current_sort: str,
     page: int,
     has_prev: bool,
     has_next: bool,
@@ -108,21 +116,35 @@ def my_auctions_list_keyboard(
         [
             styled_button(
                 text=_filter_button_text(filter_key="a", current_filter=current_filter, label="Активные"),
-                callback_data="dash:my:list:a:0",
+                callback_data=f"dash:my:list:a:{current_sort}:0",
             ),
             styled_button(
                 text=_filter_button_text(filter_key="f", current_filter=current_filter, label="Завершенные"),
-                callback_data="dash:my:list:f:0",
+                callback_data=f"dash:my:list:f:{current_sort}:0",
             ),
         ],
         [
             styled_button(
                 text=_filter_button_text(filter_key="d", current_filter=current_filter, label="Черновики"),
-                callback_data="dash:my:list:d:0",
+                callback_data=f"dash:my:list:d:{current_sort}:0",
             ),
             styled_button(
                 text=_filter_button_text(filter_key="l", current_filter=current_filter, label="Все"),
-                callback_data="dash:my:list:l:0",
+                callback_data=f"dash:my:list:l:{current_sort}:0",
+            ),
+        ],
+        [
+            styled_button(
+                text=_sort_button_text(sort_key="n", current_sort=current_sort, label="Новые"),
+                callback_data=f"dash:my:list:{current_filter}:n:0",
+            ),
+            styled_button(
+                text=_sort_button_text(sort_key="e", current_sort=current_sort, label="Скоро финиш"),
+                callback_data=f"dash:my:list:{current_filter}:e:0",
+            ),
+            styled_button(
+                text=_sort_button_text(sort_key="b", current_sort=current_sort, label="Больше ставок"),
+                callback_data=f"dash:my:list:{current_filter}:b:0",
             ),
         ],
     ]
@@ -132,7 +154,7 @@ def my_auctions_list_keyboard(
             [
                 styled_button(
                     text=label,
-                    callback_data=f"dash:my:view:{auction_id}:{current_filter}:{page}",
+                    callback_data=f"dash:my:view:{auction_id}:{current_filter}:{current_sort}:{page}",
                     style="primary",
                 )
             ]
@@ -140,10 +162,10 @@ def my_auctions_list_keyboard(
 
     nav_row: list[InlineKeyboardButton] = []
     if has_prev:
-        nav_row.append(styled_button(text="<-", callback_data=f"dash:my:list:{current_filter}:{page - 1}"))
-    nav_row.append(styled_button(text=f"Стр. {page + 1}", callback_data=f"dash:my:list:{current_filter}:{page}"))
+        nav_row.append(styled_button(text="<-", callback_data=f"dash:my:list:{current_filter}:{current_sort}:{page - 1}"))
+    nav_row.append(styled_button(text=f"Стр. {page + 1}", callback_data=f"dash:my:list:{current_filter}:{current_sort}:{page}"))
     if has_next:
-        nav_row.append(styled_button(text="->", callback_data=f"dash:my:list:{current_filter}:{page + 1}"))
+        nav_row.append(styled_button(text="->", callback_data=f"dash:my:list:{current_filter}:{current_sort}:{page + 1}"))
     rows.append(nav_row)
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -153,19 +175,21 @@ def my_auction_detail_keyboard(
     *,
     auction_id: str,
     filter_key: str,
+    sort_key: str,
     page: int,
+    status: AuctionStatus,
     first_post_url: str | None,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
         [
             styled_button(
                 text="Ставки",
-                callback_data=f"dash:my:bids:{auction_id}:{filter_key}:{page}",
+                callback_data=f"dash:my:bids:{auction_id}:{filter_key}:{sort_key}:{page}",
                 style="primary",
             ),
             styled_button(
                 text="Посты",
-                callback_data=f"dash:my:posts:{auction_id}:{filter_key}:{page}",
+                callback_data=f"dash:my:posts:{auction_id}:{filter_key}:{sort_key}:{page}",
                 style="primary",
             ),
         ],
@@ -176,10 +200,40 @@ def my_auction_detail_keyboard(
             ),
             styled_button(
                 text="Назад к списку",
-                callback_data=f"dash:my:list:{filter_key}:{page}",
+                callback_data=f"dash:my:list:{filter_key}:{sort_key}:{page}",
             ),
         ],
     ]
+
+    if status == AuctionStatus.DRAFT:
+        rows.insert(
+            1,
+            [
+                styled_button(
+                    text="Inline пост",
+                    switch_inline_query=f"auc_{auction_id}",
+                    style="primary",
+                ),
+                styled_button(
+                    text="Скопировать /publish",
+                    copy_text=f"/publish {auction_id}",
+                    style="success",
+                ),
+            ],
+        )
+
+    if status in {AuctionStatus.ACTIVE, AuctionStatus.FROZEN}:
+        rows.insert(
+            1,
+            [
+                styled_button(
+                    text="Обновить посты",
+                    callback_data=f"dash:my:refresh:{auction_id}:{filter_key}:{sort_key}:{page}",
+                    style="success",
+                )
+            ],
+        )
+
     if first_post_url:
         rows.insert(
             1,
@@ -195,18 +249,24 @@ def my_auction_detail_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def my_auction_subview_keyboard(*, auction_id: str, filter_key: str, page: int) -> InlineKeyboardMarkup:
+def my_auction_subview_keyboard(
+    *,
+    auction_id: str,
+    filter_key: str,
+    sort_key: str,
+    page: int,
+) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 styled_button(
                     text="Карточка лота",
-                    callback_data=f"dash:my:view:{auction_id}:{filter_key}:{page}",
+                    callback_data=f"dash:my:view:{auction_id}:{filter_key}:{sort_key}:{page}",
                     style="primary",
                 ),
                 styled_button(
                     text="Назад к списку",
-                    callback_data=f"dash:my:list:{filter_key}:{page}",
+                    callback_data=f"dash:my:list:{filter_key}:{sort_key}:{page}",
                 ),
             ]
         ]

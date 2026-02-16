@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import AuctionStatus
@@ -46,9 +46,15 @@ _FILTER_STATUSES: dict[str, tuple[AuctionStatus, ...] | None] = {
     "l": None,
 }
 
+_SORT_OPTIONS: set[str] = {"n", "e", "b"}
+
 
 def is_valid_my_auctions_filter(filter_key: str) -> bool:
     return filter_key in _FILTER_STATUSES
+
+
+def is_valid_my_auctions_sort(sort_key: str) -> bool:
+    return sort_key in _SORT_OPTIONS
 
 
 async def list_seller_auctions(
@@ -56,6 +62,7 @@ async def list_seller_auctions(
     *,
     seller_user_id: int,
     filter_key: str,
+    sort_key: str,
     page: int,
     page_size: int,
 ) -> tuple[list[SellerAuctionListItem], int]:
@@ -77,24 +84,37 @@ async def list_seller_auctions(
         count_stmt = count_stmt.where(Auction.status.in_(statuses))
     total_items = int((await session.scalar(count_stmt)) or 0)
 
+    bid_count_expr = func.coalesce(bid_stats_subquery.c.bid_count, 0)
+    current_price_expr = func.coalesce(bid_stats_subquery.c.max_bid, Auction.start_price)
+
     list_stmt = (
         select(
             Auction.id,
             Auction.status,
             Auction.start_price,
-            func.coalesce(bid_stats_subquery.c.max_bid, Auction.start_price),
-            func.coalesce(bid_stats_subquery.c.bid_count, 0),
+            current_price_expr,
+            bid_count_expr,
             Auction.ends_at,
             Auction.created_at,
         )
         .outerjoin(bid_stats_subquery, bid_stats_subquery.c.auction_id == Auction.id)
         .where(Auction.seller_user_id == seller_user_id)
-        .order_by(Auction.created_at.desc())
-        .limit(page_size)
-        .offset(page * page_size)
     )
     if statuses is not None:
         list_stmt = list_stmt.where(Auction.status.in_(statuses))
+
+    if sort_key == "e":
+        list_stmt = list_stmt.order_by(
+            case((Auction.ends_at.is_(None), 1), else_=0),
+            Auction.ends_at.asc(),
+            Auction.created_at.desc(),
+        )
+    elif sort_key == "b":
+        list_stmt = list_stmt.order_by(bid_count_expr.desc(), Auction.created_at.desc())
+    else:
+        list_stmt = list_stmt.order_by(Auction.created_at.desc())
+
+    list_stmt = list_stmt.limit(page_size).offset(page * page_size)
 
     rows = (await session.execute(list_stmt)).all()
     items = [

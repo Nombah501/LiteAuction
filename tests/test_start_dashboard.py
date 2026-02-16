@@ -11,6 +11,7 @@ from app.bot.handlers.start import (
     _parse_my_auctions_item_payload,
     _parse_my_auctions_list_payload,
     _render_bid_logs_text,
+    _render_my_auction_detail_text,
     _render_my_auctions_list_text,
     _resolve_post_link,
     callback_dashboard_balance,
@@ -29,18 +30,25 @@ class _DummyCallback:
 
 
 def test_parse_my_auctions_list_payload() -> None:
-    assert _parse_my_auctions_list_payload("dash:my:list:a:0") == ("a", 0)
-    assert _parse_my_auctions_list_payload("dash:my:list:f:3") == ("f", 3)
+    assert _parse_my_auctions_list_payload("dash:my:list:a:0") == ("a", "n", 0)
+    assert _parse_my_auctions_list_payload("dash:my:list:f:e:3") == ("f", "e", 3)
+    assert _parse_my_auctions_list_payload("dash:my:list:f:b:3") == ("f", "b", 3)
     assert _parse_my_auctions_list_payload("dash:my:list:x:1") is None
+    assert _parse_my_auctions_list_payload("dash:my:list:a:z:1") is None
     assert _parse_my_auctions_list_payload("dash:my:list:a:-1") is None
 
 
 def test_parse_my_auctions_item_payload() -> None:
     payload = _parse_my_auctions_item_payload(
+        "dash:my:view:12345678-1234-5678-1234-567812345678:a:e:0",
+        action="view",
+    )
+    assert payload == (UUID("12345678-1234-5678-1234-567812345678"), "a", "e", 0)
+    legacy_payload = _parse_my_auctions_item_payload(
         "dash:my:view:12345678-1234-5678-1234-567812345678:a:0",
         action="view",
     )
-    assert payload == (UUID("12345678-1234-5678-1234-567812345678"), "a", 0)
+    assert legacy_payload == (UUID("12345678-1234-5678-1234-567812345678"), "a", "n", 0)
     assert (
         _parse_my_auctions_item_payload(
             "dash:my:view:not-uuid:a:0",
@@ -51,7 +59,7 @@ def test_parse_my_auctions_item_payload() -> None:
 
 
 def test_render_my_auctions_list_text_empty_state() -> None:
-    text = _render_my_auctions_list_text(items=[], filter_key="a", page=0, total_items=0)
+    text = _render_my_auctions_list_text(items=[], filter_key="a", sort_key="n", page=0, total_items=0)
 
     assert "Мои аукционы" in text
     assert "пока нет лотов" in text
@@ -71,12 +79,13 @@ def test_render_my_auctions_list_text_with_items() -> None:
         )
     ]
 
-    text = _render_my_auctions_list_text(items=items, filter_key="a", page=0, total_items=1)
+    text = _render_my_auctions_list_text(items=items, filter_key="a", sort_key="e", page=0, total_items=1)
 
     assert "#12345678" in text
     assert "Активен" in text
     assert "$95" in text
     assert "ставок: 5" in text
+    assert "Скоро финиш" in text
 
 
 def test_render_bid_logs_text_contains_actor_and_amount() -> None:
@@ -105,6 +114,24 @@ def test_resolve_post_link_variants() -> None:
     assert _resolve_post_link(-1001234567890, 17, None) == "https://t.me/c/1234567890/17"
     assert _resolve_post_link(-1001234567890, 17, "publicchat") == "https://t.me/publicchat/17"
     assert _resolve_post_link(-424242, 17, None) is None
+
+
+def test_render_my_auction_detail_text_contains_outcome_metrics() -> None:
+    item = SellerAuctionListItem(
+        auction_id=UUID("12345678-1234-5678-1234-567812345678"),
+        status=AuctionStatus.ENDED,
+        start_price=50,
+        current_price=95,
+        bid_count=5,
+        ends_at=datetime.now(UTC),
+        created_at=datetime.now(UTC),
+    )
+
+    text = _render_my_auction_detail_text(item)
+
+    assert "Финальная цена" in text
+    assert "Прирост к старту: +$45 (+90.0%)" in text
+    assert "Ср. прирост на ставку: $9.00" in text
 
 
 @pytest.mark.asyncio

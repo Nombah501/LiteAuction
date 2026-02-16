@@ -17,6 +17,7 @@ from app.bot.keyboards.moderation import (
     moderation_panel_keyboard,
 )
 from app.config import settings
+from app.db.enums import AuctionStatus
 
 
 def _all_buttons(rows: list[list[InlineKeyboardButton]]) -> list[InlineKeyboardButton]:
@@ -150,49 +151,76 @@ def test_my_auctions_list_keyboard_structure() -> None:
             ("87654321-4321-8765-4321-876543218765", "#87654321 · Черновик · $40"),
         ],
         current_filter="a",
+        current_sort="n",
         page=1,
         has_prev=True,
         has_next=False,
     )
 
-    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:0").text == "[Активные]"
-    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:f:0").text == "Завершенные"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:n:0").text == "[Активные]"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:f:n:0").text == "Завершенные"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:n:0").text == "[Активные]"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:e:0").text == "Скоро финиш"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:b:0").text == "Больше ставок"
     assert _button_by_callback(
         keyboard.inline_keyboard,
-        "dash:my:view:12345678-1234-5678-1234-567812345678:a:1",
+        "dash:my:view:12345678-1234-5678-1234-567812345678:a:n:1",
     ).text == "#12345678 · Активен · $95"
-    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:0").text == "[Активные]"
-    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:1").text == "Стр. 2"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:n:1").text == "Стр. 2"
 
 
 def test_my_auction_detail_and_subview_keyboards() -> None:
     detail = my_auction_detail_keyboard(
         auction_id="12345678-1234-5678-1234-567812345678",
         filter_key="f",
+        sort_key="e",
         page=2,
+        status=AuctionStatus.ACTIVE,
         first_post_url="https://t.me/c/123/456",
     )
 
     assert _button_by_callback(
         detail.inline_keyboard,
-        "dash:my:bids:12345678-1234-5678-1234-567812345678:f:2",
+        "dash:my:bids:12345678-1234-5678-1234-567812345678:f:e:2",
     ).text == "Ставки"
     assert _button_by_callback(
         detail.inline_keyboard,
-        "dash:my:posts:12345678-1234-5678-1234-567812345678:f:2",
+        "dash:my:posts:12345678-1234-5678-1234-567812345678:f:e:2",
     ).text == "Посты"
+    assert _button_by_callback(
+        detail.inline_keyboard,
+        "dash:my:refresh:12345678-1234-5678-1234-567812345678:f:e:2",
+    ).text == "Обновить посты"
     assert _button_by_callback(detail.inline_keyboard, "gallery:12345678-1234-5678-1234-567812345678").text == "Фото"
     assert _button_by_url(detail.inline_keyboard, "https://t.me/c/123/456").text == "Открыть пост"
 
     subview = my_auction_subview_keyboard(
         auction_id="12345678-1234-5678-1234-567812345678",
         filter_key="l",
+        sort_key="b",
         page=0,
     )
     assert _button_by_callback(
         subview.inline_keyboard,
-        "dash:my:view:12345678-1234-5678-1234-567812345678:l:0",
+        "dash:my:view:12345678-1234-5678-1234-567812345678:l:b:0",
     ).text == "Карточка лота"
+
+
+def test_my_auction_detail_keyboard_draft_has_publish_actions() -> None:
+    detail = my_auction_detail_keyboard(
+        auction_id="12345678-1234-5678-1234-567812345678",
+        filter_key="d",
+        sort_key="n",
+        page=0,
+        status=AuctionStatus.DRAFT,
+        first_post_url=None,
+    )
+
+    inline_button = _button_by_text(detail.inline_keyboard, "Inline пост")
+    assert inline_button.switch_inline_query == "auc_12345678-1234-5678-1234-567812345678"
+    publish_copy_button = _button_by_text(detail.inline_keyboard, "Скопировать /publish")
+    assert publish_copy_button.copy_text is not None
+    assert publish_copy_button.copy_text.text == "/publish 12345678-1234-5678-1234-567812345678"
 
 
 def test_moderation_keyboard_uses_granular_emoji_ids(monkeypatch) -> None:
