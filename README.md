@@ -412,9 +412,12 @@ The web action uses an idempotent key per form submit (`action_id`) to prevent d
 
 ```text
 /emojiid
+/effectid
 ```
 
 Use it as a reply to a message that contains premium/custom emoji.
+
+`/effectid` is best used as a reply to a message with a visual effect; it returns ready-to-paste env snippet for auction effect settings. If reply message has no effect metadata, command falls back to the last observed effect message for that user in current bot process.
 
 - Quick moderation stats:
 
@@ -515,14 +518,15 @@ PRIVATE_TOPICS_ENABLED=true
 PRIVATE_TOPICS_STRICT_ROUTING=true
 PRIVATE_TOPICS_AUTOCREATE_ON_START=true
 PRIVATE_TOPICS_USER_TOPIC_POLICY=auto
-PRIVATE_TOPIC_TITLE_AUCTIONS=Лоты
-PRIVATE_TOPIC_TITLE_SUPPORT=Поддержка
+PRIVATE_TOPIC_TITLE_AUCTIONS=Аукционы
+PRIVATE_TOPIC_TITLE_SUPPORT=Уведомления
 PRIVATE_TOPIC_TITLE_POINTS=Баллы
 PRIVATE_TOPIC_TITLE_TRADES=Сделки
 PRIVATE_TOPIC_TITLE_MODERATION=Модерация
 BOT_PROFILE_PHOTO_PRESETS=default=AgACAgIAAxk...,campaign=AgACAgIAAxk...
 BOT_PROFILE_PHOTO_DEFAULT_PRESET=default
 AUCTION_MESSAGE_EFFECTS_ENABLED=false
+AUCTION_EFFECT_DEFAULT_ID=
 AUCTION_EFFECT_OUTBID_ID=
 AUCTION_EFFECT_BUYOUT_SELLER_ID=
 AUCTION_EFFECT_BUYOUT_WINNER_ID=
@@ -539,7 +543,9 @@ Bot profile photo presets (`/botphoto` command for operators with `auction:manag
 Auction message effects for critical auction notifications:
 
 - `AUCTION_MESSAGE_EFFECTS_ENABLED` - global kill-switch for all auction effect usage.
-- `AUCTION_EFFECT_*_ID` - per-event effect IDs (`outbid`, `buyout seller/winner`, `ended seller/winner`).
+- `AUCTION_EFFECT_DEFAULT_ID` - one default effect for all auction events.
+- `AUCTION_EFFECT_*_ID` - optional per-event overrides (`outbid`, `buyout seller/winner`, `ended seller/winner`).
+- To simplify setup, reply with `/effectid` to any message that already has a visual effect and paste produced snippet.
 - If effect delivery is rejected by Telegram (unsupported effect/client/chat), bot retries the same text notification without `message_effect_id`.
 
 Channel DM lot intake (Bot API 9.2):
@@ -565,6 +571,12 @@ Example:
 ```text
 MESSAGE_DRAFTS_ENABLED=true
 ```
+
+Private topics model:
+
+- Regular users: `Аукционы`, `Уведомления`.
+- Owner/moderators: + `Модерация`.
+- `/start` routes onboarding to the `Аукционы` topic when private topics are enabled.
 
 Verification workflow (Bot API verify/remove verification):
 

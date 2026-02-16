@@ -5,7 +5,9 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.services.private_topics_service import PURPOSE_ORDER, ensure_user_private_topics
+from app.db.enums import UserRole
+from app.db.models import UserRoleAssignment
+from app.services.private_topics_service import PrivateTopicPurpose, ensure_user_private_topics
 from app.services.user_service import upsert_user
 
 
@@ -80,7 +82,41 @@ async def test_private_topics_auto_policy_allows_topic_creation(monkeypatch, int
             result = await ensure_user_private_topics(session, bot, user=user)
 
     assert result.mutation_blocked is False
-    assert len(result.created) == len(PURPOSE_ORDER)
-    assert len(result.mapping) == len(PURPOSE_ORDER)
+    assert set(result.created) == {PrivateTopicPurpose.AUCTIONS, PrivateTopicPurpose.SUPPORT}
+    assert result.mapping[PrivateTopicPurpose.SUPPORT] == result.mapping[PrivateTopicPurpose.POINTS]
+    assert result.mapping[PrivateTopicPurpose.SUPPORT] == result.mapping[PrivateTopicPurpose.TRADES]
     assert result.missing == []
-    assert bot.created_topics == len(PURPOSE_ORDER)
+    assert bot.created_topics == 2
+
+
+@pytest.mark.asyncio
+async def test_private_topics_include_moderation_for_moderator(monkeypatch, integration_engine) -> None:
+    from app.services import private_topics_service
+
+    private_topics_service._TOPICS_CAPABILITY_CACHE.clear()  # noqa: SLF001
+    private_topics_service._TOPIC_MUTATION_POLICY_CACHE.clear()  # noqa: SLF001
+    private_topics_service._BOT_TOPICS_CAPABILITY = None  # noqa: SLF001
+    private_topics_service._BOT_TOPIC_MUTATION_ALLOWED = None  # noqa: SLF001
+
+    monkeypatch.setattr(private_topics_service.settings, "private_topics_enabled", True)
+    monkeypatch.setattr(private_topics_service.settings, "private_topics_user_topic_policy", "auto")
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    bot = _BotPolicyStub(allows_users_to_create_topics=True)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = await upsert_user(session, _FromUser(95103), mark_private_started=True)
+            session.add(UserRoleAssignment(user_id=user.id, role=UserRole.MODERATOR))
+            await session.flush()
+            result = await ensure_user_private_topics(session, bot, user=user)
+
+    assert set(result.created) == {
+        PrivateTopicPurpose.AUCTIONS,
+        PrivateTopicPurpose.SUPPORT,
+        PrivateTopicPurpose.MODERATION,
+    }
+    assert result.mapping[PrivateTopicPurpose.SUPPORT] == result.mapping[PrivateTopicPurpose.POINTS]
+    assert result.mapping[PrivateTopicPurpose.SUPPORT] == result.mapping[PrivateTopicPurpose.TRADES]
+    assert PrivateTopicPurpose.MODERATION in result.mapping
+    assert bot.created_topics == 3

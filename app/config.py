@@ -101,14 +101,15 @@ class Settings(BaseSettings):
     private_topics_strict_routing: bool = True
     private_topics_autocreate_on_start: bool = True
     private_topics_user_topic_policy: str = "auto"
-    private_topic_title_auctions: str = "Лоты"
-    private_topic_title_support: str = "Поддержка"
+    private_topic_title_auctions: str = "Аукционы"
+    private_topic_title_support: str = "Уведомления"
     private_topic_title_points: str = "Баллы"
     private_topic_title_trades: str = "Сделки"
     private_topic_title_moderation: str = "Модерация"
     bot_profile_photo_presets: str = ""
     bot_profile_photo_default_preset: str = "default"
     auction_message_effects_enabled: bool = False
+    auction_effect_default_id: str = ""
     auction_effect_outbid_id: str = ""
     auction_effect_buyout_seller_id: str = ""
     auction_effect_buyout_winner_id: str = ""
@@ -188,7 +189,12 @@ class Settings(BaseSettings):
     outbox_retry_max_seconds: int = 1800
     feedback_github_actor_tg_user_id: int = -998
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_ignore_empty=True,
+        extra="ignore",
+    )
 
     @classmethod
     def settings_customise_sources(
@@ -275,6 +281,7 @@ class Settings(BaseSettings):
         return normalized
 
     def parsed_auction_effect_ids(self) -> dict[str, str]:
+        default_effect_id = self.auction_effect_default_id.strip()
         raw_map = {
             "outbid": self.auction_effect_outbid_id,
             "buyout_seller": self.auction_effect_buyout_seller_id,
@@ -285,9 +292,11 @@ class Settings(BaseSettings):
         parsed: dict[str, str] = {}
         for event, value in raw_map.items():
             normalized = value.strip()
-            if not normalized:
+            if normalized:
+                parsed[event] = normalized
                 continue
-            parsed[event] = normalized
+            if default_effect_id:
+                parsed[event] = default_effect_id
         return parsed
 
     def parsed_auction_effect_id(self, event: str) -> str | None:
