@@ -74,9 +74,10 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Create auction wizard: photo, description, start price, buyout/skip, min step, duration, anti-sniper
 - [x] Publish draft via inline flow (`switch_inline_query` -> inline card)
 - [x] Activate auction on publish and store `inline_message_id`
-- [x] Bid buttons (`x1`, `x3`, `x5`) and buyout button
+- [x] Bid buttons with fast presets (`+step`, `+3step`, `+5step`) and buyout button
 - [x] Live post refresh after each accepted action
-- [x] Anti-mistake: no self-overbid, cooldown, duplicate guard, confirm for `x3/x5` and buyout
+- [x] Anti-mistake: no self-overbid, cooldown, duplicate guard, confirm for buyout
+- [x] Bid callbacks return alert with exact accepted amount
 - [x] Auction auto-finish watcher and winner/seller notifications
 
 ## Sprint 2 Checklist (Moderation)
@@ -650,6 +651,14 @@ FRAUD_HISTORICAL_SPIKE_SCORE=20
 FRAUD_HISTORICAL_START_RATIO_LOW=0.5
 FRAUD_HISTORICAL_START_RATIO_HIGH=2.0
 ```
+
+## Telegram Smoke Checklist (Auction UX)
+
+- Publish a draft auction and verify caption shows expressive status block, timer, and `Топ-3` with medals.
+- In an active lot, verify bid buttons are green and display only amounts (`+$N`, `+$3N`, `+$5N`).
+- Tap any bid button once and verify a Telegram alert appears with exact accepted amount (`$N`).
+- Verify compact secondary actions are shown as short buttons (`Фото N`, `Жалоба`, `Бот`).
+- Verify buyout and complaint still require confirmation and keep existing anti-spam cooldown behavior.
 
 ## Next (Post-Sprint)
 

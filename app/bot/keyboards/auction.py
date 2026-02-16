@@ -175,27 +175,16 @@ def auction_active_keyboard(
     rows: list[list[InlineKeyboardButton]] = [
         [
             styled_button(
-                text=f"Все фото ({photo_count})",
-                callback_data=f"gallery:{auction_id}",
-                style="primary",
-                icon_custom_emoji_id=_first_icon(
-                    settings.ui_emoji_gallery_id,
-                    settings.ui_emoji_publish_id,
-                ),
-            )
-        ],
-        [
-            styled_button(
-                text=f"+ ${min_step} x1",
+                text=f"+${min_step}",
                 callback_data=f"bid:{auction_id}:1",
-                style="primary",
+                style="success",
                 icon_custom_emoji_id=_first_icon(
                     settings.ui_emoji_bid_x1_id,
                     settings.ui_emoji_bid_id,
                 ),
             ),
             styled_button(
-                text=f"+ ${min_step * 3} x3",
+                text=f"+${min_step * 3}",
                 callback_data=f"bid:{auction_id}:3",
                 style="success",
                 icon_custom_emoji_id=_first_icon(
@@ -204,7 +193,7 @@ def auction_active_keyboard(
                 ),
             ),
             styled_button(
-                text=f"+ ${min_step * 5} x5",
+                text=f"+${min_step * 5}",
                 callback_data=f"bid:{auction_id}:5",
                 style="success",
                 icon_custom_emoji_id=_first_icon(
@@ -219,7 +208,7 @@ def auction_active_keyboard(
         rows.append(
             [
                 styled_button(
-                    text="Выкупить",
+                    text="Выкуп",
                     callback_data=f"buy:{auction_id}",
                     style="danger",
                     icon_custom_emoji_id=_icon(settings.ui_emoji_buyout_id),
@@ -227,27 +216,34 @@ def auction_active_keyboard(
             ]
         )
 
-    rows.append(
-        [
-            styled_button(
-                text="Пожаловаться",
-                callback_data=f"report:{auction_id}",
-                style="danger",
-                icon_custom_emoji_id=_icon(settings.ui_emoji_report_id),
-            )
-        ]
-    )
+    utility_row: list[InlineKeyboardButton] = [
+        styled_button(
+            text=f"Фото {photo_count}",
+            callback_data=f"gallery:{auction_id}",
+            style="primary",
+            icon_custom_emoji_id=_first_icon(
+                settings.ui_emoji_gallery_id,
+                settings.ui_emoji_publish_id,
+            ),
+        ),
+        styled_button(
+            text="Жалоба",
+            callback_data=f"report:{auction_id}",
+            style="danger",
+            icon_custom_emoji_id=_icon(settings.ui_emoji_report_id),
+        ),
+    ]
 
     username = settings.bot_username.strip().lstrip("@")
     if username:
-        rows.append(
-            [
-                styled_button(
-                    text="Открыть бота",
-                    url=f"https://t.me/{username}?start=auction_gate",
-                    style="primary",
-                )
-            ]
+        utility_row.append(
+            styled_button(
+                text="Бот",
+                url=f"https://t.me/{username}?start=auction_gate",
+                style="primary",
+            )
         )
+
+    rows.append(utility_row)
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
