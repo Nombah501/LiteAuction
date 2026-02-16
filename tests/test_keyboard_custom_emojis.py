@@ -5,6 +5,9 @@ from aiogram.types import InlineKeyboardButton
 from app.bot.keyboards.auction import (
     auction_active_keyboard,
     draft_publish_keyboard,
+    my_auction_detail_keyboard,
+    my_auction_subview_keyboard,
+    my_auctions_list_keyboard,
     photos_done_keyboard,
     start_private_keyboard,
 )
@@ -138,6 +141,58 @@ def test_start_private_keyboard_moderator_has_mod_button_last(monkeypatch) -> No
     mod_button = _button_by_callback(keyboard.inline_keyboard, "mod:panel")
     assert mod_button.style == "success"
     assert mod_button.icon_custom_emoji_id == "mod-panel"
+
+
+def test_my_auctions_list_keyboard_structure() -> None:
+    keyboard = my_auctions_list_keyboard(
+        auctions=[
+            ("12345678-1234-5678-1234-567812345678", "#12345678 · Активен · $95"),
+            ("87654321-4321-8765-4321-876543218765", "#87654321 · Черновик · $40"),
+        ],
+        current_filter="a",
+        page=1,
+        has_prev=True,
+        has_next=False,
+    )
+
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:0").text == "[Активные]"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:f:0").text == "Завершенные"
+    assert _button_by_callback(
+        keyboard.inline_keyboard,
+        "dash:my:view:12345678-1234-5678-1234-567812345678:a:1",
+    ).text == "#12345678 · Активен · $95"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:0").text == "[Активные]"
+    assert _button_by_callback(keyboard.inline_keyboard, "dash:my:list:a:1").text == "Стр. 2"
+
+
+def test_my_auction_detail_and_subview_keyboards() -> None:
+    detail = my_auction_detail_keyboard(
+        auction_id="12345678-1234-5678-1234-567812345678",
+        filter_key="f",
+        page=2,
+        first_post_url="https://t.me/c/123/456",
+    )
+
+    assert _button_by_callback(
+        detail.inline_keyboard,
+        "dash:my:bids:12345678-1234-5678-1234-567812345678:f:2",
+    ).text == "Ставки"
+    assert _button_by_callback(
+        detail.inline_keyboard,
+        "dash:my:posts:12345678-1234-5678-1234-567812345678:f:2",
+    ).text == "Посты"
+    assert _button_by_callback(detail.inline_keyboard, "gallery:12345678-1234-5678-1234-567812345678").text == "Фото"
+    assert _button_by_url(detail.inline_keyboard, "https://t.me/c/123/456").text == "Открыть пост"
+
+    subview = my_auction_subview_keyboard(
+        auction_id="12345678-1234-5678-1234-567812345678",
+        filter_key="l",
+        page=0,
+    )
+    assert _button_by_callback(
+        subview.inline_keyboard,
+        "dash:my:view:12345678-1234-5678-1234-567812345678:l:0",
+    ).text == "Карточка лота"
 
 
 def test_moderation_keyboard_uses_granular_emoji_ids(monkeypatch) -> None:
