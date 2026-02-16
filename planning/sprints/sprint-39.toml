@@ -1,0 +1,21 @@
+sprint = "Sprint 39"
+milestone = "Sprint 39"
+milestone_description = "Create flow UX fixes: correct album photo progress feedback"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S39-001"
+title = "Fix misleading album photo progress message in create flow"
+description = "When users upload multiple photos as a media group, avoid showing a stale '1/10' progress message and provide accurate feedback for album intake."
+priority = "P1"
+estimate = "S"
+tech_debt = false
+labels = ["type:bug", "area:bot", "area:ux", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Album upload no longer shows misleading 'Фото добавлено (1/10)' feedback",
+  "Single-photo upload keeps exact progress counter (N/10)",
+  "Create-flow tests cover album feedback behavior",
+]

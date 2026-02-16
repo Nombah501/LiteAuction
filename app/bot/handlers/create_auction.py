@@ -75,6 +75,21 @@ async def _append_photo_file_id(state: FSMContext, file_id: str) -> tuple[int, b
     return len(photo_file_ids), True, False
 
 
+async def _mark_media_group_seen(state: FSMContext, media_group_id: str | None) -> bool:
+    if not media_group_id:
+        return False
+
+    data = await state.get_data()
+    seen_raw = data.get("photo_media_group_ids")
+    seen_group_ids = [str(item) for item in seen_raw if str(item)] if isinstance(seen_raw, list) else []
+    if media_group_id in seen_group_ids:
+        return False
+
+    seen_group_ids.append(media_group_id)
+    await state.update_data(photo_media_group_ids=seen_group_ids[-20:])
+    return True
+
+
 async def _store_expected_intake_scope(state: FSMContext, message: Message) -> None:
     context = resolve_auction_intake_context(message)
     thread_id = getattr(message, "message_thread_id", None)
@@ -325,9 +340,16 @@ async def create_photo_step(message: Message, state: FSMContext, bot: Bot | None
     if not added:
         return
 
-    if message.media_group_id is None or count == 1:
+    if message.media_group_id is None:
         await message.answer(
             f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Отправьте еще или нажмите 'Готово'.",
+            reply_markup=photos_done_keyboard(),
+        )
+        return
+
+    if await _mark_media_group_seen(state, message.media_group_id):
+        await message.answer(
+            "Альбом принят. После отправки всех фото нажмите 'Готово'.",
             reply_markup=photos_done_keyboard(),
         )
 
@@ -392,6 +414,10 @@ async def create_description_collect_photo(message: Message, state: FSMContext, 
         await message.answer(
             f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Теперь пришлите описание текстом."
         )
+        return
+
+    if await _mark_media_group_seen(state, message.media_group_id):
+        await message.answer("Альбом принят. После отправки всех фото пришлите описание текстом.")
 
 
 @router.message(AuctionCreateStates.waiting_description)

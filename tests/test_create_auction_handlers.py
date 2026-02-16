@@ -94,3 +94,31 @@ async def test_done_without_photos_shows_alert() -> None:
 
     assert done_callback.answers == [("Сначала добавьте хотя бы одно фото", True)]
     assert state.state == AuctionCreateStates.waiting_photo
+
+
+@pytest.mark.asyncio
+async def test_album_feedback_does_not_show_stale_single_count() -> None:
+    state = _DummyState()
+    await state.set_state(AuctionCreateStates.waiting_photo)
+
+    first_photo = _DummyMessage(photo_file_id="photo-1", media_group_id="album-1")
+    second_photo = _DummyMessage(photo_file_id="photo-2", media_group_id="album-1")
+
+    await create_photo_step(first_photo, state)
+    await create_photo_step(second_photo, state)
+
+    assert first_photo.answers == [
+        "Альбом принят. После отправки всех фото нажмите 'Готово'."
+    ]
+    assert second_photo.answers == []
+
+
+@pytest.mark.asyncio
+async def test_single_photo_feedback_keeps_exact_counter() -> None:
+    state = _DummyState()
+    await state.set_state(AuctionCreateStates.waiting_photo)
+
+    single_photo = _DummyMessage(photo_file_id="photo-1")
+    await create_photo_step(single_photo, state)
+
+    assert single_photo.answers == ["Фото добавлено (1/10). Отправьте еще или нажмите 'Готово'."]
