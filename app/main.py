@@ -41,6 +41,7 @@ async def configure_bot_commands(bot: Bot) -> None:
         BotCommand(command="modpanel", description="Открыть панель модератора"),
         BotCommand(command="modstats", description="Показать статистику модерации"),
         BotCommand(command="emojiid", description="Получить ID premium emoji (для UI)"),
+        BotCommand(command="effectid", description="Получить ID визуального эффекта"),
     ]
     await bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())
 

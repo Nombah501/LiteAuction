@@ -36,6 +36,32 @@ def test_resolve_auction_message_effect_returns_configured_mapping(monkeypatch) 
     )
 
 
+def test_resolve_auction_message_effect_falls_back_to_default_id(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "auction_message_effects_enabled", True)
+    monkeypatch.setattr(settings, "auction_effect_default_id", " 5104841245755180586 ")
+    monkeypatch.setattr(settings, "auction_effect_outbid_id", "")
+
+    assert (
+        resolve_auction_message_effect_id(AuctionMessageEffectEvent.OUTBID)
+        == "5104841245755180586"
+    )
+
+
+def test_resolve_auction_message_effect_prefers_event_specific_id(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "auction_message_effects_enabled", True)
+    monkeypatch.setattr(settings, "auction_effect_default_id", "5104841245755180586")
+    monkeypatch.setattr(settings, "auction_effect_outbid_id", "5107584321108051014")
+
+    assert (
+        resolve_auction_message_effect_id(AuctionMessageEffectEvent.OUTBID)
+        == "5107584321108051014"
+    )
+
+
 @pytest.mark.asyncio
 async def test_send_user_topic_message_retries_without_unsupported_effect(monkeypatch) -> None:
     from app.config import settings

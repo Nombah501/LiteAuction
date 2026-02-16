@@ -11,6 +11,7 @@ from app.services.moderation_service import has_moderator_access, is_moderator_t
 from app.services.user_service import upsert_user
 
 router = Router(name="emoji_tools")
+_LAST_EFFECT_ID_BY_USER: dict[int, str] = {}
 
 
 _UI_KEYS = [
@@ -79,6 +80,40 @@ def _env_template(ids: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _collect_message_effect_id(message: Message) -> str | None:
+    effect_id = getattr(message, "effect_id", None)
+    if not isinstance(effect_id, str):
+        return None
+    normalized = effect_id.strip()
+    return normalized or None
+
+
+def _cached_effect_id_for_user(tg_user_id: int | None) -> str | None:
+    if tg_user_id is None:
+        return None
+    return _LAST_EFFECT_ID_BY_USER.get(tg_user_id)
+
+
+def _remember_effect_id_for_user(tg_user_id: int | None, effect_id: str | None) -> None:
+    if tg_user_id is None or effect_id is None:
+        return
+    _LAST_EFFECT_ID_BY_USER[tg_user_id] = effect_id
+
+
+def _auction_effect_env_template(effect_id: str) -> str:
+    return "\n".join(
+        [
+            "AUCTION_MESSAGE_EFFECTS_ENABLED=true",
+            f"AUCTION_EFFECT_DEFAULT_ID={effect_id}",
+            "AUCTION_EFFECT_OUTBID_ID=",
+            "AUCTION_EFFECT_BUYOUT_SELLER_ID=",
+            "AUCTION_EFFECT_BUYOUT_WINNER_ID=",
+            "AUCTION_EFFECT_ENDED_SELLER_ID=",
+            "AUCTION_EFFECT_ENDED_WINNER_ID=",
+        ]
+    )
+
+
 @router.message(Command("emojiid"), F.chat.type == ChatType.PRIVATE)
 async def emoji_id(message: Message, bot: Bot) -> None:
     if message.from_user is None:
@@ -125,3 +160,72 @@ async def emoji_id(message: Message, bot: Bot) -> None:
         f"<code>{env_lines}</code>\n\n"
         "После обновления .env перезапустите бот: <code>docker compose up -d --build bot</code>"
     )
+
+
+@router.message(Command("effectid"), F.chat.type == ChatType.PRIVATE)
+async def effect_id(message: Message, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            if not await enforce_message_topic(
+                message,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.MODERATION,
+                command_hint="/effectid",
+            ):
+                return
+
+            allowed = is_moderator_tg_user(message.from_user.id)
+            if not allowed:
+                allowed = await has_moderator_access(session, message.from_user.id)
+
+    if not allowed:
+        await message.answer("Недостаточно прав")
+        return
+
+    source = message.reply_to_message or message
+    effect_id_value = _collect_message_effect_id(source)
+    effect_from_cache = False
+    if effect_id_value is None:
+        effect_id_value = _cached_effect_id_for_user(message.from_user.id if message.from_user else None)
+        effect_from_cache = effect_id_value is not None
+
+    if effect_id_value is None:
+        custom_emoji_ids = _collect_custom_emoji_ids(source)
+        custom_emoji_hint = ""
+        if custom_emoji_ids:
+            custom_emoji_hint = (
+                "\n\nПохоже, это custom emoji, а не message effect. "
+                "Для custom emoji используйте <code>/emojiid</code>."
+            )
+        await message.answer(
+            "Не нашел <code>effect_id</code>.\n"
+            "Сделайте reply командой <code>/effectid</code> на сообщение с визуальным эффектом "
+            "(эффект отправки, а не просто emoji в тексте)."
+            f"{custom_emoji_hint}"
+        )
+        return
+
+    _remember_effect_id_for_user(message.from_user.id if message.from_user else None, effect_id_value)
+
+    env_lines = _auction_effect_env_template(effect_id_value)
+    source_note = " (взято из кэша последнего сообщения с эффектом)" if effect_from_cache else ""
+    await message.answer(
+        "Найден message effect ID:\n"
+        f"- <code>{effect_id_value}</code>{source_note}\n\n"
+        "Скопируйте в <code>.env</code> или <code>config/defaults.toml</code>:\n"
+        f"<code>{env_lines}</code>\n\n"
+        "Дальше можно оставить <code>AUCTION_EFFECT_DEFAULT_ID</code> как есть, "
+        "или задать отдельные ID по событиям."
+    )
+
+
+@router.message(F.chat.type == ChatType.PRIVATE, F.effect_id)
+async def cache_effect_id(message: Message) -> None:
+    effect_id_value = _collect_message_effect_id(message)
+    _remember_effect_id_for_user(message.from_user.id if message.from_user else None, effect_id_value)

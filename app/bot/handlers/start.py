@@ -14,6 +14,8 @@ from app.services.private_topics_service import (
     PrivateTopicPurpose,
     enforce_message_topic,
     render_user_topics_overview,
+    resolve_user_topic_thread_id,
+    send_user_topic_message,
 )
 from app.services.user_service import upsert_user
 
@@ -142,6 +144,7 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
     payload = _extract_start_payload(message)
     appeal_id: int | None = None
     topics_overview: str | None = None
+    auctions_thread_id: int | None = None
 
     async with SessionFactory() as session:
         async with session.begin():
@@ -151,6 +154,13 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
                     session,
                     bot,
                     user=user,
+                    telegram_user=message.from_user,
+                )
+                auctions_thread_id = await resolve_user_topic_thread_id(
+                    session,
+                    bot,
+                    user=user,
+                    purpose=PrivateTopicPurpose.AUCTIONS,
                     telegram_user=message.from_user,
                 )
             if payload is not None and payload.startswith("appeal_"):
@@ -176,14 +186,33 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
         )
         return
 
-    await message.answer(
+    start_text = (
         "Привет! Я LiteAuction bot.\n"
         "Создавайте аукционы через кнопку ниже.\n"
         "Для модераторов там же есть вход в панель.\n\n"
-        "В посте будут live-ставки, топ-3, анти-снайпер и выкуп.",
-        reply_markup=start_private_keyboard(),
+        "В посте будут live-ставки, топ-3, анти-снайпер и выкуп."
     )
-    if topics_overview is not None:
+    sent_to_auctions = False
+    if settings.private_topics_enabled:
+        sent_to_auctions = await send_user_topic_message(
+            bot,
+            tg_user_id=message.from_user.id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=start_text,
+            reply_markup=start_private_keyboard(),
+        )
+
+    if not sent_to_auctions:
+        await message.answer(start_text, reply_markup=start_private_keyboard())
+    elif (
+        auctions_thread_id is not None
+        and getattr(message, "message_thread_id", None) != auctions_thread_id
+    ):
+        await message.answer("Открыл раздел «Аукционы». Продолжайте там.")
+
+    if topics_overview is not None and (
+        "недоступны" in topics_overview.lower() or "ограничено" in topics_overview.lower()
+    ):
         await message.answer(topics_overview)
 
 

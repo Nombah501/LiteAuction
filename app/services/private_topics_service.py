@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import User, UserPrivateTopic
 from app.db.session import SessionFactory
+from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
 
 logger = logging.getLogger(__name__)
 _TOPICS_CAPABILITY_CACHE: dict[int, bool] = {}
@@ -42,21 +43,30 @@ class EnsureTopicsResult:
 PURPOSE_ORDER: tuple[PrivateTopicPurpose, ...] = (
     PrivateTopicPurpose.AUCTIONS,
     PrivateTopicPurpose.SUPPORT,
-    PrivateTopicPurpose.POINTS,
-    PrivateTopicPurpose.TRADES,
     PrivateTopicPurpose.MODERATION,
 )
 
 
+def _canonical_purpose(purpose: PrivateTopicPurpose) -> PrivateTopicPurpose:
+    if purpose in {PrivateTopicPurpose.SUPPORT, PrivateTopicPurpose.POINTS, PrivateTopicPurpose.TRADES}:
+        return PrivateTopicPurpose.SUPPORT
+    return purpose
+
+
+def _required_purposes(*, include_moderation: bool) -> tuple[PrivateTopicPurpose, ...]:
+    if include_moderation:
+        return PURPOSE_ORDER
+    return (
+        PrivateTopicPurpose.AUCTIONS,
+        PrivateTopicPurpose.SUPPORT,
+    )
+
+
 def topic_title(purpose: PrivateTopicPurpose) -> str:
     if purpose == PrivateTopicPurpose.AUCTIONS:
-        return settings.private_topic_title_auctions.strip() or "Лоты"
-    if purpose == PrivateTopicPurpose.SUPPORT:
-        return settings.private_topic_title_support.strip() or "Поддержка"
-    if purpose == PrivateTopicPurpose.POINTS:
-        return settings.private_topic_title_points.strip() or "Баллы"
-    if purpose == PrivateTopicPurpose.TRADES:
-        return settings.private_topic_title_trades.strip() or "Сделки"
+        return settings.private_topic_title_auctions.strip() or "Аукционы"
+    if purpose in {PrivateTopicPurpose.SUPPORT, PrivateTopicPurpose.POINTS, PrivateTopicPurpose.TRADES}:
+        return settings.private_topic_title_support.strip() or "Уведомления"
     return settings.private_topic_title_moderation.strip() or "Модерация"
 
 
@@ -133,14 +143,7 @@ def _topic_mutation_blocked_hint(purpose: PrivateTopicPurpose, command_hint: str
 
 
 async def _load_user_topics_map(session: AsyncSession, user_id: int) -> dict[PrivateTopicPurpose, int]:
-    rows = (
-        await session.execute(
-            select(UserPrivateTopic).where(
-                UserPrivateTopic.user_id == user_id,
-                UserPrivateTopic.is_active.is_(True),
-            )
-        )
-    ).scalars().all()
+    rows = await _load_active_user_topic_rows(session, user_id)
 
     mapping: dict[PrivateTopicPurpose, int] = {}
     for row in rows:
@@ -152,6 +155,124 @@ async def _load_user_topics_map(session: AsyncSession, user_id: int) -> dict[Pri
     return mapping
 
 
+async def _load_active_user_topic_rows(session: AsyncSession, user_id: int) -> list[UserPrivateTopic]:
+    rows = (
+        await session.execute(
+            select(UserPrivateTopic).where(
+                UserPrivateTopic.user_id == user_id,
+                UserPrivateTopic.is_active.is_(True),
+            )
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+def _normalize_topics_map(mapping: dict[PrivateTopicPurpose, int]) -> dict[PrivateTopicPurpose, int]:
+    normalized = dict(mapping)
+
+    notifications_thread_id: int | None = None
+    for candidate in (
+        PrivateTopicPurpose.SUPPORT,
+        PrivateTopicPurpose.POINTS,
+        PrivateTopicPurpose.TRADES,
+    ):
+        thread_id = normalized.get(candidate)
+        if thread_id is None:
+            continue
+        notifications_thread_id = thread_id
+        break
+
+    if notifications_thread_id is not None:
+        normalized[PrivateTopicPurpose.SUPPORT] = notifications_thread_id
+        normalized[PrivateTopicPurpose.POINTS] = notifications_thread_id
+        normalized[PrivateTopicPurpose.TRADES] = notifications_thread_id
+
+    return normalized
+
+
+async def _can_user_access_moderation_topics(session: AsyncSession, user: User) -> bool:
+    if is_moderator_tg_user(user.tg_user_id):
+        return True
+    if session is None:  # type: ignore[redundant-expr]
+        return False
+    return await has_moderator_access(session, user.tg_user_id)
+
+
+def _redundant_private_topic_thread_ids(
+    rows: list[UserPrivateTopic],
+    *,
+    mapping: dict[PrivateTopicPurpose, int],
+    include_moderation: bool,
+) -> set[int]:
+    keep_thread_ids: set[int] = set()
+
+    auctions_thread_id = mapping.get(PrivateTopicPurpose.AUCTIONS)
+    if auctions_thread_id is not None:
+        keep_thread_ids.add(auctions_thread_id)
+
+    notifications_thread_id = mapping.get(PrivateTopicPurpose.SUPPORT)
+    if notifications_thread_id is not None:
+        keep_thread_ids.add(notifications_thread_id)
+
+    moderation_thread_id = mapping.get(PrivateTopicPurpose.MODERATION)
+    if include_moderation and moderation_thread_id is not None:
+        keep_thread_ids.add(moderation_thread_id)
+
+    redundant: set[int] = set()
+    for row in rows:
+        if row.thread_id in keep_thread_ids:
+            continue
+        redundant.add(row.thread_id)
+
+    return redundant
+
+
+async def _prune_legacy_private_topics(
+    session: AsyncSession,
+    bot: Bot | None,
+    *,
+    user: User,
+    mapping: dict[PrivateTopicPurpose, int],
+    include_moderation: bool,
+    mutation_allowed: bool,
+) -> None:
+    if bot is None or not mutation_allowed:
+        return
+
+    rows = await _load_active_user_topic_rows(session, user.id)
+    redundant_thread_ids = _redundant_private_topic_thread_ids(
+        rows,
+        mapping=mapping,
+        include_moderation=include_moderation,
+    )
+    if not redundant_thread_ids:
+        return
+
+    changed = False
+    now_utc = datetime.now(timezone.utc)
+    for thread_id in sorted(redundant_thread_ids):
+        try:
+            await bot.delete_forum_topic(chat_id=user.tg_user_id, message_thread_id=thread_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete legacy private topic for user %s thread %s: %s",
+                user.tg_user_id,
+                thread_id,
+                exc,
+            )
+            continue
+
+        for row in rows:
+            if row.thread_id != thread_id or not row.is_active:
+                continue
+            row.is_active = False
+            row.updated_at = now_utc
+            changed = True
+
+    if changed:
+        await session.flush()
+
+
 async def ensure_user_private_topics(
     session: AsyncSession,
     bot: Bot | None,
@@ -159,14 +280,16 @@ async def ensure_user_private_topics(
     user: User,
     telegram_user: TgUser | None = None,
 ) -> EnsureTopicsResult:
-    existing = await _load_user_topics_map(session, user.id)
+    existing = _normalize_topics_map(await _load_user_topics_map(session, user.id))
     bot_capability, bot_mutation_policy = await _resolve_bot_topic_settings(bot)
+    can_access_moderation = await _can_user_access_moderation_topics(session, user)
+    required_purposes = _required_purposes(include_moderation=can_access_moderation)
 
     capability = _resolve_cached_topics_capability(tg_user_id=user.tg_user_id, telegram_user=telegram_user)
     if capability is None:
         capability = bot_capability
     if capability is False:
-        return EnsureTopicsResult(mapping=existing, created=[])
+        return EnsureTopicsResult(mapping={}, created=[])
 
     mode = _normalize_topic_policy_mode()
     mutation_allowed: bool | None
@@ -187,12 +310,12 @@ async def ensure_user_private_topics(
     if not settings.private_topics_enabled or bot is None:
         return EnsureTopicsResult(mapping=existing, created=[])
 
-    missing = [purpose for purpose in PURPOSE_ORDER if purpose not in existing]
+    missing = [purpose for purpose in required_purposes if purpose not in existing]
     if missing and not mutation_allowed:
         return EnsureTopicsResult(mapping=existing, created=[], missing=missing, mutation_blocked=True)
 
     created: list[PrivateTopicPurpose] = []
-    for purpose in PURPOSE_ORDER:
+    for purpose in required_purposes:
         if purpose in existing:
             continue
         title = topic_title(purpose)
@@ -206,7 +329,7 @@ async def ensure_user_private_topics(
                 exc,
             )
             if _is_topic_mutation_blocked_error(exc):
-                missing = [item for item in PURPOSE_ORDER if item not in existing]
+                missing = [item for item in required_purposes if item not in existing]
                 return EnsureTopicsResult(
                     mapping=existing,
                     created=created,
@@ -236,8 +359,19 @@ async def ensure_user_private_topics(
         existing[purpose] = thread_id
         created.append(purpose)
 
-    missing = [purpose for purpose in PURPOSE_ORDER if purpose not in existing]
-    return EnsureTopicsResult(mapping=existing, created=created, missing=missing)
+    normalized = _normalize_topics_map(existing)
+
+    await _prune_legacy_private_topics(
+        session,
+        bot,
+        user=user,
+        mapping=normalized,
+        include_moderation=can_access_moderation,
+        mutation_allowed=bool(mutation_allowed),
+    )
+
+    missing = [purpose for purpose in required_purposes if purpose not in normalized]
+    return EnsureTopicsResult(mapping=normalized, created=created, missing=missing)
 
 
 async def resolve_user_topic_thread_id(
@@ -444,13 +578,14 @@ async def render_user_topics_overview(
             "Остальные команды продолжают работать в обычном режиме."
         )
 
+    can_access_moderation = await _can_user_access_moderation_topics(session, user)
     lines = ["Личные разделы:"]
-    for purpose in PURPOSE_ORDER:
+    for purpose in _required_purposes(include_moderation=can_access_moderation):
         thread_id = result.mapping.get(purpose)
         if thread_id is None:
             continue
         marker = " (создан)" if purpose in result.created else ""
-        lines.append(f"- {topic_title(purpose)}: thread {thread_id}{marker}")
+        lines.append(f"- {topic_title(purpose)}{marker}")
 
     if settings.private_topics_strict_routing:
         lines.append("")
