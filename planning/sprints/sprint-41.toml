@@ -1,0 +1,39 @@
+sprint = "Sprint 41"
+milestone = "Sprint 41"
+milestone_description = "Seller dashboard upgrades in private My Auctions section"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S41-001"
+title = "Upgrade My Auctions with filters, bid logs, and post links"
+description = "Turn private My Auctions into an interactive seller workspace with filters, pagination, per-auction bid logs, and publication links."
+priority = "P1"
+estimate = "L"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:ux", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "My Auctions supports filters: active, finished, draft, all",
+  "List supports pagination and per-auction detail view",
+  "Per-auction actions include bid logs and publication link view",
+  "Publication list exposes clickable links where Telegram URL is derivable",
+]
+
+[[items]]
+id = "S41-002"
+title = "Add seller productivity tools and analytics in My Auctions"
+description = "Add sorting options, outcome analytics, and quick draft/active actions in My Auctions as a second implementation phase."
+priority = "P2"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:ux", "priority:p2"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Sorting options are available for My Auctions (newest, ending soon, most bids)",
+  "Auction detail includes seller-facing outcome metrics",
+  "Draft and active auctions expose quick action buttons",
+  "Feature is delivered in dedicated follow-up PR after S41-001",
+]

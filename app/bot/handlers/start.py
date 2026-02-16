@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import html
+from datetime import UTC, datetime
+import uuid
+
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import func, select
 
-from app.bot.keyboards.auction import start_private_keyboard
+from app.bot.keyboards.auction import (
+    my_auction_detail_keyboard,
+    my_auction_subview_keyboard,
+    my_auctions_list_keyboard,
+    start_private_keyboard,
+)
 from app.config import settings
 from app.db.enums import AuctionStatus
-from app.db.models import Auction, Bid
 from app.db.session import SessionFactory
 from app.services.appeal_service import create_appeal_from_ref, redeem_appeal_priority_boost
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
@@ -20,6 +28,16 @@ from app.services.private_topics_service import (
     render_user_topics_overview,
     resolve_user_topic_thread_id,
     send_user_topic_message,
+)
+from app.services.seller_dashboard_service import (
+    SellerAuctionListItem,
+    SellerAuctionPostItem,
+    SellerBidLogItem,
+    is_valid_my_auctions_filter,
+    list_seller_auction_bid_logs,
+    list_seller_auction_posts,
+    list_seller_auctions,
+    load_seller_auction,
 )
 from app.services.user_service import upsert_user
 
@@ -55,6 +73,15 @@ def _extract_boost_appeal_id(text: str | None) -> int | None:
     return int(candidate)
 
 
+MY_AUCTIONS_PAGE_SIZE = 5
+MY_AUCTIONS_FILTER_LABELS: dict[str, str] = {
+    "a": "Активные",
+    "f": "Завершенные",
+    "d": "Черновики",
+    "l": "Все",
+}
+
+
 def _auction_status_label(status: AuctionStatus) -> str:
     labels = {
         AuctionStatus.DRAFT: "Черновик",
@@ -67,48 +94,204 @@ def _auction_status_label(status: AuctionStatus) -> str:
     return labels[status]
 
 
-def _render_my_auctions_text(
-    rows: list[tuple[object, AuctionStatus, int, int | None]],
-) -> str:
-    if not rows:
-        return "У вас пока нет аукционов. Нажмите «Создать аукцион», чтобы добавить первый лот."
+def _parse_non_negative_int(raw: str) -> int | None:
+    if not raw.isdigit():
+        return None
+    value = int(raw)
+    if value < 0 or value > 10_000:
+        return None
+    return value
 
-    lines = ["Мои аукционы (последние 10):", ""]
-    for idx, (auction_id, status, start_price, top_bid_amount) in enumerate(rows, start=1):
-        current_price = top_bid_amount if top_bid_amount is not None else start_price
+
+def _parse_my_auctions_list_payload(data: str) -> tuple[str, int] | None:
+    parts = data.split(":")
+    if len(parts) != 5:
+        return None
+    _, scope, action, filter_key, page_raw = parts
+    if scope != "my" or action != "list":
+        return None
+    if not is_valid_my_auctions_filter(filter_key):
+        return None
+    page = _parse_non_negative_int(page_raw)
+    if page is None:
+        return None
+    return filter_key, page
+
+
+def _parse_my_auctions_item_payload(data: str, *, action: str) -> tuple[uuid.UUID, str, int] | None:
+    parts = data.split(":")
+    if len(parts) != 6:
+        return None
+    _, scope, payload_action, auction_raw, filter_key, page_raw = parts
+    if scope != "my" or payload_action != action:
+        return None
+    if not is_valid_my_auctions_filter(filter_key):
+        return None
+    page = _parse_non_negative_int(page_raw)
+    if page is None:
+        return None
+    try:
+        auction_id = uuid.UUID(auction_raw)
+    except ValueError:
+        return None
+    return auction_id, filter_key, page
+
+
+def _format_time_left(ends_at: datetime | None) -> str:
+    if ends_at is None:
+        return "-"
+
+    now = datetime.now(UTC)
+    if ends_at <= now:
+        return "завершается"
+
+    delta = ends_at - now
+    total_seconds = int(delta.total_seconds())
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours}ч {minutes}м"
+    return f"{minutes}м"
+
+
+def _render_my_auctions_list_text(
+    *,
+    items: list[SellerAuctionListItem],
+    filter_key: str,
+    page: int,
+    total_items: int,
+) -> str:
+    filter_label = MY_AUCTIONS_FILTER_LABELS.get(filter_key, "Все")
+    header = f"<b>Мои аукционы</b> · {filter_label}"
+    if not items:
+        return (
+            f"{header}\n\n"
+            "У вас пока нет лотов в этом фильтре.\n"
+            "Нажмите «Создать аукцион», чтобы добавить новый лот."
+        )
+
+    lines = [header, f"Всего: {total_items} · Страница: {page + 1}", ""]
+    for index, item in enumerate(items, start=1 + page * MY_AUCTIONS_PAGE_SIZE):
         lines.append(
-            f"{idx}) #{str(auction_id)[:8]} | {_auction_status_label(status)} | текущая цена: ${current_price}"
+            "{} ) <code>#{}</code> · {} · <b>${}</b> · ставок: {} · осталось: {}".format(
+                index,
+                str(item.auction_id)[:8],
+                _auction_status_label(item.status),
+                item.current_price,
+                item.bid_count,
+                _format_time_left(item.ends_at),
+            )
+        )
+    lines.append("")
+    lines.append("Откройте лот кнопкой ниже: доступны «Ставки», «Посты» и «Фото». ")
+    return "\n".join(lines)
+
+
+def _auction_list_button_label(item: SellerAuctionListItem) -> str:
+    return f"#{str(item.auction_id)[:8]} · {_auction_status_label(item.status)} · ${item.current_price}"
+
+
+def _render_my_auction_detail_text(item: SellerAuctionListItem) -> str:
+    ends_at_text = item.ends_at.astimezone(UTC).strftime("%d.%m.%Y %H:%M UTC") if item.ends_at else "-"
+    return "\n".join(
+        [
+            f"<b>Лот #{str(item.auction_id)[:8]}</b>",
+            f"Статус: <b>{_auction_status_label(item.status)}</b>",
+            f"Текущая цена: <b>${item.current_price}</b>",
+            f"Стартовая цена: ${item.start_price}",
+            f"Кол-во ставок: {item.bid_count}",
+            f"Окончание: {ends_at_text}",
+            "",
+            "Используйте кнопки ниже для просмотра ставок и публикаций.",
+        ]
+    )
+
+
+def _render_bid_logs_text(*, auction_id: uuid.UUID, rows: list[SellerBidLogItem]) -> str:
+    if not rows:
+        return f"Ставки по лоту #{str(auction_id)[:8]} пока отсутствуют."
+
+    lines = [f"<b>Ставки по лоту #{str(auction_id)[:8]}</b>", ""]
+    for row in rows:
+        actor = f"@{row.username}" if row.username else str(row.tg_user_id)
+        removed_marker = " (снята)" if row.is_removed else ""
+        lines.append(
+            f"- {row.created_at.astimezone(UTC).strftime('%d.%m %H:%M')} · ${row.amount} · {html.escape(actor)}{removed_marker}"
         )
     return "\n".join(lines)
 
 
-async def _load_my_auctions_rows(
+def _internal_chat_link_id(chat_id: int) -> str | None:
+    raw = str(abs(chat_id))
+    if not raw.startswith("100"):
+        return None
+    suffix = raw[3:]
+    return suffix if suffix else None
+
+
+def _resolve_post_link(chat_id: int | None, message_id: int | None, username: str | None) -> str | None:
+    if chat_id is None or message_id is None:
+        return None
+    normalized_username = (username or "").strip().lstrip("@")
+    if normalized_username:
+        return f"https://t.me/{normalized_username}/{message_id}"
+    internal_id = _internal_chat_link_id(chat_id)
+    if internal_id is None:
+        return None
+    return f"https://t.me/c/{internal_id}/{message_id}"
+
+
+async def _chat_username_by_id(bot: Bot, chat_id: int, cache: dict[int, str | None]) -> str | None:
+    if chat_id in cache:
+        return cache[chat_id]
+
+    username: str | None = None
+    try:
+        chat = await bot.get_chat(chat_id)
+        raw_username = getattr(chat, "username", None)
+        if isinstance(raw_username, str) and raw_username.strip():
+            username = raw_username.strip()
+    except TelegramAPIError:
+        username = None
+
+    cache[chat_id] = username
+    return username
+
+
+async def _render_posts_text_and_first_link(
     *,
-    session,
-    seller_user_id: int,
-    limit: int = 10,
-) -> list[tuple[object, AuctionStatus, int, int | None]]:
-    top_bid_amount = (
-        select(func.max(Bid.amount))
-        .where(Bid.auction_id == Auction.id, Bid.is_removed.is_(False))
-        .correlate(Auction)
-        .scalar_subquery()
-    )
-    stmt = (
-        select(
-            Auction.id,
-            Auction.status,
-            Auction.start_price,
-            top_bid_amount.label("top_bid_amount"),
+    bot: Bot,
+    auction_id: uuid.UUID,
+    rows: list[SellerAuctionPostItem],
+) -> tuple[str, str | None]:
+    if not rows:
+        return f"Публикаций по лоту #{str(auction_id)[:8]} пока нет.", None
+
+    lines = [f"<b>Публикации лота #{str(auction_id)[:8]}</b>", ""]
+    first_link: str | None = None
+    username_cache: dict[int, str | None] = {}
+
+    for index, row in enumerate(rows, start=1):
+        if row.inline_message_id:
+            lines.append(f"{index}) inline-публикация (прямая ссылка недоступна)")
+            continue
+        if row.chat_id is None or row.message_id is None:
+            lines.append(f"{index}) нет данных о публикации")
+            continue
+
+        username = await _chat_username_by_id(bot, row.chat_id, username_cache)
+        post_link = _resolve_post_link(row.chat_id, row.message_id, username)
+        if post_link is None:
+            lines.append(f"{index}) chat_id={row.chat_id}, message_id={row.message_id}")
+            continue
+
+        if first_link is None:
+            first_link = post_link
+        lines.append(
+            f"{index}) <a href=\"{html.escape(post_link, quote=True)}\">Открыть пост</a>"
         )
-        .where(Auction.seller_user_id == seller_user_id)
-        .order_by(Auction.created_at.desc())
-        .limit(limit)
-    )
-    return [
-        (auction_id, status, start_price, top_bid)
-        for auction_id, status, start_price, top_bid in (await session.execute(stmt)).all()
-    ]
+
+    return "\n".join(lines), first_link
 
 
 async def _can_show_moderation_button(*, session, tg_user_id: int) -> bool:
@@ -312,20 +495,242 @@ async def handle_start_non_private(message: Message) -> None:
     await message.answer("Для настройки и уведомлений откройте бота в личных сообщениях.")
 
 
-@router.callback_query(F.data == "dash:my_auctions")
-async def callback_my_auctions(callback: CallbackQuery) -> None:
+async def _show_my_auctions_list(
+    callback: CallbackQuery,
+    *,
+    filter_key: str,
+    page: int,
+    edit_message: bool,
+) -> None:
     if callback.from_user is None:
         return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть список", show_alert=True)
+        return
 
-    rows: list[tuple[object, AuctionStatus, int, int | None]] = []
     async with SessionFactory() as session:
         async with session.begin():
             user = await upsert_user(session, callback.from_user, mark_private_started=True)
-            rows = await _load_my_auctions_rows(session=session, seller_user_id=user.id, limit=10)
+            items, total_items = await list_seller_auctions(
+                session,
+                seller_user_id=user.id,
+                filter_key=filter_key,
+                page=page,
+                page_size=MY_AUCTIONS_PAGE_SIZE,
+            )
+
+    has_prev = page > 0
+    has_next = total_items > (page + 1) * MY_AUCTIONS_PAGE_SIZE
+    text = _render_my_auctions_list_text(
+        items=items,
+        filter_key=filter_key,
+        page=page,
+        total_items=total_items,
+    )
+    keyboard = my_auctions_list_keyboard(
+        auctions=[(str(item.auction_id), _auction_list_button_label(item)) for item in items],
+        current_filter=filter_key,
+        page=page,
+        has_prev=has_prev,
+        has_next=has_next,
+    )
 
     await callback.answer()
-    if callback.message is not None and isinstance(callback.message, Message):
-        await callback.message.answer(_render_my_auctions_text(rows))
+    if edit_message:
+        try:
+            await callback.message.edit_text(
+                text,
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
+            return
+        except TelegramBadRequest:
+            pass
+
+    await callback.message.answer(
+        text,
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
+async def _show_my_auction_details(
+    callback: CallbackQuery,
+    *,
+    auction_id: uuid.UUID,
+    filter_key: str,
+    page: int,
+    edit_message: bool,
+) -> None:
+    if callback.from_user is None:
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть лот", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            item = await load_seller_auction(session, seller_user_id=user.id, auction_id=auction_id)
+            posts = await list_seller_auction_posts(session, seller_user_id=user.id, auction_id=auction_id)
+
+    if item is None:
+        await callback.answer("Лот не найден", show_alert=True)
+        return
+
+    first_post_url: str | None = None
+    for post in posts:
+        first_post_url = _resolve_post_link(post.chat_id, post.message_id, username=None)
+        if first_post_url is not None:
+            break
+
+    text = _render_my_auction_detail_text(item)
+    keyboard = my_auction_detail_keyboard(
+        auction_id=str(item.auction_id),
+        filter_key=filter_key,
+        page=page,
+        first_post_url=first_post_url,
+    )
+
+    await callback.answer()
+    if edit_message:
+        try:
+            await callback.message.edit_text(
+                text,
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
+            return
+        except TelegramBadRequest:
+            pass
+
+    await callback.message.answer(
+        text,
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(F.data == "dash:my_auctions")
+async def callback_my_auctions(callback: CallbackQuery) -> None:
+    await _show_my_auctions_list(callback, filter_key="a", page=0, edit_message=False)
+
+
+@router.callback_query(F.data.startswith("dash:my:list:"))
+async def callback_my_auctions_list(callback: CallbackQuery) -> None:
+    if callback.data is None:
+        return
+    payload = _parse_my_auctions_list_payload(callback.data)
+    if payload is None:
+        await callback.answer("Некорректная навигация", show_alert=True)
+        return
+
+    filter_key, page = payload
+    await _show_my_auctions_list(callback, filter_key=filter_key, page=page, edit_message=True)
+
+
+@router.callback_query(F.data.startswith("dash:my:view:"))
+async def callback_my_auction_details(callback: CallbackQuery) -> None:
+    if callback.data is None:
+        return
+    payload = _parse_my_auctions_item_payload(callback.data, action="view")
+    if payload is None:
+        await callback.answer("Некорректный лот", show_alert=True)
+        return
+
+    auction_id, filter_key, page = payload
+    await _show_my_auction_details(
+        callback,
+        auction_id=auction_id,
+        filter_key=filter_key,
+        page=page,
+        edit_message=True,
+    )
+
+
+@router.callback_query(F.data.startswith("dash:my:bids:"))
+async def callback_my_auction_bids(callback: CallbackQuery) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+    payload = _parse_my_auctions_item_payload(callback.data, action="bids")
+    if payload is None:
+        await callback.answer("Некорректный лот", show_alert=True)
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть ставки", show_alert=True)
+        return
+
+    auction_id, filter_key, page = payload
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            item = await load_seller_auction(session, seller_user_id=user.id, auction_id=auction_id)
+            bid_rows = await list_seller_auction_bid_logs(
+                session,
+                seller_user_id=user.id,
+                auction_id=auction_id,
+                limit=15,
+            )
+
+    if item is None:
+        await callback.answer("Лот не найден", show_alert=True)
+        return
+
+    await callback.answer()
+    await callback.message.edit_text(
+        _render_bid_logs_text(auction_id=item.auction_id, rows=bid_rows),
+        reply_markup=my_auction_subview_keyboard(
+            auction_id=str(item.auction_id),
+            filter_key=filter_key,
+            page=page,
+        ),
+        disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(F.data.startswith("dash:my:posts:"))
+async def callback_my_auction_posts(callback: CallbackQuery, bot: Bot) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+    payload = _parse_my_auctions_item_payload(callback.data, action="posts")
+    if payload is None:
+        await callback.answer("Некорректный лот", show_alert=True)
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть публикации", show_alert=True)
+        return
+
+    auction_id, filter_key, page = payload
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            item = await load_seller_auction(session, seller_user_id=user.id, auction_id=auction_id)
+            post_rows = await list_seller_auction_posts(
+                session,
+                seller_user_id=user.id,
+                auction_id=auction_id,
+            )
+
+    if item is None:
+        await callback.answer("Лот не найден", show_alert=True)
+        return
+
+    posts_text, _ = await _render_posts_text_and_first_link(
+        bot=bot,
+        auction_id=item.auction_id,
+        rows=post_rows,
+    )
+
+    await callback.answer()
+    await callback.message.edit_text(
+        posts_text,
+        reply_markup=my_auction_subview_keyboard(
+            auction_id=str(item.auction_id),
+            filter_key=filter_key,
+            page=page,
+        ),
+        disable_web_page_preview=True,
+    )
 
 
 @router.callback_query(F.data == "dash:settings")
