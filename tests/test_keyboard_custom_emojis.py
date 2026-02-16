@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton
 
-from app.bot.keyboards.auction import auction_active_keyboard, draft_publish_keyboard, photos_done_keyboard
+from app.bot.keyboards.auction import (
+    auction_active_keyboard,
+    draft_publish_keyboard,
+    photos_done_keyboard,
+    start_private_keyboard,
+)
 from app.bot.keyboards.moderation import (
     complaint_actions_keyboard,
     moderation_complaints_list_keyboard,
@@ -105,6 +110,34 @@ def test_auction_keyboard_emoji_fallbacks(monkeypatch) -> None:
 
     done = photos_done_keyboard()
     assert _button_by_text(done.inline_keyboard, "Готово").icon_custom_emoji_id == "create-base"
+
+
+def test_start_private_keyboard_regular_user_order() -> None:
+    keyboard = start_private_keyboard(show_moderation_button=False)
+
+    assert [row[0].text for row in keyboard.inline_keyboard] == [
+        "Создать аукцион",
+        "Мои аукционы",
+        "Настройки",
+        "Баланс",
+    ]
+    assert all(button.callback_data != "mod:panel" for button in _all_buttons(keyboard.inline_keyboard))
+
+
+def test_start_private_keyboard_moderator_has_mod_button_last(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "ui_emoji_mod_panel_id", "mod-panel")
+    keyboard = start_private_keyboard(show_moderation_button=True)
+
+    assert [row[0].text for row in keyboard.inline_keyboard] == [
+        "Создать аукцион",
+        "Мои аукционы",
+        "Настройки",
+        "Баланс",
+        "Мод-панель",
+    ]
+    mod_button = _button_by_callback(keyboard.inline_keyboard, "mod:panel")
+    assert mod_button.style == "success"
+    assert mod_button.icon_custom_emoji_id == "mod-panel"
 
 
 def test_moderation_keyboard_uses_granular_emoji_ids(monkeypatch) -> None:

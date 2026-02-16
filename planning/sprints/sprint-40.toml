@@ -1,0 +1,22 @@
+sprint = "Sprint 40"
+milestone = "Sprint 40"
+milestone_description = "Private dashboard refresh with role-aware moderation entry"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S40-001"
+title = "Redesign private dashboard menu and add callbacks"
+description = "Rework private /start dashboard order, show moderation button only to moderators/admins, implement My Auctions listing, and keep Settings/Balance as in-development alerts."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:ux", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Private dashboard buttons are ordered: Создать аукцион, Мои аукционы, Настройки, Баланс",
+  "Мод-панель is visible only to users with moderator/admin access and is rendered last",
+  "Настройки and Баланс callbacks return alert that section is in development",
+  "Мои аукционы callback returns recent user auctions with status and current price",
+]
