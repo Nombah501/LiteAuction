@@ -75,6 +75,19 @@ _EVENT_TO_FIELD: dict[NotificationEventType, str] = {
     NotificationEventType.SUPPORT: "support_enabled",
 }
 
+_EVENT_TO_ACTION_KEY: dict[NotificationEventType, str] = {
+    NotificationEventType.AUCTION_OUTBID: "outbid",
+    NotificationEventType.AUCTION_FINISH: "finish",
+    NotificationEventType.AUCTION_WIN: "win",
+    NotificationEventType.AUCTION_MOD_ACTION: "mod",
+    NotificationEventType.POINTS: "points",
+    NotificationEventType.SUPPORT: "support",
+}
+
+_ACTION_KEY_TO_EVENT: dict[str, NotificationEventType] = {
+    value: key for key, value in _EVENT_TO_ACTION_KEY.items()
+}
+
 
 def _normalize_preset(raw: str | None) -> NotificationPreset:
     if raw is None:
@@ -83,6 +96,14 @@ def _normalize_preset(raw: str | None) -> NotificationPreset:
         return NotificationPreset(raw)
     except ValueError:
         return NotificationPreset.RECOMMENDED
+
+
+def notification_event_action_key(event_type: NotificationEventType) -> str:
+    return _EVENT_TO_ACTION_KEY[event_type]
+
+
+def notification_event_from_action_key(action_key: str) -> NotificationEventType | None:
+    return _ACTION_KEY_TO_EVENT.get(action_key)
 
 
 def _snapshot_from_row(*, user: User, row: UserNotificationPreference | None) -> NotificationSettingsSnapshot:
@@ -240,6 +261,32 @@ async def toggle_notification_event(
     field_name = _EVENT_TO_FIELD[event_type]
     current = bool(getattr(row, field_name))
     setattr(row, field_name, not current)
+
+    await session.flush()
+    return _snapshot_from_row(user=user, row=row)
+
+
+async def set_notification_event_enabled(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    event_type: NotificationEventType,
+    enabled: bool,
+    mark_configured: bool = True,
+) -> NotificationSettingsSnapshot | None:
+    user = await session.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        return None
+
+    row = await get_or_create_notification_preferences(session, user_id=user_id)
+    now_utc = datetime.now(timezone.utc)
+    row.preset = NotificationPreset.CUSTOM.value
+    row.updated_at = now_utc
+    if mark_configured and row.configured_at is None:
+        row.configured_at = now_utc
+
+    field_name = _EVENT_TO_FIELD[event_type]
+    setattr(row, field_name, enabled)
 
     await session.flush()
     return _snapshot_from_row(user=user, row=row)
