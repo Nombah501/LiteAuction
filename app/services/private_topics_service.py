@@ -24,6 +24,10 @@ from app.services.notification_policy_service import (
     notification_snooze_callback_data,
     notification_event_action_key,
 )
+from app.services.notification_metrics_service import (
+    record_notification_sent,
+    record_notification_suppressed,
+)
 
 logger = logging.getLogger(__name__)
 _TOPICS_CAPABILITY_CACHE: dict[int, bool] = {}
@@ -545,6 +549,16 @@ async def send_user_topic_message(
     notification_event: NotificationEventType | None = None,
     auction_id: uuid.UUID | None = None,
 ) -> bool:
+    async def _record_sent(*, reason: str = "delivered") -> None:
+        if notification_event is None:
+            return
+        await record_notification_sent(event_type=notification_event, reason=reason)
+
+    async def _record_suppressed(*, reason: str) -> None:
+        if notification_event is None:
+            return
+        await record_notification_suppressed(event_type=notification_event, reason=reason)
+
     if notification_event is not None:
         async with SessionFactory() as session:
             allowed = await is_notification_allowed(
@@ -554,6 +568,7 @@ async def send_user_topic_message(
                 auction_id=auction_id,
             )
         if not allowed:
+            await _record_suppressed(reason="policy_blocked")
             return False
 
     effective_reply_markup = _notification_reply_markup(
@@ -623,6 +638,7 @@ async def send_user_topic_message(
                     text=text,
                     reply_markup=effective_reply_markup,
                 )
+            await _record_sent()
             return True
         except TelegramBadRequest as exc:
             last_bad_request = exc
@@ -634,6 +650,7 @@ async def send_user_topic_message(
                 purpose,
                 exc,
             )
+            await _record_suppressed(reason="forbidden")
             return False
         except TelegramAPIError as exc:
             logger.warning(
@@ -642,6 +659,7 @@ async def send_user_topic_message(
                 purpose,
                 exc,
             )
+            await _record_suppressed(reason="telegram_api_error")
             return False
         except Exception as exc:
             logger.warning(
@@ -650,6 +668,7 @@ async def send_user_topic_message(
                 purpose,
                 exc,
             )
+            await _record_suppressed(reason="unexpected_error")
             return False
 
     if last_bad_request is not None:
@@ -659,6 +678,7 @@ async def send_user_topic_message(
             purpose,
             last_bad_request,
         )
+        await _record_suppressed(reason="bad_request")
     return False
 
 
