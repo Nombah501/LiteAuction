@@ -40,6 +40,7 @@ async def configure_bot_commands(bot: Bot) -> None:
         BotCommand(command="points", description="Показать баланс наград"),
         BotCommand(command="modpanel", description="Открыть панель модератора"),
         BotCommand(command="modstats", description="Показать статистику модерации"),
+        BotCommand(command="notifstats", description="Показать snapshot метрик уведомлений"),
         BotCommand(command="emojiid", description="Получить ID premium emoji (для UI)"),
         BotCommand(command="effectid", description="Получить ID визуального эффекта"),
     ]
