@@ -11,6 +11,7 @@ from app.services.notification_policy_service import (
     _snapshot_from_row,
     notification_delivery_policy,
     notification_priority_tier,
+    is_within_quiet_hours,
     parse_notification_mute_callback_data,
     parse_notification_snooze_callback_data,
     notification_snooze_callback_data,
@@ -31,6 +32,9 @@ def test_snapshot_defaults_to_recommended_when_row_missing() -> None:
     assert snapshot.master_enabled is True
     assert snapshot.preset == NotificationPreset.RECOMMENDED
     assert snapshot.outbid_enabled is True
+    assert snapshot.quiet_hours_enabled is False
+    assert snapshot.quiet_hours_start_hour == 23
+    assert snapshot.quiet_hours_end_hour == 8
     assert snapshot.configured is False
 
 
@@ -45,6 +49,9 @@ def test_snapshot_uses_custom_values_for_custom_preset() -> None:
         auction_mod_actions_enabled=True,
         points_enabled=False,
         support_enabled=True,
+        quiet_hours_enabled=True,
+        quiet_hours_start_hour=22,
+        quiet_hours_end_hour=7,
         configured_at=datetime.now(UTC),
     )
 
@@ -54,6 +61,9 @@ def test_snapshot_uses_custom_values_for_custom_preset() -> None:
     assert snapshot.preset == NotificationPreset.CUSTOM
     assert snapshot.outbid_enabled is False
     assert snapshot.auction_win_enabled is False
+    assert snapshot.quiet_hours_enabled is True
+    assert snapshot.quiet_hours_start_hour == 22
+    assert snapshot.quiet_hours_end_hour == 7
     assert snapshot.configured is True
 
 
@@ -143,3 +153,21 @@ def test_notification_delivery_policy_helpers_follow_tier_rules() -> None:
 
     assert should_defer_notification_during_quiet_hours(NotificationEventType.POINTS) is True
     assert should_defer_notification_during_quiet_hours(NotificationEventType.AUCTION_MOD_ACTION) is False
+
+
+def test_is_within_quiet_hours_for_cross_midnight_window() -> None:
+    assert is_within_quiet_hours(
+        now_utc=datetime(2026, 2, 18, 23, 30, tzinfo=UTC),
+        start_hour=23,
+        end_hour=8,
+    )
+    assert is_within_quiet_hours(
+        now_utc=datetime(2026, 2, 18, 7, 45, tzinfo=UTC),
+        start_hour=23,
+        end_hour=8,
+    )
+    assert not is_within_quiet_hours(
+        now_utc=datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
+        start_hour=23,
+        end_hour=8,
+    )

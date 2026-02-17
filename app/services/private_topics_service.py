@@ -20,13 +20,18 @@ from app.services.moderation_service import has_moderator_access, is_moderator_t
 from app.services.notification_policy_service import (
     NotificationEventType,
     default_auction_snooze_minutes,
-    is_notification_allowed,
+    notification_delivery_decision,
     notification_snooze_callback_data,
     notification_event_action_key,
 )
 from app.services.notification_metrics_service import (
+    record_notification_aggregated,
     record_notification_sent,
     record_notification_suppressed,
+)
+from app.services.notification_quiet_hours_service import (
+    defer_notification_event,
+    pop_deferred_notification_count,
 )
 
 logger = logging.getLogger(__name__)
@@ -559,17 +564,42 @@ async def send_user_topic_message(
             return
         await record_notification_suppressed(event_type=notification_event, reason=reason)
 
+    async def _record_aggregated(*, reason: str, count: int = 1) -> None:
+        if notification_event is None:
+            return
+        await record_notification_aggregated(
+            event_type=notification_event,
+            reason=reason,
+            count=count,
+        )
+
     if notification_event is not None:
         async with SessionFactory() as session:
-            allowed = await is_notification_allowed(
+            decision = await notification_delivery_decision(
                 session,
                 tg_user_id=tg_user_id,
                 event_type=notification_event,
                 auction_id=auction_id,
             )
-        if not allowed:
-            await _record_suppressed(reason="policy_blocked")
+        if not decision.allowed:
+            await _record_suppressed(reason=decision.reason)
+            if decision.reason == "quiet_hours_deferred":
+                await defer_notification_event(
+                    tg_user_id=tg_user_id,
+                    event_type=notification_event,
+                )
+                await _record_aggregated(reason="quiet_hours_deferred")
             return False
+
+        deferred_count = await pop_deferred_notification_count(
+            tg_user_id=tg_user_id,
+            event_type=notification_event,
+        )
+        if deferred_count > 0:
+            text = (
+                f"Тихие часы завершены: пропущено {deferred_count} уведомлений этого типа.\n\n{text}"
+            )
+            await _record_aggregated(reason="quiet_hours_flushed", count=deferred_count)
 
     effective_reply_markup = _notification_reply_markup(
         reply_markup=reply_markup,
