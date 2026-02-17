@@ -44,7 +44,10 @@ from app.services.message_effects_service import (
 )
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
-from app.services.notification_policy_service import NotificationEventType
+from app.services.notification_policy_service import (
+    NotificationEventType,
+    should_apply_notification_debounce,
+)
 from app.services.user_service import upsert_user
 
 router = Router(name="bid_actions")
@@ -283,8 +286,9 @@ async def _notify_outbid(
     if outbid_user_tg_id is None or outbid_user_tg_id == actor_tg_id:
         return
 
-    if not await acquire_outbid_notification_debounce(auction_id, outbid_user_tg_id):
-        return
+    if should_apply_notification_debounce(NotificationEventType.AUCTION_OUTBID):
+        if not await acquire_outbid_notification_debounce(auction_id, outbid_user_tg_id):
+            return
 
     resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)
     reply_markup = open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
