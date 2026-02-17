@@ -17,7 +17,7 @@ for Telegram DM notification flows.
    - global switch ON
    - relevant event type ON
 3. Confirm user did not mute/snooze the specific lot (`/settings`, "Пауза по лоту").
-4. Confirm quiet hours status in `/settings` (UTC window).
+4. Confirm quiet hours status in `/settings` (user timezone window).
 5. If user clicked an old button, ask to reopen `/settings` (stale callback protection).
 
 ## 2) System-Level Checks
@@ -85,3 +85,23 @@ When escalating to engineering, include:
 - approximate timestamp (UTC)
 - matching `notification_delivery_decision`/`notification_delivery_failed` lines
 - user settings state from `/settings`
+
+## 6) Operator Snapshot Command
+
+Use `/notifstats` in private moderation topic for a compact Redis-based snapshot.
+
+Output blocks:
+
+- `sent total`: delivered notification attempts
+- `suppressed total`: blocked/failed deliveries recorded as suppression
+- `aggregated total`: anti-noise aggregation counters (digest/deferred flush/debounce)
+- `Top suppression reasons (event/reason)`: most frequent suppression signatures
+
+Interpretation quick-guide:
+
+- high `suppressed total` with top `blocked_master` / `blocked_event_toggle`
+  - user-level opt-out pattern; expected for users who tuned settings
+- high `quiet_hours_deferred`
+  - time-window deferral is active; validate timezone and quiet window in `/settings`
+- high `forbidden` / `bad_request` / `telegram_api_error`
+  - transport-level issues; use log queries from section 3 for exact `tg_user_id`
