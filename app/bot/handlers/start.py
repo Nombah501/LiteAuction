@@ -1229,7 +1229,7 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
     if callback.from_user is None or callback.data is None:
         return
 
-    parts = callback.data.split(":")
+    parts = callback.data.split(":", 3)
     if len(parts) != 4:
         await callback.answer("Некорректное действие", show_alert=True)
         return
@@ -1322,6 +1322,15 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
                     enabled = True
                     start_hour = 0
                     end_hour = 7
+                elif ":" in raw_value:
+                    maybe_start, maybe_end = raw_value.split(":", 1)
+                    if maybe_start.isdigit() and maybe_end.isdigit():
+                        enabled = True
+                        start_hour = int(maybe_start)
+                        end_hour = int(maybe_end)
+                    else:
+                        await callback.answer("Неизвестный пресет тихих часов", show_alert=True)
+                        return
                 else:
                     await callback.answer("Неизвестный пресет тихих часов", show_alert=True)
                     return

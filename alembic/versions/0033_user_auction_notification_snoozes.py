@@ -18,58 +18,76 @@ depends_on: Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "user_auction_notification_snoozes",
-        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.BigInteger(), nullable=False),
-        sa.Column("auction_id", sa.UUID(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("TIMEZONE('utc', NOW())"),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("TIMEZONE('utc', NOW())"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_name = "user_auction_notification_snoozes"
+
+    if table_name not in inspector.get_table_names():
+        op.create_table(
+            table_name,
+            sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+            sa.Column("user_id", sa.BigInteger(), nullable=False),
+            sa.Column("auction_id", sa.UUID(), nullable=False),
+            sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text("TIMEZONE('utc', NOW())"),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text("TIMEZONE('utc', NOW())"),
+                nullable=False,
+            ),
+            sa.ForeignKeyConstraint(
+                ["user_id"],
+                ["users.id"],
+                name="fk_user_auction_notification_snoozes_user_id_users",
+                ondelete="CASCADE",
+            ),
+            sa.PrimaryKeyConstraint("id", name="pk_user_auction_notification_snoozes"),
+            sa.UniqueConstraint(
+                "user_id",
+                "auction_id",
+                name="uq_user_auction_notification_snoozes_user_auction",
+            ),
+        )
+
+    indexes = {idx["name"] for idx in inspector.get_indexes(table_name)}
+    if "ix_user_auction_notification_snoozes_user_id" not in indexes:
+        op.create_index(
+            "ix_user_auction_notification_snoozes_user_id",
+            table_name,
             ["user_id"],
-            ["users.id"],
-            name="fk_user_auction_notification_snoozes_user_id_users",
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_user_auction_notification_snoozes"),
-        sa.UniqueConstraint(
-            "user_id",
-            "auction_id",
-            name="uq_user_auction_notification_snoozes_user_auction",
-        ),
-    )
-    op.create_index(
-        "ix_user_auction_notification_snoozes_user_id",
-        "user_auction_notification_snoozes",
-        ["user_id"],
-        unique=False,
-    )
-    op.create_index(
-        "ix_user_auction_notification_snoozes_expires_at",
-        "user_auction_notification_snoozes",
-        ["expires_at"],
-        unique=False,
-    )
+            unique=False,
+        )
+    if "ix_user_auction_notification_snoozes_expires_at" not in indexes:
+        op.create_index(
+            "ix_user_auction_notification_snoozes_expires_at",
+            table_name,
+            ["expires_at"],
+            unique=False,
+        )
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_user_auction_notification_snoozes_expires_at",
-        table_name="user_auction_notification_snoozes",
-    )
-    op.drop_index(
-        "ix_user_auction_notification_snoozes_user_id",
-        table_name="user_auction_notification_snoozes",
-    )
-    op.drop_table("user_auction_notification_snoozes")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_name = "user_auction_notification_snoozes"
+    if table_name not in inspector.get_table_names():
+        return
+
+    indexes = {idx["name"] for idx in inspector.get_indexes(table_name)}
+    if "ix_user_auction_notification_snoozes_expires_at" in indexes:
+        op.drop_index(
+            "ix_user_auction_notification_snoozes_expires_at",
+            table_name=table_name,
+        )
+    if "ix_user_auction_notification_snoozes_user_id" in indexes:
+        op.drop_index(
+            "ix_user_auction_notification_snoozes_user_id",
+            table_name=table_name,
+        )
+    op.drop_table(table_name)
