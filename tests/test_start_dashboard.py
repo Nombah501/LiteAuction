@@ -16,11 +16,17 @@ from app.bot.handlers.start import (
     _render_my_auction_detail_text,
     _render_my_auctions_list_text,
     _resolve_post_link,
+    _settings_keyboard,
     callback_dashboard_balance,
     callback_dashboard_settings,
 )
 from app.db.enums import AuctionStatus
-from app.services.notification_policy_service import NotificationEventType
+from app.services.notification_policy_service import (
+    AuctionNotificationSnoozeView,
+    NotificationEventType,
+    NotificationPreset,
+    NotificationSettingsSnapshot,
+)
 from app.services.seller_dashboard_service import SellerAuctionListItem, SellerBidLogItem
 
 
@@ -175,3 +181,57 @@ def test_settings_toggle_mapping_contains_all_supported_events() -> None:
         "points": NotificationEventType.POINTS,
         "support": NotificationEventType.SUPPORT,
     }
+
+
+def test_settings_keyboard_contains_unsnooze_buttons() -> None:
+    snapshot = NotificationSettingsSnapshot(
+        master_enabled=True,
+        preset=NotificationPreset.RECOMMENDED,
+        outbid_enabled=True,
+        auction_finish_enabled=True,
+        auction_win_enabled=True,
+        auction_mod_actions_enabled=True,
+        points_enabled=True,
+        support_enabled=True,
+        configured=True,
+    )
+    snoozes = [
+        AuctionNotificationSnoozeView(
+            auction_id=UUID("12345678-1234-5678-1234-567812345678"),
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    ]
+
+    keyboard = _settings_keyboard(snapshot, snoozes=snoozes)
+    callback_data = {
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data is not None
+    }
+    assert "dash:settings:unsnooze:12345678-1234-5678-1234-567812345678" in callback_data
+
+
+def test_settings_keyboard_contains_unmute_buttons_for_disabled_events() -> None:
+    snapshot = NotificationSettingsSnapshot(
+        master_enabled=True,
+        preset=NotificationPreset.CUSTOM,
+        outbid_enabled=False,
+        auction_finish_enabled=True,
+        auction_win_enabled=False,
+        auction_mod_actions_enabled=True,
+        points_enabled=True,
+        support_enabled=False,
+        configured=True,
+    )
+
+    keyboard = _settings_keyboard(snapshot, snoozes=[])
+    callback_data = {
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data is not None
+    }
+    assert "dash:settings:unmute:outbid" in callback_data
+    assert "dash:settings:unmute:win" in callback_data
+    assert "dash:settings:unmute:support" in callback_data

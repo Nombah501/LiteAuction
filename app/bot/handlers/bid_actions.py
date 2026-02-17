@@ -293,6 +293,7 @@ async def _notify_outbid(
         reply_markup=reply_markup,
         message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.OUTBID),
         notification_event=NotificationEventType.AUCTION_OUTBID,
+        auction_id=auction_id,
     )
 
 
@@ -319,6 +320,7 @@ async def _notify_auction_finish(
                 AuctionMessageEffectEvent.BUYOUT_SELLER
             ),
             notification_event=NotificationEventType.AUCTION_FINISH,
+            auction_id=auction_id,
         )
     if winner_tg_id is not None:
         await send_user_topic_message(
@@ -331,6 +333,7 @@ async def _notify_auction_finish(
                 AuctionMessageEffectEvent.BUYOUT_WINNER
             ),
             notification_event=NotificationEventType.AUCTION_WIN,
+            auction_id=auction_id,
         )
 
 

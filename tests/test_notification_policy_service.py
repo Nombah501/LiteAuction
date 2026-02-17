@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from app.db.models import User, UserNotificationPreference
 from app.services.notification_policy_service import (
     NotificationEventType,
     NotificationPreset,
     _snapshot_from_row,
+    parse_notification_snooze_callback_data,
+    notification_snooze_callback_data,
     notification_event_action_key,
     notification_event_from_action_key,
 )
@@ -52,3 +55,26 @@ def test_notification_event_action_key_roundtrip() -> None:
         assert notification_event_from_action_key(action_key) == event_type
 
     assert notification_event_from_action_key("unknown") is None
+
+
+def test_notification_snooze_callback_roundtrip() -> None:
+    auction_id = UUID("12345678-1234-5678-1234-567812345678")
+    callback_data = notification_snooze_callback_data(auction_id=auction_id, duration_minutes=90)
+
+    assert callback_data == "notif:snooze:12345678-1234-5678-1234-567812345678:90"
+    assert parse_notification_snooze_callback_data(callback_data) == (auction_id, 90)
+
+
+def test_notification_snooze_callback_parser_rejects_invalid_payloads() -> None:
+    assert parse_notification_snooze_callback_data("notif:snooze:not-a-uuid:60") is None
+    assert parse_notification_snooze_callback_data("notif:snooze:12345678-1234-5678-1234-567812345678:-1") is None
+
+
+def test_notification_snooze_callback_clamps_duration_bounds() -> None:
+    auction_id = UUID("12345678-1234-5678-1234-567812345678")
+
+    short_callback = notification_snooze_callback_data(auction_id=auction_id, duration_minutes=0)
+    long_callback = notification_snooze_callback_data(auction_id=auction_id, duration_minutes=100000)
+
+    assert short_callback.endswith(":1")
+    assert long_callback.endswith(":1440")
