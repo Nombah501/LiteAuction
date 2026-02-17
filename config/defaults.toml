@@ -58,6 +58,7 @@ anti_sniper_window_minutes = 2
 anti_sniper_extend_minutes = 3
 anti_sniper_max_extensions = 3
 bid_cooldown_seconds = 2
+outbid_notification_debounce_seconds = 60
 duplicate_bid_window_seconds = 15
 confirmation_ttl_seconds = 5
 complaint_cooldown_seconds = 60

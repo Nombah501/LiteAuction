@@ -18,6 +18,10 @@ def _complaint_cooldown_key(auction_id: uuid.UUID, user_id: int) -> str:
     return f"complaint:cooldown:{auction_id}:{user_id}"
 
 
+def _outbid_notification_debounce_key(auction_id: uuid.UUID, user_tg_id: int) -> str:
+    return f"notif:outbid:debounce:{auction_id}:{user_tg_id}"
+
+
 async def acquire_bid_cooldown(auction_id: uuid.UUID, user_id: int) -> bool:
     ttl = max(settings.bid_cooldown_seconds, 1)
     result = await redis_client.set(_cooldown_key(auction_id, user_id), "1", ex=ttl, nx=True)
@@ -39,4 +43,17 @@ async def arm_or_confirm_action(auction_id: uuid.UUID, user_id: int, action: str
 async def acquire_complaint_cooldown(auction_id: uuid.UUID, user_id: int) -> bool:
     ttl = max(settings.complaint_cooldown_seconds, 1)
     result = await redis_client.set(_complaint_cooldown_key(auction_id, user_id), "1", ex=ttl, nx=True)
+    return bool(result)
+
+
+async def acquire_outbid_notification_debounce(auction_id: uuid.UUID, user_tg_id: int) -> bool:
+    ttl = max(settings.outbid_notification_debounce_seconds, 0)
+    if ttl <= 0:
+        return True
+    result = await redis_client.set(
+        _outbid_notification_debounce_key(auction_id, user_tg_id),
+        "1",
+        ex=ttl,
+        nx=True,
+    )
     return bool(result)
