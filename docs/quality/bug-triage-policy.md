@@ -54,3 +54,7 @@
 
 - Resolve all `P0` before any `P2/P3`.
 - `P1` can be split into independent patches if that reduces merge risk.
+
+## Related Runbooks
+
+- Notification delivery diagnostics: `docs/quality/notification-troubleshooting-runbook.md`
