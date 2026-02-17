@@ -12,6 +12,7 @@ from app.bot.handlers.moderation import (
 from app.services.notification_metrics_service import (
     NotificationMetricBucket,
     NotificationMetricsSnapshot,
+    NotificationMetricTotals,
 )
 from app.services.notification_policy_service import NotificationEventType
 
@@ -48,9 +49,9 @@ class _DummySessionFactory:
 async def test_render_notification_metrics_snapshot_text_includes_top_reasons(monkeypatch) -> None:
     async def _snapshot_loader(*, top_limit: int = 5) -> NotificationMetricsSnapshot:  # noqa: ARG001
         return NotificationMetricsSnapshot(
-            sent_total=11,
-            suppressed_total=7,
-            aggregated_total=5,
+            all_time=NotificationMetricTotals(sent_total=11, suppressed_total=7, aggregated_total=5),
+            last_24h=NotificationMetricTotals(sent_total=4, suppressed_total=2, aggregated_total=1),
+            last_7d=NotificationMetricTotals(sent_total=9, suppressed_total=5, aggregated_total=3),
             top_suppressed=(
                 NotificationMetricBucket(
                     event_type=NotificationEventType.AUCTION_OUTBID,
@@ -73,6 +74,12 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
     assert "sent total: 11" in text
     assert "suppressed total: 7" in text
     assert "aggregated total: 5" in text
+    assert "sent total (24h): 4" in text
+    assert "suppressed total (24h): 2" in text
+    assert "aggregated total (24h): 1" in text
+    assert "sent total (7d): 9" in text
+    assert "suppressed total (7d): 5" in text
+    assert "aggregated total (7d): 3" in text
     assert "Перебили ставку / blocked_master: 4" in text
     assert "Поддержка / forbidden: 3" in text
 

@@ -1,0 +1,53 @@
+sprint = "Sprint 47"
+milestone = "Sprint 47"
+milestone_description = "Notification observability hardening and operator workflow follow-up"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S47-001"
+title = "Add windowed /notifstats snapshot for operators"
+description = "Extend operator notification snapshot with last-24h/7d counters and keep top suppression reasons grouped by event/reason for faster incident triage."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:ops", "area:metrics", "priority:p1", "tech-debt"]
+assignees = ["Nombah501"]
+create_draft_pr = true
+acceptance = [
+  "`/notifstats` returns totals for all-time, 24h, and 7d windows",
+  "Snapshot still includes top suppression reasons grouped by event/reason",
+  "Unit tests cover window aggregation and no-data behavior",
+]
+
+[[items]]
+id = "S47-002"
+title = "Add /notifstats filters by event and reason"
+description = "Allow operators to narrow snapshot output by notification event type and optional reason token to speed up targeted investigations."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:enhancement", "area:ops", "area:bot", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Command supports optional event filter token",
+  "Command supports optional reason filter token",
+  "Validation returns clear help text for invalid filter combinations",
+]
+
+[[items]]
+id = "S47-003"
+title = "Document notification metrics retention and reset workflow"
+description = "Add runbook guidance for interpreting Redis-backed counters over time, handling stale totals, and safely resetting metrics during incidents."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:docs", "area:ops", "area:metrics", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Runbook explains expected counter drift and troubleshooting caveats",
+  "Reset procedure includes safety checks and rollback notes",
+  "Examples cover common suppression signatures and operator actions",
+]

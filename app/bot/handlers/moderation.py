@@ -717,11 +717,22 @@ async def _render_notification_metrics_snapshot_text() -> str:
     snapshot = await load_notification_metrics_snapshot(top_limit=5)
     lines = [
         "Notification metrics snapshot",
-        f"- sent total: {snapshot.sent_total}",
-        f"- suppressed total: {snapshot.suppressed_total}",
-        f"- aggregated total: {snapshot.aggregated_total}",
+        "All-time totals:",
+        f"- sent total: {snapshot.all_time.sent_total}",
+        f"- suppressed total: {snapshot.all_time.suppressed_total}",
+        f"- aggregated total: {snapshot.all_time.aggregated_total}",
         "",
-        "Top suppression reasons (event/reason):",
+        "Last 24h totals:",
+        f"- sent total (24h): {snapshot.last_24h.sent_total}",
+        f"- suppressed total (24h): {snapshot.last_24h.suppressed_total}",
+        f"- aggregated total (24h): {snapshot.last_24h.aggregated_total}",
+        "",
+        "Last 7d totals:",
+        f"- sent total (7d): {snapshot.last_7d.sent_total}",
+        f"- suppressed total (7d): {snapshot.last_7d.suppressed_total}",
+        f"- aggregated total (7d): {snapshot.last_7d.aggregated_total}",
+        "",
+        "Top suppression reasons (event/reason, all-time):",
     ]
     if not snapshot.top_suppressed:
         lines.append("- пока нет данных")
