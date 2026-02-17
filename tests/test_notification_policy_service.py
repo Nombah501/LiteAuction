@@ -3,7 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.db.models import User, UserNotificationPreference
-from app.services.notification_policy_service import NotificationPreset, _snapshot_from_row
+from app.services.notification_policy_service import (
+    NotificationEventType,
+    NotificationPreset,
+    _snapshot_from_row,
+    notification_event_action_key,
+    notification_event_from_action_key,
+)
 
 
 def test_snapshot_defaults_to_recommended_when_row_missing() -> None:
@@ -38,3 +44,11 @@ def test_snapshot_uses_custom_values_for_custom_preset() -> None:
     assert snapshot.outbid_enabled is False
     assert snapshot.auction_win_enabled is False
     assert snapshot.configured is True
+
+
+def test_notification_event_action_key_roundtrip() -> None:
+    for event_type in NotificationEventType:
+        action_key = notification_event_action_key(event_type)
+        assert notification_event_from_action_key(action_key) == event_type
+
+    assert notification_event_from_action_key("unknown") is None

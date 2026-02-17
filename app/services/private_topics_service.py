@@ -8,7 +8,7 @@ from enum import StrEnum
 from aiogram import Bot
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, User as TgUser
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, User as TgUser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +16,11 @@ from app.config import settings
 from app.db.models import User, UserPrivateTopic
 from app.db.session import SessionFactory
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
-from app.services.notification_policy_service import NotificationEventType, is_notification_allowed
+from app.services.notification_policy_service import (
+    NotificationEventType,
+    is_notification_allowed,
+    notification_event_action_key,
+)
 
 logger = logging.getLogger(__name__)
 _TOPICS_CAPABILITY_CACHE: dict[int, bool] = {}
@@ -489,6 +493,22 @@ async def enforce_callback_topic(
     return False
 
 
+def _notification_reply_markup(
+    *,
+    reply_markup: InlineKeyboardMarkup | None,
+    notification_event: NotificationEventType | None,
+) -> InlineKeyboardMarkup | None:
+    if notification_event is None:
+        return reply_markup
+
+    mute_callback = f"notif:mute:{notification_event_action_key(notification_event)}"
+    mute_row = [InlineKeyboardButton(text="Отключить этот тип", callback_data=mute_callback)]
+    if reply_markup is None:
+        return InlineKeyboardMarkup(inline_keyboard=[mute_row])
+
+    return InlineKeyboardMarkup(inline_keyboard=[*reply_markup.inline_keyboard, mute_row])
+
+
 async def send_user_topic_message(
     bot: Bot,
     *,
@@ -508,6 +528,11 @@ async def send_user_topic_message(
             )
         if not allowed:
             return False
+
+    effective_reply_markup = _notification_reply_markup(
+        reply_markup=reply_markup,
+        notification_event=notification_event,
+    )
 
     thread_id: int | None = None
 
@@ -546,7 +571,7 @@ async def send_user_topic_message(
                 await bot.send_message(
                     chat_id=tg_user_id,
                     text=text,
-                    reply_markup=reply_markup,
+                    reply_markup=effective_reply_markup,
                     message_thread_id=thread_id,
                     message_effect_id=normalized_effect_id,
                 )
@@ -554,21 +579,21 @@ async def send_user_topic_message(
                 await bot.send_message(
                     chat_id=tg_user_id,
                     text=text,
-                    reply_markup=reply_markup,
+                    reply_markup=effective_reply_markup,
                     message_thread_id=thread_id,
                 )
             elif use_effect and normalized_effect_id:
                 await bot.send_message(
                     chat_id=tg_user_id,
                     text=text,
-                    reply_markup=reply_markup,
+                    reply_markup=effective_reply_markup,
                     message_effect_id=normalized_effect_id,
                 )
             else:
                 await bot.send_message(
                     chat_id=tg_user_id,
                     text=text,
-                    reply_markup=reply_markup,
+                    reply_markup=effective_reply_markup,
                 )
             return True
         except TelegramBadRequest as exc:

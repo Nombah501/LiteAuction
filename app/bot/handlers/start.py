@@ -8,7 +8,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.auction import (
     auction_report_gateway_keyboard,
@@ -38,6 +38,8 @@ from app.services.notification_policy_service import (
     NotificationPreset,
     NotificationSettingsSnapshot,
     load_notification_settings,
+    notification_event_from_action_key,
+    set_notification_event_enabled,
     set_master_notifications_enabled,
     set_notification_preset,
     toggle_notification_event,
@@ -1131,6 +1133,57 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
 
     await callback.answer(result_message)
     await _show_settings_card(callback, edit_message=True, answer_callback=False)
+
+
+@router.callback_query(F.data.startswith("notif:mute:"))
+async def callback_notification_mute_type(callback: CallbackQuery) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        await callback.answer("Некорректное действие", show_alert=True)
+        return
+
+    event_type = notification_event_from_action_key(parts[2])
+    if event_type is None:
+        await callback.answer("Неизвестный тип уведомления", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            snapshot = await set_notification_event_enabled(
+                session,
+                user_id=user.id,
+                event_type=event_type,
+                enabled=False,
+                mark_configured=True,
+            )
+
+    if snapshot is None:
+        await callback.answer("Не удалось обновить настройки", show_alert=True)
+        return
+
+    if callback.message is not None and isinstance(callback.message, Message):
+        markup = callback.message.reply_markup
+        if isinstance(markup, InlineKeyboardMarkup):
+            rows = [
+                row
+                for row in markup.inline_keyboard
+                if not any(button.callback_data == callback.data for button in row)
+            ]
+            try:
+                await callback.message.edit_reply_markup(
+                    reply_markup=None if not rows else InlineKeyboardMarkup(inline_keyboard=rows)
+                )
+            except TelegramBadRequest:
+                pass
+
+    await callback.answer(
+        "Тип уведомления отключен. Вернуть можно в /settings.",
+        show_alert=True,
+    )
 
 
 @router.callback_query(F.data == "dash:balance")
