@@ -8,7 +8,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.auction import (
     auction_report_gateway_keyboard,
@@ -34,11 +34,17 @@ from app.services.private_topics_service import (
     send_user_topic_message,
 )
 from app.services.notification_policy_service import (
+    AuctionNotificationSnoozeView,
     NotificationEventType,
     NotificationPreset,
     NotificationSettingsSnapshot,
+    clear_auction_notification_snooze,
+    list_active_auction_notification_snoozes,
     load_notification_settings,
+    parse_notification_snooze_callback_data,
+    notification_event_action_key,
     notification_event_from_action_key,
+    set_auction_notification_snooze,
     set_notification_event_enabled,
     set_master_notifications_enabled,
     set_notification_preset,
@@ -124,6 +130,15 @@ _SETTINGS_TOGGLE_EVENTS: dict[str, NotificationEventType] = {
     "support": NotificationEventType.SUPPORT,
 }
 
+_EVENT_LABELS: dict[NotificationEventType, str] = {
+    NotificationEventType.AUCTION_OUTBID: "Перебили ставку",
+    NotificationEventType.AUCTION_FINISH: "Финиш моих лотов",
+    NotificationEventType.AUCTION_WIN: "Победа в аукционе",
+    NotificationEventType.AUCTION_MOD_ACTION: "Действия модерации",
+    NotificationEventType.POINTS: "Баланс и points",
+    NotificationEventType.SUPPORT: "Поддержка и апелляции",
+}
+
 
 def _preset_title(preset: NotificationPreset) -> str:
     labels = {
@@ -135,23 +150,63 @@ def _preset_title(preset: NotificationPreset) -> str:
     return labels[preset]
 
 
-def _render_settings_text(snapshot: NotificationSettingsSnapshot) -> str:
+def _format_snooze_expiry(expires_at: datetime) -> str:
+    return expires_at.astimezone(UTC).strftime("%d.%m %H:%M UTC")
+
+
+def _disabled_events(snapshot: NotificationSettingsSnapshot) -> list[NotificationEventType]:
+    disabled: list[NotificationEventType] = []
+    if not snapshot.outbid_enabled:
+        disabled.append(NotificationEventType.AUCTION_OUTBID)
+    if not snapshot.auction_finish_enabled:
+        disabled.append(NotificationEventType.AUCTION_FINISH)
+    if not snapshot.auction_win_enabled:
+        disabled.append(NotificationEventType.AUCTION_WIN)
+    if not snapshot.auction_mod_actions_enabled:
+        disabled.append(NotificationEventType.AUCTION_MOD_ACTION)
+    if not snapshot.points_enabled:
+        disabled.append(NotificationEventType.POINTS)
+    if not snapshot.support_enabled:
+        disabled.append(NotificationEventType.SUPPORT)
+    return disabled
+
+
+def _render_settings_text(
+    snapshot: NotificationSettingsSnapshot,
+    *,
+    snoozes: list[AuctionNotificationSnoozeView] | None = None,
+) -> str:
     global_state = "включены" if snapshot.master_enabled else "отключены"
     configured_state = "настроены" if snapshot.configured else "не настроены"
-    return "\n".join(
-        [
-            "<b>Настройки уведомлений</b>",
-            f"Глобально: <b>{global_state}</b>",
-            f"Пресет: <b>{_preset_title(snapshot.preset)}</b>",
-            f"Статус первичной настройки: <b>{configured_state}</b>",
-            "",
-            "Выберите пресет или переключите отдельные события кнопками ниже.",
-        ]
-    )
+    lines = [
+        "<b>Настройки уведомлений</b>",
+        f"Глобально: <b>{global_state}</b>",
+        f"Пресет: <b>{_preset_title(snapshot.preset)}</b>",
+        f"Статус первичной настройки: <b>{configured_state}</b>",
+        "",
+        "Выберите пресет или переключите отдельные события кнопками ниже.",
+    ]
+    if snoozes:
+        lines.extend(["", "<b>Пауза по отдельным лотам:</b>"])
+        for snooze in snoozes:
+            lines.append(
+                f"- #{str(snooze.auction_id)[:8]} до {_format_snooze_expiry(snooze.expires_at)}"
+            )
+
+    disabled = _disabled_events(snapshot)
+    if disabled:
+        lines.extend(["", "<b>Отключенные типы:</b>"])
+        for event_type in disabled:
+            lines.append(f"- {_EVENT_LABELS[event_type]}")
+    return "\n".join(lines)
 
 
-def _settings_keyboard(snapshot: NotificationSettingsSnapshot):
-    return notification_settings_keyboard(
+def _settings_keyboard(
+    snapshot: NotificationSettingsSnapshot,
+    *,
+    snoozes: list[AuctionNotificationSnoozeView] | None = None,
+) -> InlineKeyboardMarkup:
+    keyboard = notification_settings_keyboard(
         master_enabled=snapshot.master_enabled,
         preset=snapshot.preset.value,
         outbid_enabled=snapshot.outbid_enabled,
@@ -161,6 +216,50 @@ def _settings_keyboard(snapshot: NotificationSettingsSnapshot):
         points_enabled=snapshot.points_enabled,
         support_enabled=snapshot.support_enabled,
     )
+    rows = list(keyboard.inline_keyboard)
+    for snooze in snoozes or []:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"Снять паузу #{str(snooze.auction_id)[:8]}",
+                    callback_data=f"dash:settings:unsnooze:{snooze.auction_id}",
+                )
+            ]
+        )
+
+    for event_type in _disabled_events(snapshot):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"Включить: {_EVENT_LABELS[event_type]}",
+                    callback_data=f"dash:settings:unmute:{notification_event_action_key(event_type)}",
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _remove_button_row_from_message(callback: CallbackQuery) -> None:
+    if callback.message is None or not isinstance(callback.message, Message):
+        return
+    if callback.data is None:
+        return
+
+    markup = callback.message.reply_markup
+    if not isinstance(markup, InlineKeyboardMarkup):
+        return
+
+    rows = [
+        row
+        for row in markup.inline_keyboard
+        if not any(button.callback_data == callback.data for button in row)
+    ]
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=None if not rows else InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+    except TelegramBadRequest:
+        pass
 
 
 def _auction_status_label(status: AuctionStatus) -> str:
@@ -668,13 +767,14 @@ async def command_settings(message: Message, bot: Bot) -> None:
         async with session.begin():
             user = await upsert_user(session, message.from_user, mark_private_started=True)
             snapshot = await load_notification_settings(session, user_id=user.id)
+            snoozes = await list_active_auction_notification_snoozes(session, user_id=user.id)
 
     if snapshot is None:
         await message.answer("Не удалось загрузить настройки")
         return
 
-    text = _render_settings_text(snapshot)
-    keyboard = _settings_keyboard(snapshot)
+    text = _render_settings_text(snapshot, snoozes=snoozes)
+    keyboard = _settings_keyboard(snapshot, snoozes=snoozes)
     delivered = False
     if settings.private_topics_enabled:
         delivered = await send_user_topic_message(
@@ -737,13 +837,14 @@ async def _show_settings_card(
         async with session.begin():
             user = await upsert_user(session, callback.from_user, mark_private_started=True)
             snapshot = await load_notification_settings(session, user_id=user.id)
+            snoozes = await list_active_auction_notification_snoozes(session, user_id=user.id)
 
     if snapshot is None:
         await callback.answer("Настройки недоступны", show_alert=True)
         return
 
-    text = _render_settings_text(snapshot)
-    keyboard = _settings_keyboard(snapshot)
+    text = _render_settings_text(snapshot, snoozes=snoozes)
+    keyboard = _settings_keyboard(snapshot, snoozes=snoozes)
     if answer_callback:
         await callback.answer()
     if edit_message:
@@ -1123,6 +1224,32 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
                     event_type=event_type,
                 )
                 result_message = "Событие обновлено"
+            elif action == "unsnooze":
+                try:
+                    auction_id = uuid.UUID(raw_value)
+                except ValueError:
+                    await callback.answer("Некорректный лот", show_alert=True)
+                    return
+                removed = await clear_auction_notification_snooze(
+                    session,
+                    user_id=user.id,
+                    auction_id=auction_id,
+                )
+                snapshot = await load_notification_settings(session, user_id=user.id)
+                result_message = "Пауза снята" if removed else "Пауза уже не активна"
+            elif action == "unmute":
+                event_type = notification_event_from_action_key(raw_value)
+                if event_type is None:
+                    await callback.answer("Неизвестный тип уведомления", show_alert=True)
+                    return
+                snapshot = await set_notification_event_enabled(
+                    session,
+                    user_id=user.id,
+                    event_type=event_type,
+                    enabled=True,
+                    mark_configured=True,
+                )
+                result_message = "Тип уведомления включен"
             else:
                 await callback.answer("Некорректное действие", show_alert=True)
                 return
@@ -1133,6 +1260,37 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
 
     await callback.answer(result_message)
     await _show_settings_card(callback, edit_message=True, answer_callback=False)
+
+
+@router.callback_query(F.data.startswith("notif:snooze:"))
+async def callback_notification_snooze_auction(callback: CallbackQuery) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+
+    parsed = parse_notification_snooze_callback_data(callback.data)
+    if parsed is None:
+        await callback.answer("Некорректное действие", show_alert=True)
+        return
+    auction_id, duration_minutes = parsed
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            snooze = await set_auction_notification_snooze(
+                session,
+                user_id=user.id,
+                auction_id=auction_id,
+                duration_minutes=duration_minutes,
+            )
+
+    await _remove_button_row_from_message(callback)
+    await callback.answer(
+        (
+            f"Лот #{str(auction_id)[:8]} приглушен до "
+            f"{_format_snooze_expiry(snooze.expires_at)}."
+        ),
+        show_alert=True,
+    )
 
 
 @router.callback_query(F.data.startswith("notif:mute:"))
@@ -1165,20 +1323,7 @@ async def callback_notification_mute_type(callback: CallbackQuery) -> None:
         await callback.answer("Не удалось обновить настройки", show_alert=True)
         return
 
-    if callback.message is not None and isinstance(callback.message, Message):
-        markup = callback.message.reply_markup
-        if isinstance(markup, InlineKeyboardMarkup):
-            rows = [
-                row
-                for row in markup.inline_keyboard
-                if not any(button.callback_data == callback.data for button in row)
-            ]
-            try:
-                await callback.message.edit_reply_markup(
-                    reply_markup=None if not rows else InlineKeyboardMarkup(inline_keyboard=rows)
-                )
-            except TelegramBadRequest:
-                pass
+    await _remove_button_row_from_message(callback)
 
     await callback.answer(
         "Тип уведомления отключен. Вернуть можно в /settings.",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -18,7 +19,9 @@ from app.db.session import SessionFactory
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
 from app.services.notification_policy_service import (
     NotificationEventType,
+    default_auction_snooze_minutes,
     is_notification_allowed,
+    notification_snooze_callback_data,
     notification_event_action_key,
 )
 
@@ -497,16 +500,38 @@ def _notification_reply_markup(
     *,
     reply_markup: InlineKeyboardMarkup | None,
     notification_event: NotificationEventType | None,
+    auction_id: uuid.UUID | None,
 ) -> InlineKeyboardMarkup | None:
     if notification_event is None:
         return reply_markup
 
-    mute_callback = f"notif:mute:{notification_event_action_key(notification_event)}"
-    mute_row = [InlineKeyboardButton(text="Отключить этот тип", callback_data=mute_callback)]
-    if reply_markup is None:
-        return InlineKeyboardMarkup(inline_keyboard=[mute_row])
+    rows: list[list[InlineKeyboardButton]] = []
+    if reply_markup is not None:
+        rows.extend(reply_markup.inline_keyboard)
 
-    return InlineKeyboardMarkup(inline_keyboard=[*reply_markup.inline_keyboard, mute_row])
+    if notification_event in {
+        NotificationEventType.AUCTION_OUTBID,
+        NotificationEventType.AUCTION_FINISH,
+        NotificationEventType.AUCTION_WIN,
+        NotificationEventType.AUCTION_MOD_ACTION,
+    } and auction_id is not None:
+        snooze_minutes = default_auction_snooze_minutes()
+        snooze_callback = notification_snooze_callback_data(
+            auction_id=auction_id,
+            duration_minutes=snooze_minutes,
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"Пауза по лоту на {snooze_minutes // 60}ч",
+                    callback_data=snooze_callback,
+                )
+            ]
+        )
+
+    mute_callback = f"notif:mute:{notification_event_action_key(notification_event)}"
+    rows.append([InlineKeyboardButton(text="Отключить этот тип", callback_data=mute_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def send_user_topic_message(
@@ -518,6 +543,7 @@ async def send_user_topic_message(
     reply_markup: InlineKeyboardMarkup | None = None,
     message_effect_id: str | None = None,
     notification_event: NotificationEventType | None = None,
+    auction_id: uuid.UUID | None = None,
 ) -> bool:
     if notification_event is not None:
         async with SessionFactory() as session:
@@ -525,6 +551,7 @@ async def send_user_topic_message(
                 session,
                 tg_user_id=tg_user_id,
                 event_type=notification_event,
+                auction_id=auction_id,
             )
         if not allowed:
             return False
@@ -532,6 +559,7 @@ async def send_user_topic_message(
     effective_reply_markup = _notification_reply_markup(
         reply_markup=reply_markup,
         notification_event=notification_event,
+        auction_id=auction_id,
     )
 
     thread_id: int | None = None

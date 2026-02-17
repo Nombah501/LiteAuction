@@ -1253,6 +1253,7 @@ async def mod_freeze(message: Message, bot: Bot) -> None:
             text=f"Аукцион #{str(auction_id)[:8]} заморожен модератором",
             reply_markup=reply_markup,
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+            auction_id=auction_id,
         )
 
 
@@ -1304,6 +1305,7 @@ async def mod_unfreeze(message: Message, bot: Bot) -> None:
             text=f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
             reply_markup=reply_markup,
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+            auction_id=auction_id,
         )
 
 
@@ -1355,6 +1357,7 @@ async def mod_end(message: Message, bot: Bot) -> None:
             text=f"Аукцион #{str(auction_id)[:8]} завершен модератором",
             reply_markup=reply_markup,
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+            auction_id=auction_id,
         )
     if result.winner_tg_user_id:
         await send_user_topic_message(
@@ -1364,6 +1367,7 @@ async def mod_end(message: Message, bot: Bot) -> None:
             text=f"Вы победили в аукционе #{str(auction_id)[:8]}",
             reply_markup=reply_markup,
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+            auction_id=auction_id,
         )
 
 
@@ -1450,6 +1454,7 @@ async def mod_remove_bid(message: Message, bot: Bot) -> None:
             text="Ваша ставка была снята модератором",
             reply_markup=reply_markup,
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+            auction_id=result.auction_id,
         )
 
 
@@ -2147,6 +2152,7 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 text=f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
                 reply_markup=reply_markup,
                 notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+                auction_id=auction_id,
             )
 
         text, keyboard = await _build_frozen_auctions_page(page)

@@ -833,6 +833,7 @@ async def finalize_expired_auctions(bot: Bot) -> int:
                 AuctionMessageEffectEvent.ENDED_SELLER
             ),
             notification_event=NotificationEventType.AUCTION_FINISH,
+            auction_id=result.auction_id,
         )
 
         if result.winner_tg_user_id is not None:
@@ -846,6 +847,7 @@ async def finalize_expired_auctions(bot: Bot) -> int:
                     AuctionMessageEffectEvent.ENDED_WINNER
                 ),
                 notification_event=NotificationEventType.AUCTION_WIN,
+                auction_id=result.auction_id,
             )
 
     return len(finalized_results)

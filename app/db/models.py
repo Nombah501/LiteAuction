@@ -78,6 +78,24 @@ class UserNotificationPreference(Base, TimestampMixin):
     configured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class UserAuctionNotificationSnooze(Base, TimestampMixin):
+    __tablename__ = "user_auction_notification_snoozes"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "auction_id",
+            name="uq_user_auction_notification_snoozes_user_auction",
+        ),
+        Index("ix_user_auction_notification_snoozes_user_id", "user_id"),
+        Index("ix_user_auction_notification_snoozes_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    auction_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class TelegramUserVerification(Base):
     __tablename__ = "telegram_user_verifications"
     __table_args__ = (UniqueConstraint("tg_user_id", name="uq_telegram_user_verifications_tg_user_id"),)
