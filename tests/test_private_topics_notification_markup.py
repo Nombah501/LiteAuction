@@ -18,7 +18,7 @@ def test_notification_reply_markup_adds_mute_row_for_event() -> None:
     assert isinstance(markup, InlineKeyboardMarkup)
     assert len(markup.inline_keyboard) == 1
     button = markup.inline_keyboard[0][0]
-    assert button.text == "Отключить этот тип"
+    assert button.text == "Отключить тип уведомлений"
     assert button.callback_data == "notif:mute:outbid"
 
 
@@ -48,5 +48,6 @@ def test_notification_reply_markup_adds_auction_snooze_row_when_auction_known() 
 
     assert isinstance(markup, InlineKeyboardMarkup)
     assert len(markup.inline_keyboard) == 2
+    assert markup.inline_keyboard[0][0].text == "Пауза по лоту на 1 ч"
     assert markup.inline_keyboard[0][0].callback_data == "notif:snooze:12345678-1234-5678-1234-567812345678:60"
     assert markup.inline_keyboard[1][0].callback_data == "notif:mute:win"

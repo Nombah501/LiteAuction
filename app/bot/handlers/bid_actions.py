@@ -54,6 +54,12 @@ from app.services.notification_metrics_service import (
     record_notification_aggregated,
     record_notification_suppressed,
 )
+from app.services.notification_copy_service import (
+    auction_buyout_finished_text,
+    auction_buyout_winner_text,
+    outbid_digest_text,
+    outbid_notification_text,
+)
 from app.services.user_service import upsert_user
 
 router = Router(name="bid_actions")
@@ -329,9 +335,10 @@ async def _notify_outbid(
                         bot,
                         tg_user_id=outbid_user_tg_id,
                         purpose=PrivateTopicPurpose.AUCTIONS,
-                        text=(
-                            f"Дайджест по лоту #{str(auction_id)[:8]}: "
-                            f"за {window_label} ставку перебивали {digest.suppressed_count} раз."
+                        text=outbid_digest_text(
+                            auction_id=auction_id,
+                            suppressed_count=digest.suppressed_count,
+                            window_label=window_label,
                         ),
                         reply_markup=reply_markup,
                         notification_event=NotificationEventType.AUCTION_OUTBID,
@@ -346,7 +353,7 @@ async def _notify_outbid(
         bot,
         tg_user_id=outbid_user_tg_id,
         purpose=PrivateTopicPurpose.AUCTIONS,
-        text=f"Вашу ставку перебили в аукционе #{str(auction_id)[:8]}.",
+        text=outbid_notification_text(auction_id),
         reply_markup=reply_markup,
         message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.OUTBID),
         notification_event=NotificationEventType.AUCTION_OUTBID,
@@ -362,7 +369,6 @@ async def _notify_auction_finish(
     auction_id: uuid.UUID,
     post_url: str | None,
 ) -> None:
-    short_id = str(auction_id)[:8]
     resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)
     reply_markup = open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
 
@@ -371,7 +377,7 @@ async def _notify_auction_finish(
             bot,
             tg_user_id=seller_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
-            text=f"Аукцион #{short_id} завершен (выкуп).",
+            text=auction_buyout_finished_text(auction_id),
             reply_markup=reply_markup,
             message_effect_id=resolve_auction_message_effect_id(
                 AuctionMessageEffectEvent.BUYOUT_SELLER
@@ -384,7 +390,7 @@ async def _notify_auction_finish(
             bot,
             tg_user_id=winner_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
-            text=f"Вы выиграли аукцион #{short_id} через выкуп.",
+            text=auction_buyout_winner_text(auction_id),
             reply_markup=reply_markup,
             message_effect_id=resolve_auction_message_effect_id(
                 AuctionMessageEffectEvent.BUYOUT_WINNER

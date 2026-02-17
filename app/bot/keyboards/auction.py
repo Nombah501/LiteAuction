@@ -597,7 +597,7 @@ def open_auction_post_keyboard(post_url: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 styled_button(
-                    text="Открыть аукцион",
+                    text="Открыть пост лота",
                     url=post_url,
                     style="primary",
                 )

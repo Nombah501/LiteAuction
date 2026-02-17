@@ -19,5 +19,5 @@ def test_open_auction_post_keyboard_contains_single_url_button() -> None:
     assert len(keyboard.inline_keyboard) == 1
     assert len(keyboard.inline_keyboard[0]) == 1
     button = keyboard.inline_keyboard[0][0]
-    assert button.text == "Открыть аукцион"
+    assert button.text == "Открыть пост лота"
     assert button.url == "https://t.me/c/1234567890/42"
