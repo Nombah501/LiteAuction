@@ -1,15 +1,13 @@
 # Planning Status
 
-Last sync: 2026-02-17 19:15 UTC
-Active sprint: Sprint 44
+Last sync: 2026-02-17 21:26 UTC
+Active sprint: Sprint 46
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S44-001 | Implement per-auction debounce for outbid notifications | [#142](https://github.com/Nombah501/LiteAuction/issues/142) (open) | - |
-| S44-002 | Add notification batching and digest mode | [#143](https://github.com/Nombah501/LiteAuction/issues/143) (open) | - |
-| S44-003 | Introduce quiet hours for non-critical notifications | [#144](https://github.com/Nombah501/LiteAuction/issues/144) (open) | - |
-| S44-004 | Add notification priority model and delivery rules | [#145](https://github.com/Nombah501/LiteAuction/issues/145) (open) | - |
-| S44-005 | Track anti-noise effectiveness metrics | [#146](https://github.com/Nombah501/LiteAuction/issues/146) (open) | - |
+| S46-001 | Add user timezone support for quiet hours | [#167](https://github.com/Nombah501/LiteAuction/issues/167) (open) | - |
+| S46-002 | Add operator snapshot command for notification metrics | [#168](https://github.com/Nombah501/LiteAuction/issues/168) (open) | - |
+| S46-003 | Improve pluralization in digest and deferred summaries | [#169](https://github.com/Nombah501/LiteAuction/issues/169) (open) | - |
 
 ## Recovery Checklist
 
