@@ -91,6 +91,140 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _toggle_label(text: str, enabled: bool) -> str:
+    marker = "ON" if enabled else "OFF"
+    return f"{text}: {marker}"
+
+
+def notification_settings_keyboard(
+    *,
+    master_enabled: bool,
+    preset: str,
+    outbid_enabled: bool,
+    auction_finish_enabled: bool,
+    auction_win_enabled: bool,
+    auction_mod_actions_enabled: bool,
+    points_enabled: bool,
+    support_enabled: bool,
+) -> InlineKeyboardMarkup:
+    def preset_text(value: str, label: str) -> str:
+        if preset == value:
+            return f"[{label}]"
+        return label
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(
+                    text=_toggle_label("Все уведомления", master_enabled),
+                    callback_data=f"dash:settings:master:{0 if master_enabled else 1}",
+                    style="primary",
+                )
+            ],
+            [
+                styled_button(
+                    text=preset_text("recommended", "Рекомендуемые"),
+                    callback_data="dash:settings:preset:recommended",
+                ),
+                styled_button(
+                    text=preset_text("important", "Только важные"),
+                    callback_data="dash:settings:preset:important",
+                ),
+            ],
+            [
+                styled_button(
+                    text=preset_text("all", "Все"),
+                    callback_data="dash:settings:preset:all",
+                ),
+                styled_button(
+                    text=preset_text("custom", "Вручную"),
+                    callback_data="dash:settings:preset:custom",
+                ),
+            ],
+            [
+                styled_button(
+                    text=_toggle_label("Перебили ставку", outbid_enabled),
+                    callback_data="dash:settings:toggle:outbid",
+                )
+            ],
+            [
+                styled_button(
+                    text=_toggle_label("Финиш моих лотов", auction_finish_enabled),
+                    callback_data="dash:settings:toggle:finish",
+                )
+            ],
+            [
+                styled_button(
+                    text=_toggle_label("Победа в аукционе", auction_win_enabled),
+                    callback_data="dash:settings:toggle:win",
+                )
+            ],
+            [
+                styled_button(
+                    text=_toggle_label("Действия модерации", auction_mod_actions_enabled),
+                    callback_data="dash:settings:toggle:mod",
+                )
+            ],
+            [
+                styled_button(
+                    text=_toggle_label("Баланс и points", points_enabled),
+                    callback_data="dash:settings:toggle:points",
+                )
+            ],
+            [
+                styled_button(
+                    text=_toggle_label("Поддержка и апелляции", support_enabled),
+                    callback_data="dash:settings:toggle:support",
+                )
+            ],
+            [
+                styled_button(
+                    text="К меню",
+                    callback_data="dash:home",
+                )
+            ],
+        ]
+    )
+
+
+def notification_onboarding_keyboard(*, preset: str = "recommended") -> InlineKeyboardMarkup:
+    def preset_text(value: str, label: str) -> str:
+        if preset == value:
+            return f"[{label}]"
+        return label
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(
+                    text=preset_text("recommended", "Рекомендуемые"),
+                    callback_data="dash:settings:preset:recommended",
+                ),
+                styled_button(
+                    text=preset_text("important", "Только важные"),
+                    callback_data="dash:settings:preset:important",
+                ),
+            ],
+            [
+                styled_button(
+                    text=preset_text("all", "Все"),
+                    callback_data="dash:settings:preset:all",
+                ),
+                styled_button(
+                    text=preset_text("custom", "Вручную"),
+                    callback_data="dash:settings:preset:custom",
+                ),
+            ],
+            [
+                styled_button(
+                    text="Открыть расширенные настройки",
+                    callback_data="dash:settings",
+                )
+            ],
+        ]
+    )
+
+
 def _filter_button_text(*, filter_key: str, current_filter: str, label: str) -> str:
     if filter_key == current_filter:
         return f"[{label}]"
@@ -372,11 +506,17 @@ def draft_publish_keyboard(auction_id: str, photo_count: int) -> InlineKeyboardM
     )
 
 
+def _bot_deep_link_url(start_payload: str) -> str | None:
+    username = settings.bot_username.strip().lstrip("@")
+    if not username:
+        return None
+    return f"https://t.me/{username}?start={start_payload}"
+
+
 def auction_active_keyboard(
     auction_id: str,
     min_step: int,
     has_buyout: bool,
-    photo_count: int = 1,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
         [
@@ -422,34 +562,45 @@ def auction_active_keyboard(
             ]
         )
 
-    utility_row: list[InlineKeyboardButton] = [
-        styled_button(
-            text=f"Фото {photo_count}",
-            callback_data=f"gallery:{auction_id}",
-            style="primary",
-            icon_custom_emoji_id=_first_icon(
-                settings.ui_emoji_gallery_id,
-                settings.ui_emoji_publish_id,
-            ),
-        ),
-        styled_button(
-            text="Жалоба",
-            callback_data=f"report:{auction_id}",
-            style="danger",
-            icon_custom_emoji_id=_icon(settings.ui_emoji_report_id),
-        ),
-    ]
-
-    username = settings.bot_username.strip().lstrip("@")
-    if username:
-        utility_row.append(
+    bot_url = _bot_deep_link_url(f"report_{auction_id}")
+    if bot_url is not None:
+        rows.append(
+            [
             styled_button(
-                text="Бот",
-                url=f"https://t.me/{username}?start=auction_gate",
+                text="Поддержка",
+                url=bot_url,
                 style="primary",
             )
+            ]
         )
 
-    rows.append(utility_row)
-
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def auction_report_gateway_keyboard(auction_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(
+                    text="Подать жалобу",
+                    callback_data=f"report:{auction_id}",
+                    style="danger",
+                    icon_custom_emoji_id=_icon(settings.ui_emoji_report_id),
+                )
+            ]
+        ]
+    )
+
+
+def open_auction_post_keyboard(post_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(
+                    text="Открыть аукцион",
+                    url=post_url,
+                    style="primary",
+                )
+            ]
+        ]
+    )

@@ -71,7 +71,6 @@ async def handle_inline_auction_query(inline_query: InlineQuery) -> None:
             auction_id=str(view.auction.id),
             min_step=view.auction.min_step,
             has_buyout=view.auction.buyout_price is not None,
-            photo_count=view.photo_count,
         ),
         title=f"Аукцион #{str(view.auction.id)[:8]}",
         description="Опубликовать аукцион",

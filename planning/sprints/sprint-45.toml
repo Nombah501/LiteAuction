@@ -1,0 +1,85 @@
+sprint = "Sprint 45"
+milestone = "Sprint 45"
+milestone_description = "Notification platform hardening and operational visibility"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S45-001"
+title = "Add delivery diagnostics and operator log views"
+description = "Improve observability by logging structured notification delivery decisions and failure causes."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:chore", "area:ops", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Every notification decision has a reason code",
+  "Delivery failures include tg_user_id, event type, and failure class",
+  "Logs are concise and searchable for support workflows",
+]
+
+[[items]]
+id = "S45-002"
+title = "Polish notification copy and interaction UX"
+description = "Refine message wording and action labels for clarity while preserving compact and actionable format."
+priority = "P2"
+estimate = "S"
+tech_debt = false
+labels = ["type:feature", "area:ux", "priority:p2"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Core notification templates are concise and consistent",
+  "Action labels are clear and localized",
+  "Updated copy is covered by snapshot or unit tests",
+]
+
+[[items]]
+id = "S45-003"
+title = "Stabilize notification migrations and legacy compatibility"
+description = "Clean up transitional paths and ensure legacy users and old callbacks continue to work across upgrades."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:chore", "area:db", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Migration path is idempotent for existing deployments",
+  "Legacy callback payloads are handled safely",
+  "Deprecated code paths are removed or clearly gated",
+]
+
+[[items]]
+id = "S45-004"
+title = "Document notification troubleshooting runbook"
+description = "Create a practical runbook for support and moderators to diagnose why notifications were sent, skipped, or delayed."
+priority = "P2"
+estimate = "S"
+tech_debt = false
+labels = ["type:docs", "area:ops", "priority:p2"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Runbook covers user-level checks and system-level checks",
+  "Includes common failure signatures and remediation steps",
+  "Linked from planning status or ops docs index",
+]
+
+[[items]]
+id = "S45-005"
+title = "Post-launch review and backlog follow-up"
+description = "Evaluate adoption and noise reduction impact, then feed findings into follow-up tasks and tech-debt backlog."
+priority = "P3"
+estimate = "S"
+tech_debt = false
+labels = ["type:chore", "area:process", "priority:p3"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Post-launch summary captures key metrics and user feedback",
+  "Follow-up tasks are logged with clear priorities",
+  "Sprint closeout notes include risks and next actions",
+]

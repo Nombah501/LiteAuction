@@ -6,16 +6,22 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards.auction import (
-    anti_sniper_keyboard,
-    buyout_choice_keyboard,
-    draft_publish_keyboard,
-    duration_keyboard,
-    photos_done_keyboard,
-)
+from app.bot.keyboards.auction import draft_publish_keyboard
 from app.bot.states.auction_create import AuctionCreateStates
 from app.config import settings
 from app.db.session import SessionFactory
+from app.services.auction_create_wizard_service import (
+    WIZARD_STEP_WAITING_ANTI_SNIPER,
+    WIZARD_STEP_WAITING_BUYOUT_PRICE,
+    WIZARD_STEP_WAITING_DESCRIPTION,
+    WIZARD_STEP_WAITING_DURATION,
+    WIZARD_STEP_WAITING_MIN_STEP,
+    WIZARD_STEP_WAITING_PHOTO,
+    WIZARD_STEP_WAITING_START_PRICE,
+    delete_numeric_input_message,
+    upsert_create_wizard_progress,
+)
+from app.services.auction_service import create_draft_auction, load_auction_view, render_auction_caption
 from app.services.channel_dm_intake_service import (
     AuctionIntakeKind,
     extract_direct_messages_topic_id,
@@ -24,7 +30,6 @@ from app.services.channel_dm_intake_service import (
 )
 from app.services.message_draft_service import send_progress_draft
 from app.services.moderation_service import is_tg_user_blacklisted
-from app.services.auction_service import create_draft_auction, load_auction_view, render_auction_caption
 from app.services.private_topics_service import (
     PrivateTopicPurpose,
     enforce_callback_topic,
@@ -47,13 +52,37 @@ def _parse_usd_amount(text: str) -> int | None:
     return amount
 
 
-async def _prompt_min_step(target: Message | CallbackQuery) -> None:
+def _anchor_message(target: Message | CallbackQuery | None) -> Message | None:
     if isinstance(target, Message):
-        await target.answer("Укажите минимальный шаг ставки в USD (например: 1 или 5).")
-        return
+        return target
+    if isinstance(target, CallbackQuery) and isinstance(target.message, Message):
+        return target.message
+    return None
 
-    if target.message is not None:
-        await target.message.answer("Укажите минимальный шаг ставки в USD (например: 1 или 5).")
+
+async def _update_wizard(
+    *,
+    state: FSMContext,
+    bot: Bot | None,
+    target: Message | CallbackQuery | None,
+    step_name: str,
+    hint: str,
+    error: str | None = None,
+    finished: bool = False,
+    last_event: str | None = None,
+    force_repost: bool = False,
+) -> None:
+    await upsert_create_wizard_progress(
+        state=state,
+        bot=bot,
+        anchor_message=_anchor_message(target),
+        step_name=step_name,
+        hint=hint,
+        error=error,
+        finished=finished,
+        last_event=last_event,
+        force_repost=force_repost,
+    )
 
 
 async def _append_photo_file_id(state: FSMContext, file_id: str) -> tuple[int, bool, bool]:
@@ -266,9 +295,13 @@ async def command_new_auction(message: Message, state: FSMContext, bot: Bot) -> 
     await state.clear()
     await state.set_state(AuctionCreateStates.waiting_photo)
     await _store_expected_intake_scope(state, message)
-    await message.answer(
-        "Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
-        reply_markup=photos_done_keyboard(),
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_PHOTO,
+        hint="Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
+        last_event="Старт мастера: шаг 1 из 7.",
     )
 
 
@@ -307,9 +340,13 @@ async def callback_new_auction(callback: CallbackQuery, state: FSMContext, bot: 
         await _store_expected_intake_scope(state, callback.message)
     await callback.answer()
     if callback.message:
-        await callback.message.answer(
-            "Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
-            reply_markup=photos_done_keyboard(),
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=callback,
+            step_name=WIZARD_STEP_WAITING_PHOTO,
+            hint="Отправьте фото лота (до 10 штук). Когда закончите, нажмите 'Готово'.",
+            last_event="Старт мастера: шаг 1 из 7.",
         )
 
 
@@ -331,9 +368,14 @@ async def create_photo_step(message: Message, state: FSMContext, bot: Bot | None
     photo = message.photo[-1]
     count, added, max_reached = await _append_photo_file_id(state, photo.file_id)
     if max_reached:
-        await message.answer(
-            f"Можно добавить максимум {MAX_AUCTION_PHOTOS} фото. Нажмите 'Готово'.",
-            reply_markup=photos_done_keyboard(),
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_PHOTO,
+            hint="Нажмите 'Готово' или удалите лишние фото.",
+            error=f"Можно добавить максимум {MAX_AUCTION_PHOTOS} фото.",
+            last_event=f"Лимит фото достигнут: {MAX_AUCTION_PHOTOS}/{MAX_AUCTION_PHOTOS}.",
         )
         return
 
@@ -341,16 +383,26 @@ async def create_photo_step(message: Message, state: FSMContext, bot: Bot | None
         return
 
     if message.media_group_id is None:
-        await message.answer(
-            f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Отправьте еще или нажмите 'Готово'.",
-            reply_markup=photos_done_keyboard(),
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_PHOTO,
+            hint=f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Отправьте еще или нажмите 'Готово'.",
+            last_event=f"Добавлено фото: {count}/{MAX_AUCTION_PHOTOS}.",
+            force_repost=True,
         )
         return
 
     if await _mark_media_group_seen(state, message.media_group_id):
-        await message.answer(
-            "Альбом принят. После отправки всех фото нажмите 'Готово'.",
-            reply_markup=photos_done_keyboard(),
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_PHOTO,
+            hint="Альбом принят. После отправки всех фото нажмите 'Готово'.",
+            last_event=f"Принят альбом. Фото сейчас: {count}/{MAX_AUCTION_PHOTOS}.",
+            force_repost=True,
         )
 
 
@@ -368,16 +420,26 @@ async def create_photos_done(callback: CallbackQuery, state: FSMContext, bot: Bo
     await state.set_state(AuctionCreateStates.waiting_description)
     await callback.answer()
     if callback.message is not None:
-        await callback.message.answer("Отлично. Теперь отправьте описание лота.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=callback,
+            step_name=WIZARD_STEP_WAITING_DESCRIPTION,
+            hint="Отлично. Теперь отправьте описание лота.",
+            last_event="Фото сохранены. Переход к описанию.",
+        )
 
 
 @router.message(AuctionCreateStates.waiting_photo)
 async def create_photo_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
     if not await _ensure_auction_state_message(message, state, bot):
         return
-    await message.answer(
-        "Отправьте фото лота (можно несколько), затем нажмите 'Готово'.",
-        reply_markup=photos_done_keyboard(),
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_PHOTO,
+        hint="Отправьте фото лота (можно несколько), затем нажмите 'Готово'.",
     )
 
 
@@ -387,12 +449,26 @@ async def create_description_step(message: Message, state: FSMContext, bot: Bot 
         return
     description = (message.text or "").strip()
     if len(description) < 3:
-        await message.answer("Описание слишком короткое. Добавьте больше деталей.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_DESCRIPTION,
+            hint="Пришлите описание лота текстом.",
+            error="Описание слишком короткое. Добавьте больше деталей.",
+        )
         return
 
     await state.update_data(description=description)
     await state.set_state(AuctionCreateStates.waiting_start_price)
-    await message.answer("Укажите начальную цену в USD (целое число, минимум 1).")
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_START_PRICE,
+        hint="Укажите начальную цену в USD (целое число, минимум 1).",
+        last_event="Описание сохранено.",
+    )
 
 
 @router.message(AuctionCreateStates.waiting_description, F.photo)
@@ -404,27 +480,55 @@ async def create_description_collect_photo(message: Message, state: FSMContext, 
     photo = message.photo[-1]
     count, added, max_reached = await _append_photo_file_id(state, photo.file_id)
     if max_reached:
-        await message.answer(f"Можно добавить максимум {MAX_AUCTION_PHOTOS} фото. Пришлите описание текстом.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_DESCRIPTION,
+            hint="Пришлите описание лота текстом.",
+            error=f"Можно добавить максимум {MAX_AUCTION_PHOTOS} фото.",
+            last_event=f"Лимит фото достигнут: {MAX_AUCTION_PHOTOS}/{MAX_AUCTION_PHOTOS}.",
+        )
         return
 
     if not added:
         return
 
     if message.media_group_id is None:
-        await message.answer(
-            f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Теперь пришлите описание текстом."
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_DESCRIPTION,
+            hint=f"Фото добавлено ({count}/{MAX_AUCTION_PHOTOS}). Теперь пришлите описание текстом.",
+            last_event=f"Добавлено фото: {count}/{MAX_AUCTION_PHOTOS}.",
+            force_repost=True,
         )
         return
 
     if await _mark_media_group_seen(state, message.media_group_id):
-        await message.answer("Альбом принят. После отправки всех фото пришлите описание текстом.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_DESCRIPTION,
+            hint="Альбом принят. После отправки всех фото пришлите описание текстом.",
+            last_event=f"Принят альбом. Фото сейчас: {count}/{MAX_AUCTION_PHOTOS}.",
+            force_repost=True,
+        )
 
 
 @router.message(AuctionCreateStates.waiting_description)
 async def create_description_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
     if not await _ensure_auction_state_message(message, state, bot):
         return
-    await message.answer("Пришлите описание текстом.")
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_DESCRIPTION,
+        hint="Пришлите описание лота текстом.",
+    )
 
 
 @router.message(AuctionCreateStates.waiting_start_price, F.text)
@@ -433,15 +537,26 @@ async def create_start_price_step(message: Message, state: FSMContext, bot: Bot 
         return
     amount = _parse_usd_amount(message.text or "")
     if amount is None:
-        await message.answer("Некорректная цена. Введите целое число USD, минимум 1.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_START_PRICE,
+            hint="Введите стартовую цену текстом (например: 100).",
+            error="Некорректная цена. Введите целое число USD, минимум 1.",
+        )
         return
 
     await state.update_data(start_price=amount)
+    await delete_numeric_input_message(message)
     await state.set_state(AuctionCreateStates.waiting_buyout_price)
-    await message.answer(
-        "Укажите цену выкупа в USD или нажмите 'Пропустить'.\n"
-        "Цена выкупа не может быть ниже стартовой.",
-        reply_markup=buyout_choice_keyboard(),
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_BUYOUT_PRICE,
+        hint="Укажите цену выкупа в USD или нажмите 'Пропустить'. Цена выкупа не может быть ниже стартовой.",
+        last_event=f"Стартовая цена сохранена: ${amount}.",
     )
 
 
@@ -449,7 +564,13 @@ async def create_start_price_step(message: Message, state: FSMContext, bot: Bot 
 async def create_start_price_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
     if not await _ensure_auction_state_message(message, state, bot):
         return
-    await message.answer("Введите стартовую цену текстом (например: 100).")
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_START_PRICE,
+        hint="Введите стартовую цену текстом (например: 100).",
+    )
 
 
 @router.callback_query(AuctionCreateStates.waiting_buyout_price, F.data == "create:buyout:skip")
@@ -459,7 +580,14 @@ async def create_buyout_skip(callback: CallbackQuery, state: FSMContext, bot: Bo
     await state.update_data(buyout_price=None)
     await state.set_state(AuctionCreateStates.waiting_min_step)
     await callback.answer("Выкуп пропущен")
-    await _prompt_min_step(callback)
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=callback,
+        step_name=WIZARD_STEP_WAITING_MIN_STEP,
+        hint="Укажите минимальный шаг ставки в USD (например: 1 или 5).",
+        last_event="Цена выкупа пропущена.",
+    )
 
 
 @router.message(AuctionCreateStates.waiting_buyout_price, F.text)
@@ -468,25 +596,53 @@ async def create_buyout_step(message: Message, state: FSMContext, bot: Bot | Non
         return
     buyout_price = _parse_usd_amount(message.text or "")
     if buyout_price is None:
-        await message.answer("Некорректная цена выкупа. Введите целое число или нажмите 'Пропустить'.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_BUYOUT_PRICE,
+            hint="Введите цену выкупа текстом или нажмите 'Пропустить'.",
+            error="Некорректная цена выкупа. Введите целое число или нажмите 'Пропустить'.",
+        )
         return
 
     data = await state.get_data()
     start_price = int(data["start_price"])
     if buyout_price < start_price:
-        await message.answer("Цена выкупа не может быть ниже начальной цены.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_BUYOUT_PRICE,
+            hint="Введите цену выкупа или нажмите 'Пропустить'.",
+            error="Цена выкупа не может быть ниже начальной цены.",
+        )
         return
 
     await state.update_data(buyout_price=buyout_price)
+    await delete_numeric_input_message(message)
     await state.set_state(AuctionCreateStates.waiting_min_step)
-    await _prompt_min_step(message)
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_MIN_STEP,
+        hint="Укажите минимальный шаг ставки в USD (например: 1 или 5).",
+        last_event=f"Цена выкупа сохранена: ${buyout_price}.",
+    )
 
 
 @router.message(AuctionCreateStates.waiting_buyout_price)
 async def create_buyout_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
     if not await _ensure_auction_state_message(message, state, bot):
         return
-    await message.answer("Введите цену выкупа текстом или нажмите 'Пропустить'.")
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_BUYOUT_PRICE,
+        hint="Введите цену выкупа текстом или нажмите 'Пропустить'.",
+    )
 
 
 @router.message(AuctionCreateStates.waiting_min_step, F.text)
@@ -495,19 +651,40 @@ async def create_min_step_step(message: Message, state: FSMContext, bot: Bot | N
         return
     min_step = _parse_usd_amount(message.text or "")
     if min_step is None:
-        await message.answer("Некорректный шаг. Введите целое число USD, минимум 1.")
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=message,
+            step_name=WIZARD_STEP_WAITING_MIN_STEP,
+            hint="Введите минимальный шаг текстом (например: 1).",
+            error="Некорректный шаг. Введите целое число USD, минимум 1.",
+        )
         return
 
     await state.update_data(min_step=min_step)
+    await delete_numeric_input_message(message)
     await state.set_state(AuctionCreateStates.waiting_duration)
-    await message.answer("Выберите длительность аукциона.", reply_markup=duration_keyboard())
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_DURATION,
+        hint="Выберите длительность аукциона.",
+        last_event=f"Минимальный шаг сохранен: ${min_step}.",
+    )
 
 
 @router.message(AuctionCreateStates.waiting_min_step)
 async def create_min_step_step_invalid(message: Message, state: FSMContext, bot: Bot | None = None) -> None:
     if not await _ensure_auction_state_message(message, state, bot):
         return
-    await message.answer("Введите минимальный шаг текстом (например: 1).")
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=message,
+        step_name=WIZARD_STEP_WAITING_MIN_STEP,
+        hint="Введите минимальный шаг текстом (например: 1).",
+    )
 
 
 @router.callback_query(AuctionCreateStates.waiting_duration, F.data.startswith("create:duration:"))
@@ -526,10 +703,16 @@ async def create_duration_step(callback: CallbackQuery, state: FSMContext, bot: 
     await state.set_state(AuctionCreateStates.waiting_anti_sniper)
     await callback.answer()
     if callback.message:
-        await callback.message.answer(
-            "Антиснайпер включить?\n"
-            "(если ставка в последние 2 минуты, дедлайн продлится на 3 минуты, максимум 3 раза)",
-            reply_markup=anti_sniper_keyboard(),
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=callback,
+            step_name=WIZARD_STEP_WAITING_ANTI_SNIPER,
+            hint=(
+                "Антиснайпер включить? Если ставка в последние 2 минуты, дедлайн "
+                "продлится на 3 минуты, максимум 3 раза."
+            ),
+            last_event=f"Длительность выбрана: {duration_raw} ч.",
         )
 
 
@@ -549,6 +732,15 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext, bo
     anti_sniper = callback.data.endswith(":1")
     await state.update_data(anti_sniper_enabled=anti_sniper)
     data = await state.get_data()
+
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=callback,
+        step_name=WIZARD_STEP_WAITING_ANTI_SNIPER,
+        hint="Собираю черновик и проверяю условия публикации...",
+        last_event="Антиснайпер включен." if anti_sniper else "Антиснайпер выключен.",
+    )
 
     if isinstance(callback.message, Message):
         await send_progress_draft(
@@ -577,14 +769,37 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext, bo
         publish_gate = await evaluate_seller_publish_gate(session, seller_user_id=seller.id)
         await session.commit()
 
-    await state.clear()
-    await callback.answer("Черновик создан")
-
     if view is None:
+        await _update_wizard(
+            state=state,
+            bot=bot,
+            target=callback,
+            step_name=WIZARD_STEP_WAITING_ANTI_SNIPER,
+            hint="Не удалось завершить шаг. Запустите /newauction еще раз.",
+            error="Не удалось собрать предпросмотр. Попробуйте снова.",
+        )
+        await state.clear()
         await callback.message.answer("Не удалось собрать предпросмотр. Попробуйте снова.")
         return
 
     publish_blocked = publish_gate is not None and not publish_gate.allowed
+    final_hint = (
+        "Черновик создан. Публикация пока недоступна, но данные сохранены."
+        if publish_blocked
+        else "Черновик создан. Ниже карточка предпросмотра и кнопки публикации."
+    )
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=callback,
+        step_name=WIZARD_STEP_WAITING_ANTI_SNIPER,
+        hint=final_hint,
+        finished=True,
+        last_event="Черновик успешно создан.",
+    )
+    await state.clear()
+    await callback.answer("Черновик создан")
+
     caption = render_auction_caption(view, publish_pending=not publish_blocked)
     await callback.message.answer_photo(
         photo=view.auction.photo_file_id,
@@ -612,6 +827,14 @@ async def create_duration_invalid(callback: CallbackQuery, state: FSMContext, bo
     if not await _ensure_auction_state_callback(callback, state, bot):
         return
     await callback.answer("Выберите одну из кнопок длительности", show_alert=True)
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=callback,
+        step_name=WIZARD_STEP_WAITING_DURATION,
+        hint="Выберите одну из кнопок длительности.",
+        error="Некорректная длительность.",
+    )
 
 
 @router.callback_query(AuctionCreateStates.waiting_anti_sniper)
@@ -619,3 +842,11 @@ async def create_anti_sniper_invalid(callback: CallbackQuery, state: FSMContext,
     if not await _ensure_auction_state_callback(callback, state, bot):
         return
     await callback.answer("Выберите: включить или выключить", show_alert=True)
+    await _update_wizard(
+        state=state,
+        bot=bot,
+        target=callback,
+        step_name=WIZARD_STEP_WAITING_ANTI_SNIPER,
+        hint="Выберите: включить или выключить антиснайпер.",
+        error="Некорректный выбор режима антиснайпера.",
+    )

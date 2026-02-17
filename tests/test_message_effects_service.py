@@ -95,7 +95,7 @@ async def test_send_user_topic_message_retries_without_unsupported_effect(monkey
 
 
 @pytest.mark.asyncio
-async def test_send_user_topic_message_keeps_failure_for_unrelated_bad_request(monkeypatch) -> None:
+async def test_send_user_topic_message_retries_without_effect_on_bad_request(monkeypatch) -> None:
     from app.config import settings
 
     monkeypatch.setattr(settings, "private_topics_enabled", False)
@@ -119,5 +119,6 @@ async def test_send_user_topic_message_keeps_failure_for_unrelated_bad_request(m
     )
 
     assert delivered is False
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert calls[0].get("message_effect_id") == "5104841245755180586"
+    assert "message_effect_id" not in calls[1]

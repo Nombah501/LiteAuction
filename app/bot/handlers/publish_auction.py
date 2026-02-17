@@ -125,7 +125,6 @@ async def publish_auction_to_current_chat(message: Message, bot: Bot) -> None:
                 auction_id=str(view.auction.id),
                 min_step=view.auction.min_step,
                 has_buyout=view.auction.buyout_price is not None,
-                photo_count=view.photo_count,
             ),
         )
     except TelegramForbiddenError:

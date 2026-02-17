@@ -29,6 +29,7 @@ from app.services.private_topics_service import (
     enforce_message_topic,
     send_user_topic_message,
 )
+from app.services.notification_policy_service import NotificationEventType
 from app.services.user_service import upsert_user
 
 router = Router(name="guarantor")
@@ -289,6 +290,7 @@ async def _notify_submitter_decision(
         tg_user_id=submitter_tg_user_id,
         purpose=PrivateTopicPurpose.SUPPORT,
         text=text,
+        notification_event=NotificationEventType.SUPPORT,
     )
 
 

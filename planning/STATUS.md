@@ -1,12 +1,16 @@
 # Planning Status
 
-Last sync: 2026-02-16 14:30 UTC
-Active sprint: Sprint 41
+Last sync: 2026-02-17 12:20 UTC
+Active sprint: Sprint 42
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S41-001 | Upgrade My Auctions with filters, bid logs, and post links | [#127](https://github.com/Nombah501/LiteAuction/issues/127) (closed) | - |
-| S41-002 | Add seller productivity tools and analytics in My Auctions | [#128](https://github.com/Nombah501/LiteAuction/issues/128) (open) | - |
+| S42-001 | Add user notification preferences schema and migration | [#131](https://github.com/Nombah501/LiteAuction/issues/131) (open) | - |
+| S42-002 | Implement notification policy service and event taxonomy | [#132](https://github.com/Nombah501/LiteAuction/issues/132) (open) | - |
+| S42-003 | Ship settings UI in private dashboard for notifications | [#133](https://github.com/Nombah501/LiteAuction/issues/133) (open) | - |
+| S42-004 | Add first-start notification onboarding | [#134](https://github.com/Nombah501/LiteAuction/issues/134) (open) | - |
+| S42-005 | Wire policy checks to auction notification flows | [#135](https://github.com/Nombah501/LiteAuction/issues/135) (open) | - |
+| S42-006 | Finalize tests docs and rollback notes for notification MVP | [#136](https://github.com/Nombah501/LiteAuction/issues/136) (open) | - |
 
 ## Recovery Checklist
 

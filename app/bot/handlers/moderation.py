@@ -25,6 +25,7 @@ from app.bot.keyboards.moderation import (
     moderation_panel_keyboard,
     moderation_signals_list_keyboard,
 )
+from app.bot.keyboards.auction import open_auction_post_keyboard
 from app.config import settings
 from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType
 from app.db.models import Appeal, Auction, User
@@ -40,7 +41,7 @@ from app.services.appeal_service import (
     resolve_appeal,
     resolve_appeal_auction_id,
 )
-from app.services.auction_service import refresh_auction_posts
+from app.services.auction_service import refresh_auction_posts, resolve_auction_post_url
 from app.services.complaint_service import (
     list_complaints,
     load_complaint_view,
@@ -97,6 +98,7 @@ from app.services.private_topics_service import (
     enforce_message_topic,
     send_user_topic_message,
 )
+from app.services.notification_policy_service import NotificationEventType
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -160,6 +162,13 @@ def _build_appeal_cta(appeal_ref: str) -> tuple[str, InlineKeyboardMarkup | None
         "Если вы не согласны с решением, нажмите кнопку ниже и отправьте апелляцию.",
         keyboard,
     )
+
+
+async def _auction_post_keyboard(bot: Bot, auction_id: uuid.UUID) -> InlineKeyboardMarkup | None:
+    post_url = await resolve_auction_post_url(bot, auction_id=auction_id)
+    if post_url is None:
+        return None
+    return open_auction_post_keyboard(post_url)
 
 
 def _format_user_label(user: User | None) -> str:
@@ -1071,6 +1080,7 @@ async def mod_points(message: Message, bot: Bot) -> None:
                 f"Ваш баланс скорректирован модератором {notify_label}: {delta_text} points.\n"
                 f"Причина: {reason}"
             ),
+            notification_event=NotificationEventType.POINTS,
         )
         return
 
@@ -1235,11 +1245,14 @@ async def mod_freeze(message: Message, bot: Bot) -> None:
     await message.answer(result.message)
 
     if result.seller_tg_user_id:
+        reply_markup = await _auction_post_keyboard(bot, auction_id)
         await send_user_topic_message(
             bot,
             tg_user_id=result.seller_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Аукцион #{str(auction_id)[:8]} заморожен модератором",
+            reply_markup=reply_markup,
+            notification_event=NotificationEventType.AUCTION_MOD_ACTION,
         )
 
 
@@ -1283,11 +1296,14 @@ async def mod_unfreeze(message: Message, bot: Bot) -> None:
     await message.answer(result.message)
 
     if result.seller_tg_user_id:
+        reply_markup = await _auction_post_keyboard(bot, auction_id)
         await send_user_topic_message(
             bot,
             tg_user_id=result.seller_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
+            reply_markup=reply_markup,
+            notification_event=NotificationEventType.AUCTION_MOD_ACTION,
         )
 
 
@@ -1330,12 +1346,15 @@ async def mod_end(message: Message, bot: Bot) -> None:
     await refresh_auction_posts(bot, auction_id)
     await message.answer(result.message)
 
+    reply_markup = await _auction_post_keyboard(bot, auction_id)
     if result.seller_tg_user_id:
         await send_user_topic_message(
             bot,
             tg_user_id=result.seller_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Аукцион #{str(auction_id)[:8]} завершен модератором",
+            reply_markup=reply_markup,
+            notification_event=NotificationEventType.AUCTION_MOD_ACTION,
         )
     if result.winner_tg_user_id:
         await send_user_topic_message(
@@ -1343,6 +1362,8 @@ async def mod_end(message: Message, bot: Bot) -> None:
             tg_user_id=result.winner_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Вы победили в аукционе #{str(auction_id)[:8]}",
+            reply_markup=reply_markup,
+            notification_event=NotificationEventType.AUCTION_MOD_ACTION,
         )
 
 
@@ -1419,11 +1440,16 @@ async def mod_remove_bid(message: Message, bot: Bot) -> None:
     await message.answer(result.message)
 
     if result.target_tg_user_id:
+        reply_markup = None
+        if result.auction_id is not None:
+            reply_markup = await _auction_post_keyboard(bot, result.auction_id)
         await send_user_topic_message(
             bot,
             tg_user_id=result.target_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text="Ваша ставка была снята модератором",
+            reply_markup=reply_markup,
+            notification_event=NotificationEventType.AUCTION_MOD_ACTION,
         )
 
 
@@ -1924,6 +1950,7 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 tg_user_id=notify_tg_user_id,
                 purpose=PrivateTopicPurpose.SUPPORT,
                 text=notify_text,
+                notification_event=NotificationEventType.SUPPORT,
             )
 
         text, keyboard = await _build_appeals_page(page)
@@ -2112,11 +2139,14 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
 
         await refresh_auction_posts(bot, auction_id)
         if seller_tg_user_id is not None:
+            reply_markup = await _auction_post_keyboard(bot, auction_id)
             await send_user_topic_message(
                 bot,
                 tg_user_id=seller_tg_user_id,
                 purpose=PrivateTopicPurpose.AUCTIONS,
                 text=f"Аукцион #{str(auction_id)[:8]} разморожен модератором",
+                reply_markup=reply_markup,
+                notification_event=NotificationEventType.AUCTION_MOD_ACTION,
             )
 
         text, keyboard = await _build_frozen_auctions_page(page)
@@ -2539,6 +2569,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
                 f"{appeal_note}"
             ),
             reply_markup=appeal_keyboard,
+            notification_event=NotificationEventType.SUPPORT,
         )
 
     if updated_text is not None and callback.message is not None:
@@ -2676,6 +2707,7 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
                 f"{appeal_note}"
             ),
             reply_markup=appeal_keyboard,
+            notification_event=NotificationEventType.SUPPORT,
         )
 
     if updated_text is not None and callback.message is not None:

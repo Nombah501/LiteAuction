@@ -52,6 +52,32 @@ class User(Base, TimestampMixin):
     )
 
 
+class UserNotificationPreference(Base, TimestampMixin):
+    __tablename__ = "user_notification_preferences"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_user_notification_preferences_user_id"),
+        CheckConstraint(
+            "preset IN ('recommended', 'important', 'all', 'custom')",
+            name="ck_user_notification_preferences_preset",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    preset: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'recommended'"))
+    outbid_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    auction_finish_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    auction_win_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    auction_mod_actions_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("true"),
+    )
+    points_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    support_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    configured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class TelegramUserVerification(Base):
     __tablename__ = "telegram_user_verifications"
     __table_args__ = (UniqueConstraint("tg_user_id", name="uq_telegram_user_verifications_tg_user_id"),)

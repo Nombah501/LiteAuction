@@ -1,0 +1,101 @@
+sprint = "Sprint 42"
+milestone = "Sprint 42"
+milestone_description = "Notification preferences MVP and delivery policy"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S42-001"
+title = "Add user notification preferences schema and migration"
+description = "Create persistent user-level notification preferences with presets and per-event toggles, compatible with existing master notifications switch."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:db", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "New table stores preset and per-event booleans for each user",
+  "Migration is backward-compatible for existing users",
+  "Existing users get safe recommended defaults",
+]
+
+[[items]]
+id = "S42-002"
+title = "Implement notification policy service and event taxonomy"
+description = "Centralize notification allow/deny decisions by event type, including presets and explicit user overrides."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:service", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Policy service exposes should-send checks by event type",
+  "Presets map to deterministic toggles",
+  "Unit tests cover recommended, important, all, and custom modes",
+]
+
+[[items]]
+id = "S42-003"
+title = "Ship settings UI in private dashboard for notifications"
+description = "Replace settings placeholder with a working private settings screen with preset selectors and per-event toggles."
+priority = "P1"
+estimate = "L"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:ux", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "dash:settings opens a working settings card",
+  "Users can switch presets and toggle event categories",
+  "Changes persist and survive bot restart",
+]
+
+[[items]]
+id = "S42-004"
+title = "Add first-start notification onboarding"
+description = "Show a one-time notification preset chooser on first private start and allow later edits from settings."
+priority = "P2"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:onboarding", "priority:p2"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "First private start shows preset selection when user is not configured",
+  "Onboarding is shown once unless reset intentionally",
+  "Users can reopen and edit settings from dashboard",
+]
+
+[[items]]
+id = "S42-005"
+title = "Wire policy checks to auction notification flows"
+description = "Apply notification preferences to outbid, finish, win, and moderation-related auction direct notifications."
+priority = "P1"
+estimate = "M"
+tech_debt = false
+labels = ["type:feature", "area:bot", "area:auctions", "priority:p1"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Outbid notifications respect user preference",
+  "Finish and win notifications respect user preference",
+  "Auction moderation notifications respect user preference",
+]
+
+[[items]]
+id = "S42-006"
+title = "Finalize tests docs and rollback notes for notification MVP"
+description = "Cover new preference flow with tests, update docs, and add safe rollback guidance."
+priority = "P2"
+estimate = "S"
+tech_debt = false
+labels = ["type:chore", "area:tests", "area:docs", "priority:p2"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Tests cover migration, policy, and settings callbacks",
+  "Docs describe presets and event categories",
+  "Rollout and rollback steps are documented",
+]

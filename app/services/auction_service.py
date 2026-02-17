@@ -21,7 +21,7 @@ from aiogram.types import InlineKeyboardMarkup, InputMediaPhoto
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.auction import auction_active_keyboard
+from app.bot.keyboards.auction import auction_active_keyboard, open_auction_post_keyboard
 from app.config import settings
 from app.db.enums import AuctionStatus
 from app.db.models import Auction, AuctionPhoto, AuctionPost, Bid, BlacklistEntry, Complaint, User
@@ -32,6 +32,7 @@ from app.services.message_effects_service import (
     resolve_auction_message_effect_id,
 )
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
+from app.services.notification_policy_service import NotificationEventType
 
 logger = logging.getLogger(__name__)
 
@@ -156,16 +157,76 @@ def _human_time_left(ends_at: datetime | None) -> str:
     return f"{seconds}с"
 
 
-def _status_hook_line(status: AuctionStatus) -> str:
-    hooks = {
-        AuctionStatus.DRAFT: "🧪 Лот в подготовке - доведите карточку до идеала.",
-        AuctionStatus.ACTIVE: "⚡ Торги в разгаре: ловите момент и перебивайте ставку.",
-        AuctionStatus.ENDED: "🏁 Торги завершены. Спасибо всем за участие!",
-        AuctionStatus.BOUGHT_OUT: "💥 Лот забрали моментально через выкуп.",
-        AuctionStatus.CANCELLED: "🛑 Аукцион остановлен владельцем.",
-        AuctionStatus.FROZEN: "🧊 Лот временно заморожен модератором.",
-    }
-    return hooks[status]
+def _internal_chat_link_id(chat_id: int) -> str | None:
+    raw = str(abs(chat_id))
+    if not raw.startswith("100"):
+        return None
+    suffix = raw[3:]
+    return suffix if suffix else None
+
+
+def resolve_auction_post_link(
+    chat_id: int | None,
+    message_id: int | None,
+    username: str | None = None,
+) -> str | None:
+    if chat_id is None or message_id is None:
+        return None
+    normalized_username = (username or "").strip().lstrip("@")
+    if normalized_username:
+        return f"https://t.me/{normalized_username}/{message_id}"
+    internal_id = _internal_chat_link_id(chat_id)
+    if internal_id is None:
+        return None
+    return f"https://t.me/c/{internal_id}/{message_id}"
+
+
+async def resolve_auction_post_url(
+    bot: Bot,
+    *,
+    auction_id: uuid.UUID,
+    preferred_chat_id: int | None = None,
+    preferred_message_id: int | None = None,
+    preferred_username: str | None = None,
+) -> str | None:
+    direct = resolve_auction_post_link(
+        chat_id=preferred_chat_id,
+        message_id=preferred_message_id,
+        username=preferred_username,
+    )
+    if direct is not None:
+        return direct
+
+    async with SessionFactory() as session:
+        post = await session.scalar(
+            select(AuctionPost)
+            .where(
+                AuctionPost.auction_id == auction_id,
+                AuctionPost.chat_id.is_not(None),
+                AuctionPost.message_id.is_not(None),
+            )
+            .order_by(AuctionPost.id.desc())
+            .limit(1)
+        )
+
+    if post is None:
+        return None
+
+    username: str | None = None
+    if isinstance(post.chat_id, int):
+        try:
+            chat = await bot.get_chat(post.chat_id)
+            raw_username = getattr(chat, "username", None)
+            if isinstance(raw_username, str) and raw_username.strip():
+                username = raw_username.strip()
+        except TelegramAPIError:
+            username = None
+
+    return resolve_auction_post_link(
+        chat_id=post.chat_id,
+        message_id=post.message_id,
+        username=username,
+    )
 
 
 def render_auction_caption(view: AuctionView, *, publish_pending: bool = False) -> str:
@@ -182,34 +243,23 @@ def render_auction_caption(view: AuctionView, *, publish_pending: bool = False) 
     if len(description) > 420:
         description = f"{description[:420]}..."
 
-    anti_sniper_text = (
-        f"вкл ({settings.anti_sniper_window_minutes}м -> +{settings.anti_sniper_extend_minutes}м, "
-        f"осталось {max(view.auction.anti_sniper_max_extensions - view.auction.anti_sniper_extensions_used, 0)})"
-        if view.auction.anti_sniper_enabled
-        else "выкл"
-    )
+    anti_sniper_text = "вкл" if view.auction.anti_sniper_enabled else "выкл"
 
     ending_line = _format_dt(view.auction.ends_at)
     if view.auction.status == AuctionStatus.ACTIVE:
         ending_line = f"{ending_line} ({_human_time_left(view.auction.ends_at)})"
 
     pending_line = "\n⏳ Публикуется..." if publish_pending else ""
-    hook_line = _status_hook_line(view.auction.status)
 
     lines = [
         f"<b>🔥 Аукцион #{str(view.auction.id)[:8]}</b>{pending_line}",
         "",
         f"📝 {description}",
-        hook_line,
-        "",
         f"🎯 Статус: <b>{status_text}</b>",
         f"👤 Продавец: {_format_user_mention(view.seller)}",
         f"💸 Текущая ставка: <b>${view.current_price}</b>",
-        f"⏭ Следующая ставка: <b>${view.minimum_next_bid}</b>",
         f"🏁 Старт: ${view.auction.start_price}",
         f"💰 Выкуп: {'$' + str(view.auction.buyout_price) if view.auction.buyout_price is not None else 'нет'}",
-        f"📈 Шаг: ${view.auction.min_step}",
-        f"🖼 Фото: {view.photo_count} | 🚨 Жалобы: {view.open_complaints}",
         f"🛡 Антиснайпер: {anti_sniper_text}",
         f"⏰ Финиш: <b>{ending_line}</b>",
         "",
@@ -618,7 +668,6 @@ async def refresh_auction_posts(bot: Bot, auction_id: uuid.UUID) -> None:
             auction_id=str(view.auction.id),
             min_step=view.auction.min_step,
             has_buyout=view.auction.buyout_price is not None,
-            photo_count=view.photo_count,
         )
 
     for post in posts:
@@ -772,14 +821,18 @@ async def finalize_expired_auctions(bot: Bot) -> int:
         await _safe_refresh_auction_posts(bot, auction_id)
 
     for result in finalized_results:
+        post_url = await resolve_auction_post_url(bot, auction_id=result.auction_id)
+        reply_markup = open_auction_post_keyboard(post_url) if post_url else None
         await send_user_topic_message(
             bot,
             tg_user_id=result.seller_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Аукцион #{str(result.auction_id)[:8]} завершен.",
+            reply_markup=reply_markup,
             message_effect_id=resolve_auction_message_effect_id(
                 AuctionMessageEffectEvent.ENDED_SELLER
             ),
+            notification_event=NotificationEventType.AUCTION_FINISH,
         )
 
         if result.winner_tg_user_id is not None:
@@ -788,9 +841,11 @@ async def finalize_expired_auctions(bot: Bot) -> int:
                 tg_user_id=result.winner_tg_user_id,
                 purpose=PrivateTopicPurpose.AUCTIONS,
                 text=f"Вы победили в аукционе #{str(result.auction_id)[:8]}.",
+                reply_markup=reply_markup,
                 message_effect_id=resolve_auction_message_effect_id(
                     AuctionMessageEffectEvent.ENDED_WINNER
                 ),
+                notification_event=NotificationEventType.AUCTION_WIN,
             )
 
     return len(finalized_results)

@@ -6,8 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import CallbackQuery, InputMediaPhoto
+from aiogram.types import CallbackQuery, InputMediaPhoto, Message
 
+from app.bot.keyboards.auction import open_auction_post_keyboard
 from app.bot.keyboards.moderation import complaint_actions_keyboard, fraud_actions_keyboard
 from app.config import settings
 from app.db.session import SessionFactory
@@ -18,6 +19,8 @@ from app.services.anti_fool_service import (
 )
 from app.services.auction_service import (
     load_auction_photo_ids,
+    resolve_auction_post_link,
+    resolve_auction_post_url,
     load_auction_view,
     process_bid_action,
     refresh_auction_posts,
@@ -40,6 +43,7 @@ from app.services.message_effects_service import (
 )
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
+from app.services.notification_policy_service import NotificationEventType
 from app.services.user_service import upsert_user
 
 router = Router(name="bid_actions")
@@ -48,7 +52,10 @@ router = Router(name="bid_actions")
 def _soft_gate_alert_text() -> str:
     username = settings.bot_username.strip()
     if username:
-        return f"Сначала откройте @{username} в личке и нажмите /start. Можно через кнопку 'Бот' внизу поста."
+        return (
+            f"Сначала откройте @{username} в личке и нажмите /start. "
+            "Можно через кнопку 'Поддержка' внизу поста."
+        )
     return "Сначала откройте бота в личке и нажмите /start"
 
 
@@ -250,15 +257,42 @@ async def _maybe_send_fraud_alert(bot: Bot, signal_id: int) -> None:
             )
 
 
-async def _notify_outbid(bot: Bot, outbid_user_tg_id: int | None, actor_tg_id: int) -> None:
+def _callback_post_url(callback: CallbackQuery) -> str | None:
+    if callback.message is None or not isinstance(callback.message, Message):
+        return None
+    chat = callback.message.chat
+    if chat is None or not isinstance(chat.id, int):
+        return None
+    username = chat.username if isinstance(chat.username, str) else None
+    return resolve_auction_post_link(
+        chat_id=chat.id,
+        message_id=callback.message.message_id,
+        username=username,
+    )
+
+
+async def _notify_outbid(
+    bot: Bot,
+    outbid_user_tg_id: int | None,
+    actor_tg_id: int,
+    *,
+    auction_id: uuid.UUID,
+    post_url: str | None,
+) -> None:
     if outbid_user_tg_id is None or outbid_user_tg_id == actor_tg_id:
         return
+
+    resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)
+    reply_markup = open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
+
     await send_user_topic_message(
         bot,
         tg_user_id=outbid_user_tg_id,
         purpose=PrivateTopicPurpose.AUCTIONS,
-        text="Вашу ставку перебили. Откройте аукцион и сделайте новую.",
+        text=f"Вашу ставку перебили в аукционе #{str(auction_id)[:8]}.",
+        reply_markup=reply_markup,
         message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.OUTBID),
+        notification_event=NotificationEventType.AUCTION_OUTBID,
     )
 
 
@@ -268,17 +302,23 @@ async def _notify_auction_finish(
     winner_tg_id: int | None,
     seller_tg_id: int | None,
     auction_id: uuid.UUID,
+    post_url: str | None,
 ) -> None:
     short_id = str(auction_id)[:8]
+    resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)
+    reply_markup = open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
+
     if seller_tg_id is not None:
         await send_user_topic_message(
             bot,
             tg_user_id=seller_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Аукцион #{short_id} завершен (выкуп).",
+            reply_markup=reply_markup,
             message_effect_id=resolve_auction_message_effect_id(
                 AuctionMessageEffectEvent.BUYOUT_SELLER
             ),
+            notification_event=NotificationEventType.AUCTION_FINISH,
         )
     if winner_tg_id is not None:
         await send_user_topic_message(
@@ -286,9 +326,11 @@ async def _notify_auction_finish(
             tg_user_id=winner_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
             text=f"Вы выиграли аукцион #{short_id} через выкуп.",
+            reply_markup=reply_markup,
             message_effect_id=resolve_auction_message_effect_id(
                 AuctionMessageEffectEvent.BUYOUT_WINNER
             ),
+            notification_event=NotificationEventType.AUCTION_WIN,
         )
 
 
@@ -356,7 +398,14 @@ async def handle_bid_action(callback: CallbackQuery, bot: Bot) -> None:
     if result.should_refresh:
         await refresh_auction_posts(bot, auction_id)
 
-    await _notify_outbid(bot, result.outbid_tg_user_id, callback.from_user.id)
+    post_url = _callback_post_url(callback)
+    await _notify_outbid(
+        bot,
+        result.outbid_tg_user_id,
+        callback.from_user.id,
+        auction_id=auction_id,
+        post_url=post_url,
+    )
 
     if result.fraud_signal_id is not None:
         await _maybe_send_fraud_alert(bot, result.fraud_signal_id)
@@ -429,7 +478,14 @@ async def handle_buyout_action(callback: CallbackQuery, bot: Bot) -> None:
     if result.should_refresh:
         await refresh_auction_posts(bot, auction_id)
 
-    await _notify_outbid(bot, result.outbid_tg_user_id, callback.from_user.id)
+    post_url = _callback_post_url(callback)
+    await _notify_outbid(
+        bot,
+        result.outbid_tg_user_id,
+        callback.from_user.id,
+        auction_id=auction_id,
+        post_url=post_url,
+    )
 
     if result.fraud_signal_id is not None:
         await _maybe_send_fraud_alert(bot, result.fraud_signal_id)
@@ -440,6 +496,7 @@ async def handle_buyout_action(callback: CallbackQuery, bot: Bot) -> None:
             winner_tg_id=result.winner_tg_user_id,
             seller_tg_id=result.seller_tg_user_id,
             auction_id=auction_id,
+            post_url=post_url,
         )
 
 
