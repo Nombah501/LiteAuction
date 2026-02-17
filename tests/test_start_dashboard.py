@@ -17,6 +17,8 @@ from app.bot.handlers.start import (
     _render_my_auctions_list_text,
     _resolve_post_link,
     _settings_keyboard,
+    callback_notification_mute_type,
+    callback_notification_snooze_auction,
     callback_dashboard_balance,
     callback_dashboard_settings,
 )
@@ -33,9 +35,9 @@ from app.services.seller_dashboard_service import SellerAuctionListItem, SellerB
 class _DummyCallback:
     def __init__(self) -> None:
         self.answers: list[tuple[str, bool]] = []
-        self.from_user = None
+        self.from_user: object | None = None
         self.message = None
-        self.data = None
+        self.data: str | None = None
 
     async def answer(self, text: str = "", show_alert: bool = False, **_kwargs) -> None:
         self.answers.append((text, show_alert))
@@ -235,3 +237,29 @@ def test_settings_keyboard_contains_unmute_buttons_for_disabled_events() -> None
     assert "dash:settings:unmute:outbid" in callback_data
     assert "dash:settings:unmute:win" in callback_data
     assert "dash:settings:unmute:support" in callback_data
+
+
+@pytest.mark.asyncio
+async def test_notification_snooze_callback_invalid_payload_returns_clear_alert() -> None:
+    callback = _DummyCallback()
+    callback.from_user = object()
+    callback.data = "notif:snooze:not-a-uuid"
+
+    await callback_notification_snooze_auction(cast(CallbackQuery, callback))
+
+    assert callback.answers == [
+        ("Кнопка устарела. Откройте /settings и настройте уведомления снова.", True)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_notification_mute_callback_invalid_payload_returns_clear_alert() -> None:
+    callback = _DummyCallback()
+    callback.from_user = object()
+    callback.data = "notif:mute:unknown"
+
+    await callback_notification_mute_type(cast(CallbackQuery, callback))
+
+    assert callback.answers == [
+        ("Кнопка устарела. Тип уведомления можно изменить в /settings.", True)
+    ]

@@ -123,6 +123,16 @@ def notification_event_from_action_key(action_key: str) -> NotificationEventType
     return _ACTION_KEY_TO_EVENT.get(action_key)
 
 
+def notification_event_from_token(token: str) -> NotificationEventType | None:
+    event_type = notification_event_from_action_key(token)
+    if event_type is not None:
+        return event_type
+    try:
+        return NotificationEventType(token)
+    except ValueError:
+        return None
+
+
 def default_auction_snooze_minutes() -> int:
     return _AUCTION_SNOOZE_MINUTES_DEFAULT
 
@@ -134,7 +144,7 @@ def notification_snooze_callback_data(*, auction_id: uuid.UUID, duration_minutes
 
 def parse_notification_snooze_callback_data(callback_data: str) -> tuple[uuid.UUID, int] | None:
     parts = callback_data.split(":")
-    if len(parts) != 4:
+    if len(parts) not in {3, 4}:
         return None
     if parts[0] != "notif" or parts[1] != "snooze":
         return None
@@ -144,12 +154,24 @@ def parse_notification_snooze_callback_data(callback_data: str) -> tuple[uuid.UU
     except ValueError:
         return None
 
+    if len(parts) == 3:
+        return auction_id, _AUCTION_SNOOZE_MINUTES_DEFAULT
+
     if not parts[3].isdigit():
         return None
     duration = int(parts[3])
     if duration < 1:
         return None
     return auction_id, min(duration, _AUCTION_SNOOZE_MINUTES_MAX)
+
+
+def parse_notification_mute_callback_data(callback_data: str) -> NotificationEventType | None:
+    parts = callback_data.split(":")
+    if len(parts) != 3:
+        return None
+    if parts[0] != "notif" or parts[1] not in {"mute", "disable", "off"}:
+        return None
+    return notification_event_from_token(parts[2])
 
 
 def _snapshot_from_row(*, user: User, row: UserNotificationPreference | None) -> NotificationSettingsSnapshot:
