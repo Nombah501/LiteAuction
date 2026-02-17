@@ -213,3 +213,56 @@ async def test_send_user_topic_message_defers_quiet_hours_events(monkeypatch) ->
     assert suppressed_metrics == [(NotificationEventType.AUCTION_OUTBID.value, "quiet_hours_deferred")]
     assert aggregated_metrics == [(NotificationEventType.AUCTION_OUTBID.value, "quiet_hours_deferred")]
     assert deferred_calls == [NotificationEventType.AUCTION_OUTBID.value]
+
+
+@pytest.mark.asyncio
+async def test_send_user_topic_message_renders_deferred_summary_with_pluralization(monkeypatch) -> None:
+    monkeypatch.setattr(private_topics_service.settings, "private_topics_enabled", False)
+    monkeypatch.setattr(private_topics_service, "SessionFactory", lambda: _SessionCtx())
+
+    async def _allowed(*_args, **_kwargs) -> NotificationDeliveryDecision:
+        return NotificationDeliveryDecision(allowed=True, reason="allowed")
+
+    sent_metrics: list[tuple[str, str]] = []
+    aggregated_metrics: list[tuple[str, str, int]] = []
+    sent_texts: list[str] = []
+
+    async def _record_sent(*, event_type: NotificationEventType, reason: str = "delivered") -> None:
+        sent_metrics.append((event_type.value, reason))
+
+    async def _record_suppressed(*, event_type: NotificationEventType, reason: str) -> None:
+        raise AssertionError(f"suppressed metric should not be emitted: {event_type.value}:{reason}")
+
+    async def _record_aggregated(*, event_type: NotificationEventType, reason: str, count: int = 1) -> None:
+        aggregated_metrics.append((event_type.value, reason, count))
+
+    async def _pop_deferred(*, tg_user_id: int, event_type: NotificationEventType) -> int:  # noqa: ARG001
+        return 3
+
+    class _BotStub:
+        async def send_message(self, **kwargs):  # noqa: ANN201
+            sent_texts.append(kwargs["text"])
+            return SimpleNamespace(chat=SimpleNamespace(id=kwargs["chat_id"]), message_id=1)
+
+    monkeypatch.setattr(private_topics_service, "notification_delivery_decision", _allowed)
+    monkeypatch.setattr(private_topics_service, "record_notification_sent", _record_sent)
+    monkeypatch.setattr(private_topics_service, "record_notification_suppressed", _record_suppressed)
+    monkeypatch.setattr(private_topics_service, "record_notification_aggregated", _record_aggregated)
+    monkeypatch.setattr(private_topics_service, "pop_deferred_notification_count", _pop_deferred)
+
+    delivered = await private_topics_service.send_user_topic_message(
+        cast(Bot, _BotStub()),
+        tg_user_id=555,
+        purpose=private_topics_service.PrivateTopicPurpose.AUCTIONS,
+        text="hello",
+        notification_event=NotificationEventType.AUCTION_OUTBID,
+    )
+
+    assert delivered is True
+    assert sent_metrics == [(NotificationEventType.AUCTION_OUTBID.value, "delivered")]
+    assert aggregated_metrics == [
+        (NotificationEventType.AUCTION_OUTBID.value, "quiet_hours_flushed", 3),
+    ]
+    assert sent_texts == [
+        "Тихие часы завершены: пропущено 3 уведомления этого типа.\n\nhello",
+    ]
