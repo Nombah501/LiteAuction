@@ -17,6 +17,8 @@ class _BotStub:
 @pytest.mark.asyncio
 async def test_notify_outbid_skips_message_when_debounce_denies(monkeypatch) -> None:
     sent_calls: list[dict[str, object]] = []
+    suppressed_metrics: list[tuple[str, str]] = []
+    aggregated_metrics: list[tuple[str, str]] = []
 
     async def _deny_debounce(_auction_id: UUID, _tg_user_id: int) -> bool:
         return False
@@ -25,8 +27,16 @@ async def test_notify_outbid_skips_message_when_debounce_denies(monkeypatch) -> 
         sent_calls.append(kwargs)
         return True
 
+    async def _capture_suppressed(*, event_type: NotificationEventType, reason: str) -> None:
+        suppressed_metrics.append((event_type.value, reason))
+
+    async def _capture_aggregated(*, event_type: NotificationEventType, reason: str, count: int = 1) -> None:
+        aggregated_metrics.append((event_type.value, reason))
+
     monkeypatch.setattr(bid_actions, "acquire_outbid_notification_debounce", _deny_debounce)
     monkeypatch.setattr(bid_actions, "send_user_topic_message", _capture_send)
+    monkeypatch.setattr(bid_actions, "record_notification_suppressed", _capture_suppressed)
+    monkeypatch.setattr(bid_actions, "record_notification_aggregated", _capture_aggregated)
 
     await bid_actions._notify_outbid(
         cast(Bot, _BotStub()),
@@ -37,6 +47,8 @@ async def test_notify_outbid_skips_message_when_debounce_denies(monkeypatch) -> 
     )
 
     assert sent_calls == []
+    assert suppressed_metrics == [(NotificationEventType.AUCTION_OUTBID.value, "debounce_gate")]
+    assert aggregated_metrics == [(NotificationEventType.AUCTION_OUTBID.value, "debounce_gate")]
 
 
 @pytest.mark.asyncio
@@ -50,8 +62,18 @@ async def test_notify_outbid_sends_message_when_debounce_allows(monkeypatch) -> 
         sent_calls.append(kwargs)
         return True
 
+    async def _noop_suppressed(*, event_type: NotificationEventType, reason: str) -> None:  # noqa: ARG001
+        return None
+
+    async def _noop_aggregated(
+        *, event_type: NotificationEventType, reason: str, count: int = 1  # noqa: ARG001
+    ) -> None:
+        return None
+
     monkeypatch.setattr(bid_actions, "acquire_outbid_notification_debounce", _allow_debounce)
     monkeypatch.setattr(bid_actions, "send_user_topic_message", _capture_send)
+    monkeypatch.setattr(bid_actions, "record_notification_suppressed", _noop_suppressed)
+    monkeypatch.setattr(bid_actions, "record_notification_aggregated", _noop_aggregated)
 
     auction_id = UUID("12345678-1234-5678-1234-567812345678")
     await bid_actions._notify_outbid(
@@ -81,9 +103,19 @@ async def test_notify_outbid_skips_debounce_gate_when_policy_disables_it(monkeyp
         sent_calls.append(kwargs)
         return True
 
+    async def _noop_suppressed(*, event_type: NotificationEventType, reason: str) -> None:  # noqa: ARG001
+        return None
+
+    async def _noop_aggregated(
+        *, event_type: NotificationEventType, reason: str, count: int = 1  # noqa: ARG001
+    ) -> None:
+        return None
+
     monkeypatch.setattr(bid_actions, "should_apply_notification_debounce", _disable_debounce_policy)
     monkeypatch.setattr(bid_actions, "acquire_outbid_notification_debounce", _raise_if_called)
     monkeypatch.setattr(bid_actions, "send_user_topic_message", _capture_send)
+    monkeypatch.setattr(bid_actions, "record_notification_suppressed", _noop_suppressed)
+    monkeypatch.setattr(bid_actions, "record_notification_aggregated", _noop_aggregated)
 
     await bid_actions._notify_outbid(
         cast(Bot, _BotStub()),

@@ -48,6 +48,10 @@ from app.services.notification_policy_service import (
     NotificationEventType,
     should_apply_notification_debounce,
 )
+from app.services.notification_metrics_service import (
+    record_notification_aggregated,
+    record_notification_suppressed,
+)
 from app.services.user_service import upsert_user
 
 router = Router(name="bid_actions")
@@ -288,6 +292,14 @@ async def _notify_outbid(
 
     if should_apply_notification_debounce(NotificationEventType.AUCTION_OUTBID):
         if not await acquire_outbid_notification_debounce(auction_id, outbid_user_tg_id):
+            await record_notification_suppressed(
+                event_type=NotificationEventType.AUCTION_OUTBID,
+                reason="debounce_gate",
+            )
+            await record_notification_aggregated(
+                event_type=NotificationEventType.AUCTION_OUTBID,
+                reason="debounce_gate",
+            )
             return
 
     resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)
