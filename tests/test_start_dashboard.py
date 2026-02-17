@@ -195,6 +195,9 @@ def test_settings_keyboard_contains_unsnooze_buttons() -> None:
         auction_mod_actions_enabled=True,
         points_enabled=True,
         support_enabled=True,
+        quiet_hours_enabled=False,
+        quiet_hours_start_hour=23,
+        quiet_hours_end_hour=8,
         configured=True,
     )
     snoozes = [
@@ -224,6 +227,9 @@ def test_settings_keyboard_contains_unmute_buttons_for_disabled_events() -> None
         auction_mod_actions_enabled=True,
         points_enabled=True,
         support_enabled=False,
+        quiet_hours_enabled=True,
+        quiet_hours_start_hour=23,
+        quiet_hours_end_hour=8,
         configured=True,
     )
 
@@ -237,6 +243,9 @@ def test_settings_keyboard_contains_unmute_buttons_for_disabled_events() -> None
     assert "dash:settings:unmute:outbid" in callback_data
     assert "dash:settings:unmute:win" in callback_data
     assert "dash:settings:unmute:support" in callback_data
+    assert "dash:settings:quiet:toggle" in callback_data
+    assert "dash:settings:quiet:23-8" in callback_data
+    assert "dash:settings:quiet:off" in callback_data
 
 
 @pytest.mark.asyncio

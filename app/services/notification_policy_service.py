@@ -44,6 +44,9 @@ class NotificationSettingsSnapshot:
     auction_mod_actions_enabled: bool
     points_enabled: bool
     support_enabled: bool
+    quiet_hours_enabled: bool
+    quiet_hours_start_hour: int
+    quiet_hours_end_hour: int
     configured: bool
 
 
@@ -59,6 +62,12 @@ class NotificationDeliveryPolicy:
     debounce_enabled: bool
     digest_enabled: bool
     defer_during_quiet_hours: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationDeliveryDecision:
+    allowed: bool
+    reason: str
 
 
 _PRESET_VALUES: dict[NotificationPreset, dict[str, bool]] = {
@@ -112,6 +121,8 @@ _ACTION_KEY_TO_EVENT: dict[str, NotificationEventType] = {
 
 _AUCTION_SNOOZE_MINUTES_DEFAULT = 60
 _AUCTION_SNOOZE_MINUTES_MAX = 24 * 60
+_QUIET_HOURS_START_DEFAULT = 23
+_QUIET_HOURS_END_DEFAULT = 8
 
 _AUCTION_EVENT_TYPES: set[NotificationEventType] = {
     NotificationEventType.AUCTION_OUTBID,
@@ -164,6 +175,27 @@ def _normalize_preset(raw: str | None) -> NotificationPreset:
         return NotificationPreset(raw)
     except ValueError:
         return NotificationPreset.RECOMMENDED
+
+
+def _normalize_quiet_hour(raw: int | None, *, default: int) -> int:
+    if raw is None:
+        return default
+    try:
+        hour = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if 0 <= hour <= 23:
+        return hour
+    return default
+
+
+def is_within_quiet_hours(*, now_utc: datetime, start_hour: int, end_hour: int) -> bool:
+    hour = now_utc.hour
+    if start_hour == end_hour:
+        return False
+    if start_hour < end_hour:
+        return start_hour <= hour < end_hour
+    return hour >= start_hour or hour < end_hour
 
 
 def notification_event_action_key(event_type: NotificationEventType) -> str:
@@ -260,6 +292,16 @@ def _snapshot_from_row(*, user: User, row: UserNotificationPreference | None) ->
             "support_enabled": bool(row.support_enabled),
         }
 
+    quiet_hours_enabled = bool(getattr(row, "quiet_hours_enabled", False))
+    quiet_hours_start_hour = _normalize_quiet_hour(
+        getattr(row, "quiet_hours_start_hour", None),
+        default=_QUIET_HOURS_START_DEFAULT,
+    )
+    quiet_hours_end_hour = _normalize_quiet_hour(
+        getattr(row, "quiet_hours_end_hour", None),
+        default=_QUIET_HOURS_END_DEFAULT,
+    )
+
     return NotificationSettingsSnapshot(
         master_enabled=bool(user.is_notifications_enabled),
         preset=preset,
@@ -269,6 +311,9 @@ def _snapshot_from_row(*, user: User, row: UserNotificationPreference | None) ->
         auction_mod_actions_enabled=values["auction_mod_actions_enabled"],
         points_enabled=values["points_enabled"],
         support_enabled=values["support_enabled"],
+        quiet_hours_enabled=quiet_hours_enabled,
+        quiet_hours_start_hour=quiet_hours_start_hour,
+        quiet_hours_end_hour=quiet_hours_end_hour,
         configured=row is not None and row.configured_at is not None,
     )
 
@@ -294,6 +339,9 @@ async def get_or_create_notification_preferences(
         auction_mod_actions_enabled=True,
         points_enabled=True,
         support_enabled=True,
+        quiet_hours_enabled=False,
+        quiet_hours_start_hour=_QUIET_HOURS_START_DEFAULT,
+        quiet_hours_end_hour=_QUIET_HOURS_END_DEFAULT,
         configured_at=None,
         updated_at=now_utc,
     )
@@ -427,6 +475,39 @@ async def set_notification_event_enabled(
 
     field_name = _EVENT_TO_FIELD[event_type]
     setattr(row, field_name, enabled)
+
+    await session.flush()
+    return _snapshot_from_row(user=user, row=row)
+
+
+async def set_quiet_hours_settings(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    enabled: bool,
+    start_hour: int,
+    end_hour: int,
+    mark_configured: bool = True,
+) -> NotificationSettingsSnapshot | None:
+    user = await session.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        return None
+
+    row = await get_or_create_notification_preferences(session, user_id=user_id)
+    now_utc = datetime.now(timezone.utc)
+    row.updated_at = now_utc
+    if mark_configured and row.configured_at is None:
+        row.configured_at = now_utc
+
+    row.quiet_hours_enabled = bool(enabled)
+    row.quiet_hours_start_hour = _normalize_quiet_hour(
+        start_hour,
+        default=_QUIET_HOURS_START_DEFAULT,
+    )
+    row.quiet_hours_end_hour = _normalize_quiet_hour(
+        end_hour,
+        default=_QUIET_HOURS_END_DEFAULT,
+    )
 
     await session.flush()
     return _snapshot_from_row(user=user, row=row)
@@ -567,11 +648,27 @@ async def is_notification_allowed(
     event_type: NotificationEventType,
     auction_id: uuid.UUID | None = None,
 ) -> bool:
+    decision = await notification_delivery_decision(
+        session,
+        tg_user_id=tg_user_id,
+        event_type=event_type,
+        auction_id=auction_id,
+    )
+    return decision.allowed
+
+
+async def notification_delivery_decision(
+    session: AsyncSession,
+    *,
+    tg_user_id: int,
+    event_type: NotificationEventType,
+    auction_id: uuid.UUID | None = None,
+) -> NotificationDeliveryDecision:
     snapshot = await load_notification_settings_by_tg_user_id(session, tg_user_id=tg_user_id)
     if snapshot is None:
-        return True
+        return NotificationDeliveryDecision(allowed=True, reason="allow_no_user")
     if not snapshot.master_enabled:
-        return False
+        return NotificationDeliveryDecision(allowed=False, reason="blocked_master")
 
     if auction_id is not None and event_type in _AUCTION_EVENT_TYPES:
         if await is_auction_notification_snoozed_by_tg_user_id(
@@ -579,16 +676,29 @@ async def is_notification_allowed(
             tg_user_id=tg_user_id,
             auction_id=auction_id,
         ):
-            return False
+            return NotificationDeliveryDecision(allowed=False, reason="blocked_auction_snooze")
+
+    if should_defer_notification_during_quiet_hours(event_type):
+        if snapshot.quiet_hours_enabled and is_within_quiet_hours(
+            now_utc=datetime.now(timezone.utc),
+            start_hour=snapshot.quiet_hours_start_hour,
+            end_hour=snapshot.quiet_hours_end_hour,
+        ):
+            return NotificationDeliveryDecision(allowed=False, reason="quiet_hours_deferred")
 
     if event_type == NotificationEventType.AUCTION_OUTBID:
-        return snapshot.outbid_enabled
-    if event_type == NotificationEventType.AUCTION_FINISH:
-        return snapshot.auction_finish_enabled
-    if event_type == NotificationEventType.AUCTION_WIN:
-        return snapshot.auction_win_enabled
-    if event_type == NotificationEventType.AUCTION_MOD_ACTION:
-        return snapshot.auction_mod_actions_enabled
-    if event_type == NotificationEventType.POINTS:
-        return snapshot.points_enabled
-    return snapshot.support_enabled
+        allowed = snapshot.outbid_enabled
+    elif event_type == NotificationEventType.AUCTION_FINISH:
+        allowed = snapshot.auction_finish_enabled
+    elif event_type == NotificationEventType.AUCTION_WIN:
+        allowed = snapshot.auction_win_enabled
+    elif event_type == NotificationEventType.AUCTION_MOD_ACTION:
+        allowed = snapshot.auction_mod_actions_enabled
+    elif event_type == NotificationEventType.POINTS:
+        allowed = snapshot.points_enabled
+    else:
+        allowed = snapshot.support_enabled
+
+    if allowed:
+        return NotificationDeliveryDecision(allowed=True, reason="allowed")
+    return NotificationDeliveryDecision(allowed=False, reason="blocked_event_toggle")

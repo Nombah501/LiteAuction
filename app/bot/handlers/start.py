@@ -45,8 +45,10 @@ from app.services.notification_policy_service import (
     parse_notification_snooze_callback_data,
     parse_notification_mute_callback_data,
     notification_event_action_key,
+    is_within_quiet_hours,
     set_auction_notification_snooze,
     set_notification_event_enabled,
+    set_quiet_hours_settings,
     set_master_notifications_enabled,
     set_notification_preset,
     toggle_notification_event,
@@ -172,6 +174,22 @@ def _disabled_events(snapshot: NotificationSettingsSnapshot) -> list[Notificatio
     return disabled
 
 
+def _format_quiet_hours_range(snapshot: NotificationSettingsSnapshot) -> str:
+    return f"{snapshot.quiet_hours_start_hour:02d}:00-{snapshot.quiet_hours_end_hour:02d}:00 UTC"
+
+
+def _quiet_hours_status(snapshot: NotificationSettingsSnapshot) -> str:
+    if not snapshot.quiet_hours_enabled:
+        return "выключены"
+    if is_within_quiet_hours(
+        now_utc=datetime.now(UTC),
+        start_hour=snapshot.quiet_hours_start_hour,
+        end_hour=snapshot.quiet_hours_end_hour,
+    ):
+        return "активны сейчас"
+    return "включены"
+
+
 def _render_settings_text(
     snapshot: NotificationSettingsSnapshot,
     *,
@@ -183,6 +201,7 @@ def _render_settings_text(
         "<b>Настройки уведомлений</b>",
         f"Глобально: <b>{global_state}</b>",
         f"Пресет: <b>{_preset_title(snapshot.preset)}</b>",
+        f"Тихие часы: <b>{_quiet_hours_status(snapshot)}</b> ({_format_quiet_hours_range(snapshot)})",
         f"Статус первичной настройки: <b>{configured_state}</b>",
         "",
         "Выберите пресет или переключите отдельные события кнопками ниже.",
@@ -237,6 +256,36 @@ def _settings_keyboard(
                 )
             ]
         )
+
+    quiet_label = "ON" if snapshot.quiet_hours_enabled else "OFF"
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=f"Тихие часы: {quiet_label} {_format_quiet_hours_range(snapshot)}",
+                callback_data="dash:settings:quiet:toggle",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="23:00-08:00 UTC",
+                callback_data="dash:settings:quiet:23-8",
+            ),
+            InlineKeyboardButton(
+                text="00:00-07:00 UTC",
+                callback_data="dash:settings:quiet:0-7",
+            ),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="Отключить тихие часы",
+                callback_data="dash:settings:quiet:off",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1251,6 +1300,43 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
                     mark_configured=True,
                 )
                 result_message = "Тип уведомления включен"
+            elif action == "quiet":
+                current = await load_notification_settings(session, user_id=user.id)
+                if current is None:
+                    await callback.answer("Не удалось загрузить настройки", show_alert=True)
+                    return
+
+                enabled = current.quiet_hours_enabled
+                start_hour = current.quiet_hours_start_hour
+                end_hour = current.quiet_hours_end_hour
+
+                if raw_value == "toggle":
+                    enabled = not enabled
+                elif raw_value == "off":
+                    enabled = False
+                elif raw_value == "23-8":
+                    enabled = True
+                    start_hour = 23
+                    end_hour = 8
+                elif raw_value == "0-7":
+                    enabled = True
+                    start_hour = 0
+                    end_hour = 7
+                else:
+                    await callback.answer("Неизвестный пресет тихих часов", show_alert=True)
+                    return
+
+                snapshot = await set_quiet_hours_settings(
+                    session,
+                    user_id=user.id,
+                    enabled=enabled,
+                    start_hour=start_hour,
+                    end_hour=end_hour,
+                    mark_configured=True,
+                )
+                result_message = (
+                    "Тихие часы включены" if enabled else "Тихие часы отключены"
+                )
             else:
                 await callback.answer("Некорректное действие", show_alert=True)
                 return

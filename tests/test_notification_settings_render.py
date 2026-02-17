@@ -28,6 +28,9 @@ def test_render_settings_text_includes_state_markers() -> None:
         auction_mod_actions_enabled=True,
         points_enabled=False,
         support_enabled=True,
+        quiet_hours_enabled=False,
+        quiet_hours_start_hour=23,
+        quiet_hours_end_hour=8,
         configured=True,
     )
 
@@ -36,6 +39,7 @@ def test_render_settings_text_includes_state_markers() -> None:
     assert "Настройки уведомлений" in text
     assert "Глобально: <b>отключены</b>" in text
     assert "Пресет: <b>Только важные</b>" in text
+    assert "Тихие часы:" in text
     assert "Статус первичной настройки: <b>настроены</b>" in text
 
 
@@ -49,6 +53,9 @@ def test_render_settings_text_includes_active_snoozes() -> None:
         auction_mod_actions_enabled=True,
         points_enabled=True,
         support_enabled=True,
+        quiet_hours_enabled=False,
+        quiet_hours_start_hour=23,
+        quiet_hours_end_hour=8,
         configured=True,
     )
     snoozes = [
@@ -75,6 +82,9 @@ def test_render_settings_text_includes_disabled_types_block() -> None:
         auction_mod_actions_enabled=True,
         points_enabled=True,
         support_enabled=False,
+        quiet_hours_enabled=True,
+        quiet_hours_start_hour=23,
+        quiet_hours_end_hour=8,
         configured=True,
     )
 

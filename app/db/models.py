@@ -60,6 +60,14 @@ class UserNotificationPreference(Base, TimestampMixin):
             "preset IN ('recommended', 'important', 'all', 'custom')",
             name="ck_user_notification_preferences_preset",
         ),
+        CheckConstraint(
+            "quiet_hours_start_hour >= 0 AND quiet_hours_start_hour <= 23",
+            name="ck_user_notification_preferences_quiet_start_hour",
+        ),
+        CheckConstraint(
+            "quiet_hours_end_hour >= 0 AND quiet_hours_end_hour <= 23",
+            name="ck_user_notification_preferences_quiet_end_hour",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -75,6 +83,21 @@ class UserNotificationPreference(Base, TimestampMixin):
     )
     points_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     support_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    quiet_hours_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
+    quiet_hours_start_hour: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        server_default=text("23"),
+    )
+    quiet_hours_end_hour: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        server_default=text("8"),
+    )
     configured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
