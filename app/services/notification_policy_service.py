@@ -27,6 +27,13 @@ class NotificationEventType(StrEnum):
     SUPPORT = "support"
 
 
+class NotificationPriorityTier(StrEnum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+
 @dataclass(slots=True)
 class NotificationSettingsSnapshot:
     master_enabled: bool
@@ -44,6 +51,14 @@ class NotificationSettingsSnapshot:
 class AuctionNotificationSnoozeView:
     auction_id: uuid.UUID
     expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationDeliveryPolicy:
+    priority_tier: NotificationPriorityTier
+    debounce_enabled: bool
+    digest_enabled: bool
+    defer_during_quiet_hours: bool
 
 
 _PRESET_VALUES: dict[NotificationPreset, dict[str, bool]] = {
@@ -105,6 +120,42 @@ _AUCTION_EVENT_TYPES: set[NotificationEventType] = {
     NotificationEventType.AUCTION_MOD_ACTION,
 }
 
+_EVENT_PRIORITY_TIERS: dict[NotificationEventType, NotificationPriorityTier] = {
+    NotificationEventType.AUCTION_OUTBID: NotificationPriorityTier.NORMAL,
+    NotificationEventType.AUCTION_FINISH: NotificationPriorityTier.HIGH,
+    NotificationEventType.AUCTION_WIN: NotificationPriorityTier.CRITICAL,
+    NotificationEventType.AUCTION_MOD_ACTION: NotificationPriorityTier.HIGH,
+    NotificationEventType.POINTS: NotificationPriorityTier.LOW,
+    NotificationEventType.SUPPORT: NotificationPriorityTier.HIGH,
+}
+
+_PRIORITY_TIER_POLICIES: dict[NotificationPriorityTier, NotificationDeliveryPolicy] = {
+    NotificationPriorityTier.CRITICAL: NotificationDeliveryPolicy(
+        priority_tier=NotificationPriorityTier.CRITICAL,
+        debounce_enabled=False,
+        digest_enabled=False,
+        defer_during_quiet_hours=False,
+    ),
+    NotificationPriorityTier.HIGH: NotificationDeliveryPolicy(
+        priority_tier=NotificationPriorityTier.HIGH,
+        debounce_enabled=False,
+        digest_enabled=False,
+        defer_during_quiet_hours=False,
+    ),
+    NotificationPriorityTier.NORMAL: NotificationDeliveryPolicy(
+        priority_tier=NotificationPriorityTier.NORMAL,
+        debounce_enabled=True,
+        digest_enabled=True,
+        defer_during_quiet_hours=True,
+    ),
+    NotificationPriorityTier.LOW: NotificationDeliveryPolicy(
+        priority_tier=NotificationPriorityTier.LOW,
+        debounce_enabled=True,
+        digest_enabled=True,
+        defer_during_quiet_hours=True,
+    ),
+}
+
 
 def _normalize_preset(raw: str | None) -> NotificationPreset:
     if raw is None:
@@ -131,6 +182,27 @@ def notification_event_from_token(token: str) -> NotificationEventType | None:
         return NotificationEventType(token)
     except ValueError:
         return None
+
+
+def notification_priority_tier(event_type: NotificationEventType) -> NotificationPriorityTier:
+    return _EVENT_PRIORITY_TIERS[event_type]
+
+
+def notification_delivery_policy(event_type: NotificationEventType) -> NotificationDeliveryPolicy:
+    tier = notification_priority_tier(event_type)
+    return _PRIORITY_TIER_POLICIES[tier]
+
+
+def should_apply_notification_debounce(event_type: NotificationEventType) -> bool:
+    return notification_delivery_policy(event_type).debounce_enabled
+
+
+def should_include_notification_in_digest(event_type: NotificationEventType) -> bool:
+    return notification_delivery_policy(event_type).digest_enabled
+
+
+def should_defer_notification_during_quiet_hours(event_type: NotificationEventType) -> bool:
+    return notification_delivery_policy(event_type).defer_during_quiet_hours
 
 
 def default_auction_snooze_minutes() -> int:

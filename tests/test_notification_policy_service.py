@@ -7,13 +7,19 @@ from app.db.models import User, UserNotificationPreference
 from app.services.notification_policy_service import (
     NotificationEventType,
     NotificationPreset,
+    NotificationPriorityTier,
     _snapshot_from_row,
+    notification_delivery_policy,
+    notification_priority_tier,
     parse_notification_mute_callback_data,
     parse_notification_snooze_callback_data,
     notification_snooze_callback_data,
     notification_event_action_key,
     notification_event_from_action_key,
     notification_event_from_token,
+    should_apply_notification_debounce,
+    should_defer_notification_during_quiet_hours,
+    should_include_notification_in_digest,
 )
 
 
@@ -103,3 +109,37 @@ def test_parse_notification_mute_callback_data_supports_legacy_prefixes() -> Non
         == NotificationEventType.AUCTION_MOD_ACTION
     )
     assert parse_notification_mute_callback_data("notif:mute:unknown") is None
+
+
+def test_notification_event_priority_mapping() -> None:
+    assert notification_priority_tier(NotificationEventType.AUCTION_WIN) == NotificationPriorityTier.CRITICAL
+    assert notification_priority_tier(NotificationEventType.AUCTION_FINISH) == NotificationPriorityTier.HIGH
+    assert notification_priority_tier(NotificationEventType.AUCTION_MOD_ACTION) == NotificationPriorityTier.HIGH
+    assert notification_priority_tier(NotificationEventType.AUCTION_OUTBID) == NotificationPriorityTier.NORMAL
+    assert notification_priority_tier(NotificationEventType.POINTS) == NotificationPriorityTier.LOW
+
+
+def test_notification_delivery_policy_is_tier_aware() -> None:
+    critical_policy = notification_delivery_policy(NotificationEventType.AUCTION_WIN)
+    normal_policy = notification_delivery_policy(NotificationEventType.AUCTION_OUTBID)
+
+    assert critical_policy.priority_tier == NotificationPriorityTier.CRITICAL
+    assert critical_policy.debounce_enabled is False
+    assert critical_policy.digest_enabled is False
+    assert critical_policy.defer_during_quiet_hours is False
+
+    assert normal_policy.priority_tier == NotificationPriorityTier.NORMAL
+    assert normal_policy.debounce_enabled is True
+    assert normal_policy.digest_enabled is True
+    assert normal_policy.defer_during_quiet_hours is True
+
+
+def test_notification_delivery_policy_helpers_follow_tier_rules() -> None:
+    assert should_apply_notification_debounce(NotificationEventType.AUCTION_OUTBID) is True
+    assert should_apply_notification_debounce(NotificationEventType.AUCTION_WIN) is False
+
+    assert should_include_notification_in_digest(NotificationEventType.POINTS) is True
+    assert should_include_notification_in_digest(NotificationEventType.SUPPORT) is False
+
+    assert should_defer_notification_during_quiet_hours(NotificationEventType.POINTS) is True
+    assert should_defer_notification_during_quiet_hours(NotificationEventType.AUCTION_MOD_ACTION) is False
