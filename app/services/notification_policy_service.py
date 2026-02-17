@@ -92,6 +92,10 @@ _ACTION_KEY_TO_EVENT: dict[str, NotificationEventType] = {
 def _normalize_preset(raw: str | None) -> NotificationPreset:
     if raw is None:
         return NotificationPreset.RECOMMENDED
+    try:
+        return NotificationPreset(raw)
+    except ValueError:
+        return NotificationPreset.RECOMMENDED
 
 
 def notification_event_action_key(event_type: NotificationEventType) -> str:
@@ -100,10 +104,6 @@ def notification_event_action_key(event_type: NotificationEventType) -> str:
 
 def notification_event_from_action_key(action_key: str) -> NotificationEventType | None:
     return _ACTION_KEY_TO_EVENT.get(action_key)
-    try:
-        return NotificationPreset(raw)
-    except ValueError:
-        return NotificationPreset.RECOMMENDED
 
 
 def _snapshot_from_row(*, user: User, row: UserNotificationPreference | None) -> NotificationSettingsSnapshot:
