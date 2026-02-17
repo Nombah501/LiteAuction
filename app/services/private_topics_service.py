@@ -583,14 +583,14 @@ def _notification_reply_markup(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"Пауза по лоту на {snooze_minutes // 60}ч",
+                    text=f"Пауза по лоту на {snooze_minutes // 60} ч",
                     callback_data=snooze_callback,
                 )
             ]
         )
 
     mute_callback = f"notif:mute:{notification_event_action_key(notification_event)}"
-    rows.append([InlineKeyboardButton(text="Отключить этот тип", callback_data=mute_callback)])
+    rows.append([InlineKeyboardButton(text="Отключить тип уведомлений", callback_data=mute_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

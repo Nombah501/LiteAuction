@@ -33,6 +33,7 @@ from app.services.message_effects_service import (
 )
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.notification_policy_service import NotificationEventType
+from app.services.notification_copy_service import auction_finished_text, auction_winner_text
 
 logger = logging.getLogger(__name__)
 
@@ -827,7 +828,7 @@ async def finalize_expired_auctions(bot: Bot) -> int:
             bot,
             tg_user_id=result.seller_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
-            text=f"Аукцион #{str(result.auction_id)[:8]} завершен.",
+            text=auction_finished_text(result.auction_id),
             reply_markup=reply_markup,
             message_effect_id=resolve_auction_message_effect_id(
                 AuctionMessageEffectEvent.ENDED_SELLER
@@ -841,7 +842,7 @@ async def finalize_expired_auctions(bot: Bot) -> int:
                 bot,
                 tg_user_id=result.winner_tg_user_id,
                 purpose=PrivateTopicPurpose.AUCTIONS,
-                text=f"Вы победили в аукционе #{str(result.auction_id)[:8]}.",
+                text=auction_winner_text(result.auction_id),
                 reply_markup=reply_markup,
                 message_effect_id=resolve_auction_message_effect_id(
                     AuctionMessageEffectEvent.ENDED_WINNER
