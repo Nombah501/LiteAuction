@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import logging
 import re
 from enum import StrEnum
@@ -10,6 +11,15 @@ from app.services.notification_policy_service import NotificationEventType
 
 logger = logging.getLogger(__name__)
 _METRIC_SCAN_MATCH = "notif:metrics:*"
+_METRIC_HOURLY_RETENTION_HOURS = 10 * 24
+_METRIC_HOURLY_RETENTION_SECONDS = _METRIC_HOURLY_RETENTION_HOURS * 3600
+
+
+@dataclass(slots=True, frozen=True)
+class NotificationMetricTotals:
+    sent_total: int
+    suppressed_total: int
+    aggregated_total: int
 
 
 @dataclass(slots=True, frozen=True)
@@ -21,9 +31,9 @@ class NotificationMetricBucket:
 
 @dataclass(slots=True, frozen=True)
 class NotificationMetricsSnapshot:
-    sent_total: int
-    suppressed_total: int
-    aggregated_total: int
+    all_time: NotificationMetricTotals
+    last_24h: NotificationMetricTotals
+    last_7d: NotificationMetricTotals
     top_suppressed: tuple[NotificationMetricBucket, ...]
 
 
@@ -45,6 +55,20 @@ def _metric_key(*, kind: NotificationMetricKind, event_type: NotificationEventTy
     return f"notif:metrics:{kind.value}:{event_type.value}:{reason}"
 
 
+def _hour_bucket(now_utc: datetime) -> str:
+    return now_utc.strftime("%Y%m%d%H")
+
+
+def _hourly_metric_key(
+    *,
+    hour_bucket: str,
+    kind: NotificationMetricKind,
+    event_type: NotificationEventType,
+    reason: str,
+) -> str:
+    return f"notif:metrics:h:{hour_bucket}:{kind.value}:{event_type.value}:{reason}"
+
+
 def _parse_metric_key(key: str) -> tuple[NotificationMetricKind, NotificationEventType, str] | None:
     parts = key.split(":", 4)
     if len(parts) != 5:
@@ -60,6 +84,51 @@ def _parse_metric_key(key: str) -> tuple[NotificationMetricKind, NotificationEve
 
     reason = _normalize_reason(parts[4])
     return kind, event_type, reason
+
+
+def _parse_hourly_metric_key(key: str) -> tuple[str, NotificationMetricKind, NotificationEventType, str] | None:
+    parts = key.split(":", 6)
+    if len(parts) != 7:
+        return None
+    if parts[0] != "notif" or parts[1] != "metrics" or parts[2] != "h":
+        return None
+
+    hour_bucket = parts[3]
+    if len(hour_bucket) != 10 or not hour_bucket.isdigit():
+        return None
+
+    try:
+        kind = NotificationMetricKind(parts[4])
+        event_type = NotificationEventType(parts[5])
+    except ValueError:
+        return None
+
+    reason = _normalize_reason(parts[6])
+    return hour_bucket, kind, event_type, reason
+
+
+def _totals_from_map(totals: dict[NotificationMetricKind, int]) -> NotificationMetricTotals:
+    return NotificationMetricTotals(
+        sent_total=totals[NotificationMetricKind.SENT],
+        suppressed_total=totals[NotificationMetricKind.SUPPRESSED],
+        aggregated_total=totals[NotificationMetricKind.AGGREGATED],
+    )
+
+
+def _empty_totals_map() -> dict[NotificationMetricKind, int]:
+    return {
+        NotificationMetricKind.SENT: 0,
+        NotificationMetricKind.SUPPRESSED: 0,
+        NotificationMetricKind.AGGREGATED: 0,
+    }
+
+
+def _recent_hour_buckets(*, now_utc: datetime, hours: int) -> tuple[str, ...]:
+    normalized_hours = max(int(hours), 1)
+    return tuple(
+        _hour_bucket(now_utc - timedelta(hours=offset))
+        for offset in range(normalized_hours)
+    )
 
 
 async def _record_metric(
@@ -94,6 +163,27 @@ async def _record_metric(
         safe_count,
         total,
     )
+
+    hour_bucket = _hour_bucket(datetime.now(timezone.utc))
+    hourly_key = _hourly_metric_key(
+        hour_bucket=hour_bucket,
+        kind=kind,
+        event_type=event_type,
+        reason=normalized_reason,
+    )
+    try:
+        await redis_client.incrby(hourly_key, safe_count)
+        await redis_client.expire(hourly_key, _METRIC_HOURLY_RETENTION_SECONDS)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "notification_hourly_metric_failed kind=%s event=%s reason=%s count=%s error=%s",
+            kind.value,
+            event_type.value,
+            normalized_reason,
+            safe_count,
+            exc,
+        )
+
     return int(total)
 
 
@@ -135,22 +225,22 @@ async def record_notification_aggregated(
     )
 
 
-async def load_notification_metrics_snapshot(*, top_limit: int = 5) -> NotificationMetricsSnapshot:
-    cursor: int | str = 0
-    totals: dict[NotificationMetricKind, int] = {
-        NotificationMetricKind.SENT: 0,
-        NotificationMetricKind.SUPPRESSED: 0,
-        NotificationMetricKind.AGGREGATED: 0,
-    }
+async def _load_all_time_totals_and_top(
+    *,
+    top_limit: int,
+) -> tuple[dict[NotificationMetricKind, int], tuple[NotificationMetricBucket, ...]]:
+    cursor = 0
+    totals = _empty_totals_map()
     suppressed_groups: dict[tuple[NotificationEventType, str], int] = {}
 
     try:
         while True:
-            cursor, keys = await redis_client.scan(
+            next_cursor, keys = await redis_client.scan(
                 cursor=cursor,
                 match=_METRIC_SCAN_MATCH,
                 count=200,
             )
+            cursor = int(next_cursor)
             if keys:
                 raw_values = await redis_client.mget(keys)
                 for key, raw_value in zip(keys, raw_values, strict=False):
@@ -169,7 +259,7 @@ async def load_notification_metrics_snapshot(*, top_limit: int = 5) -> Notificat
                         group_key = (event_type, reason)
                         suppressed_groups[group_key] = suppressed_groups.get(group_key, 0) + value
 
-            if int(cursor) == 0:
+            if cursor == 0:
                 break
     except Exception as exc:  # noqa: BLE001
         logger.warning("notification_metrics_snapshot_failed error=%s", exc)
@@ -183,9 +273,65 @@ async def load_notification_metrics_snapshot(*, top_limit: int = 5) -> Notificat
         )[:normalized_top_limit]
     )
 
+    return totals, top_suppressed
+
+
+async def _load_recent_window_totals(*, now_utc: datetime, hours: int) -> dict[NotificationMetricKind, int]:
+    buckets = set(_recent_hour_buckets(now_utc=now_utc, hours=hours))
+    totals = _empty_totals_map()
+
+    try:
+        for hour_bucket in buckets:
+            cursor = 0
+            match_pattern = f"notif:metrics:h:{hour_bucket}:*"
+            while True:
+                next_cursor, keys = await redis_client.scan(
+                    cursor=int(cursor),
+                    match=match_pattern,
+                    count=200,
+                )
+                cursor = int(next_cursor)
+                if keys:
+                    raw_values = await redis_client.mget(keys)
+                    for key, raw_value in zip(keys, raw_values, strict=False):
+                        parsed = _parse_hourly_metric_key(str(key))
+                        if parsed is None or raw_value is None:
+                            continue
+                        parsed_hour_bucket, kind, _event_type, _reason = parsed
+                        if parsed_hour_bucket not in buckets:
+                            continue
+
+                        try:
+                            value = max(int(raw_value), 0)
+                        except (TypeError, ValueError):
+                            continue
+
+                        totals[kind] += value
+
+                if cursor == 0:
+                    break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("notification_metrics_window_snapshot_failed hours=%s error=%s", hours, exc)
+
+    return totals
+
+
+async def load_notification_metrics_snapshot(
+    *,
+    top_limit: int = 5,
+    now_utc: datetime | None = None,
+) -> NotificationMetricsSnapshot:
+    effective_now_utc = now_utc or datetime.now(timezone.utc)
+    if effective_now_utc.tzinfo is None:
+        effective_now_utc = effective_now_utc.replace(tzinfo=timezone.utc)
+
+    all_time_totals_map, top_suppressed = await _load_all_time_totals_and_top(top_limit=top_limit)
+    last_24h_totals_map = await _load_recent_window_totals(now_utc=effective_now_utc, hours=24)
+    last_7d_totals_map = await _load_recent_window_totals(now_utc=effective_now_utc, hours=24 * 7)
+
     return NotificationMetricsSnapshot(
-        sent_total=totals[NotificationMetricKind.SENT],
-        suppressed_total=totals[NotificationMetricKind.SUPPRESSED],
-        aggregated_total=totals[NotificationMetricKind.AGGREGATED],
+        all_time=_totals_from_map(all_time_totals_map),
+        last_24h=_totals_from_map(last_24h_totals_map),
+        last_7d=_totals_from_map(last_7d_totals_map),
         top_suppressed=top_suppressed,
     )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+import fnmatch
 import logging
 
 import pytest
@@ -13,12 +15,17 @@ class _RedisIncrStub:
         self.total = total
         self.fail = fail
         self.calls: list[tuple[str, int]] = []
+        self.expire_calls: list[tuple[str, int]] = []
 
     async def incrby(self, key: str, count: int) -> int:
         self.calls.append((key, count))
         if self.fail:
             raise RuntimeError("boom")
         return self.total
+
+    async def expire(self, key: str, ttl_seconds: int) -> bool:
+        self.expire_calls.append((key, ttl_seconds))
+        return True
 
 
 class _RedisSnapshotStub:
@@ -34,7 +41,8 @@ class _RedisSnapshotStub:
             raise RuntimeError("scan boom")
         if int(cursor) != 0:
             return 0, []
-        return 0, list(self.entries.keys())
+        keys = [key for key in self.entries if fnmatch.fnmatch(key, match)]
+        return 0, keys
 
     async def mget(self, keys: list[str]) -> list[str | None]:
         self.mget_calls.append(tuple(keys))
@@ -52,8 +60,12 @@ async def test_record_notification_sent_increments_counter_with_normalized_reaso
     )
 
     assert total == 7
-    assert redis_stub.calls == [
-        ("notif:metrics:sent:auction_outbid:delivered_ok", 1),
+    assert redis_stub.calls[0] == ("notif:metrics:sent:auction_outbid:delivered_ok", 1)
+    assert redis_stub.calls[1][0].startswith("notif:metrics:h:")
+    assert redis_stub.calls[1][0].endswith(":sent:auction_outbid:delivered_ok")
+    assert redis_stub.calls[1][1] == 1
+    assert redis_stub.expire_calls == [
+        (redis_stub.calls[1][0], notification_metrics_service._METRIC_HOURLY_RETENTION_SECONDS),
     ]
 
 
@@ -69,9 +81,10 @@ async def test_record_notification_aggregated_uses_count(monkeypatch) -> None:
     )
 
     assert total == 9
-    assert redis_stub.calls == [
-        ("notif:metrics:aggregated:auction_outbid:debounce_gate", 3),
-    ]
+    assert redis_stub.calls[0] == ("notif:metrics:aggregated:auction_outbid:debounce_gate", 3)
+    assert redis_stub.calls[1][0].startswith("notif:metrics:h:")
+    assert redis_stub.calls[1][0].endswith(":aggregated:auction_outbid:debounce_gate")
+    assert redis_stub.calls[1][1] == 3
 
 
 @pytest.mark.asyncio
@@ -95,36 +108,75 @@ async def test_record_notification_metric_logs_warning_on_redis_failure(
 
 @pytest.mark.asyncio
 async def test_load_notification_metrics_snapshot_returns_totals_and_top_suppressed(monkeypatch) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+    h_minus_2 = (fixed_now - timedelta(hours=2)).strftime("%Y%m%d%H")
+    h_minus_25 = (fixed_now - timedelta(hours=25)).strftime("%Y%m%d%H")
+    h_minus_160 = (fixed_now - timedelta(hours=160)).strftime("%Y%m%d%H")
+    h_minus_190 = (fixed_now - timedelta(hours=190)).strftime("%Y%m%d%H")
+
     redis_stub = _RedisSnapshotStub(
         {
-            "notif:metrics:sent:auction_outbid:delivered": "4",
-            "notif:metrics:suppressed:auction_outbid:blocked_master": "8",
-            "notif:metrics:suppressed:support:forbidden": "2",
-            "notif:metrics:aggregated:auction_outbid:debounce_gate": "5",
-            "notif:metrics:suppressed:auction_outbid:blocked_event_toggle": "6",
+            "notif:metrics:sent:auction_outbid:delivered": "40",
+            "notif:metrics:suppressed:auction_outbid:blocked_master": "12",
+            "notif:metrics:suppressed:support:forbidden": "8",
+            "notif:metrics:aggregated:auction_outbid:debounce_gate": "20",
             "notif:metrics:suppressed:support:bad_value": "oops",
             "notif:metrics:unknown:support:bad": "9",
+            f"notif:metrics:h:{h_now}:sent:auction_outbid:delivered": "5",
+            f"notif:metrics:h:{h_minus_2}:suppressed:auction_outbid:blocked_master": "2",
+            f"notif:metrics:h:{h_minus_25}:aggregated:auction_outbid:debounce_gate": "4",
+            f"notif:metrics:h:{h_minus_160}:sent:support:delivered": "3",
+            f"notif:metrics:h:{h_minus_190}:suppressed:support:forbidden": "9",
         }
     )
     monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
 
-    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(top_limit=2)
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(
+        top_limit=2,
+        now_utc=fixed_now,
+    )
 
-    assert snapshot.sent_total == 4
-    assert snapshot.suppressed_total == 16
-    assert snapshot.aggregated_total == 5
+    assert snapshot.all_time.sent_total == 40
+    assert snapshot.all_time.suppressed_total == 20
+    assert snapshot.all_time.aggregated_total == 20
+    assert snapshot.last_24h.sent_total == 5
+    assert snapshot.last_24h.suppressed_total == 2
+    assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.last_7d.sent_total == 8
+    assert snapshot.last_7d.suppressed_total == 2
+    assert snapshot.last_7d.aggregated_total == 4
     assert snapshot.top_suppressed == (
         notification_metrics_service.NotificationMetricBucket(
             event_type=NotificationEventType.AUCTION_OUTBID,
             reason="blocked_master",
-            total=8,
+            total=12,
         ),
         notification_metrics_service.NotificationMetricBucket(
-            event_type=NotificationEventType.AUCTION_OUTBID,
-            reason="blocked_event_toggle",
-            total=6,
+            event_type=NotificationEventType.SUPPORT,
+            reason="forbidden",
+            total=8,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_returns_zeros_when_no_data(monkeypatch) -> None:
+    redis_stub = _RedisSnapshotStub({})
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot()
+
+    assert snapshot.all_time.sent_total == 0
+    assert snapshot.all_time.suppressed_total == 0
+    assert snapshot.all_time.aggregated_total == 0
+    assert snapshot.last_24h.sent_total == 0
+    assert snapshot.last_24h.suppressed_total == 0
+    assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.last_7d.sent_total == 0
+    assert snapshot.last_7d.suppressed_total == 0
+    assert snapshot.last_7d.aggregated_total == 0
+    assert snapshot.top_suppressed == ()
 
 
 @pytest.mark.asyncio
@@ -138,8 +190,14 @@ async def test_load_notification_metrics_snapshot_returns_empty_snapshot_on_redi
 
     snapshot = await notification_metrics_service.load_notification_metrics_snapshot()
 
-    assert snapshot.sent_total == 0
-    assert snapshot.suppressed_total == 0
-    assert snapshot.aggregated_total == 0
+    assert snapshot.all_time.sent_total == 0
+    assert snapshot.all_time.suppressed_total == 0
+    assert snapshot.all_time.aggregated_total == 0
+    assert snapshot.last_24h.sent_total == 0
+    assert snapshot.last_24h.suppressed_total == 0
+    assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.last_7d.sent_total == 0
+    assert snapshot.last_7d.suppressed_total == 0
+    assert snapshot.last_7d.aggregated_total == 0
     assert snapshot.top_suppressed == ()
     assert "notification_metrics_snapshot_failed" in caplog.text
