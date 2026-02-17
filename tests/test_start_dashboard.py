@@ -8,6 +8,7 @@ import pytest
 from aiogram.types import CallbackQuery
 
 from app.bot.handlers.start import (
+    _SETTINGS_TOGGLE_EVENTS,
     _extract_report_auction_id,
     _parse_my_auctions_item_payload,
     _parse_my_auctions_list_payload,
@@ -19,6 +20,7 @@ from app.bot.handlers.start import (
     callback_dashboard_settings,
 )
 from app.db.enums import AuctionStatus
+from app.services.notification_policy_service import NotificationEventType
 from app.services.seller_dashboard_service import SellerAuctionListItem, SellerBidLogItem
 
 
@@ -162,3 +164,14 @@ async def test_dashboard_balance_callback_returns_in_development_alert() -> None
     await callback_dashboard_balance(cast(CallbackQuery, callback))
 
     assert callback.answers == [("Раздел «Баланс» в разработке.", True)]
+
+
+def test_settings_toggle_mapping_contains_all_supported_events() -> None:
+    assert _SETTINGS_TOGGLE_EVENTS == {
+        "outbid": NotificationEventType.AUCTION_OUTBID,
+        "finish": NotificationEventType.AUCTION_FINISH,
+        "win": NotificationEventType.AUCTION_WIN,
+        "mod": NotificationEventType.AUCTION_MOD_ACTION,
+        "points": NotificationEventType.POINTS,
+        "support": NotificationEventType.SUPPORT,
+    }
