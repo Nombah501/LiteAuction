@@ -179,5 +179,5 @@ async def test_notify_outbid_sends_digest_message_when_suppression_threshold_rea
 
     assert len(sent_calls) == 1
     assert "Дайджест по лоту #12345678" in str(sent_calls[0]["text"])
-    assert "перебивали 3 раз" in str(sent_calls[0]["text"])
+    assert "перебивали 3 раза" in str(sent_calls[0]["text"])
     assert sent_calls[0]["reply_markup"] is not None

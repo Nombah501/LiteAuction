@@ -29,6 +29,7 @@ from app.services.notification_metrics_service import (
     record_notification_sent,
     record_notification_suppressed,
 )
+from app.services.notification_copy_service import quiet_hours_deferred_summary_text
 from app.services.notification_quiet_hours_service import (
     defer_notification_event,
     pop_deferred_notification_count,
@@ -655,9 +656,7 @@ async def send_user_topic_message(
             event_type=notification_event,
         )
         if deferred_count > 0:
-            text = (
-                f"Тихие часы завершены: пропущено {deferred_count} уведомлений этого типа.\n\n{text}"
-            )
+            text = f"{quiet_hours_deferred_summary_text(deferred_count=deferred_count)}\n\n{text}"
             await _record_aggregated(reason="quiet_hours_flushed", count=deferred_count)
 
     effective_reply_markup = _notification_reply_markup(
