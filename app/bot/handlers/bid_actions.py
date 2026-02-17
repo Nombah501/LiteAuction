@@ -47,7 +47,9 @@ from app.services.private_topics_service import PrivateTopicPurpose, send_user_t
 from app.services.notification_policy_service import (
     NotificationEventType,
     should_apply_notification_debounce,
+    should_include_notification_in_digest,
 )
+from app.services.notification_digest_service import register_outbid_notification_suppression
 from app.services.notification_metrics_service import (
     record_notification_aggregated,
     record_notification_suppressed,
@@ -109,6 +111,14 @@ def _soft_gate_decision(*, private_started: bool) -> tuple[bool, bool]:
     if mode == "strict":
         return True, False
     return False, True
+
+
+def _format_digest_window(window_seconds: int) -> str:
+    if window_seconds >= 3600:
+        return f"{window_seconds // 3600} ч"
+    if window_seconds >= 60:
+        return f"{window_seconds // 60} мин"
+    return f"{window_seconds} сек"
 
 
 def _should_emit_soft_gate_hint(last_sent_at: datetime | None) -> tuple[bool, datetime]:
@@ -300,6 +310,33 @@ async def _notify_outbid(
                 event_type=NotificationEventType.AUCTION_OUTBID,
                 reason="debounce_gate",
             )
+
+            if should_include_notification_in_digest(NotificationEventType.AUCTION_OUTBID):
+                digest = await register_outbid_notification_suppression(
+                    tg_user_id=outbid_user_tg_id,
+                    auction_id=auction_id,
+                )
+                if digest.should_emit_digest:
+                    resolved_post_url = post_url or await resolve_auction_post_url(
+                        bot,
+                        auction_id=auction_id,
+                    )
+                    reply_markup = (
+                        open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
+                    )
+                    window_label = _format_digest_window(digest.window_seconds)
+                    await send_user_topic_message(
+                        bot,
+                        tg_user_id=outbid_user_tg_id,
+                        purpose=PrivateTopicPurpose.AUCTIONS,
+                        text=(
+                            f"Дайджест по лоту #{str(auction_id)[:8]}: "
+                            f"за {window_label} ставку перебивали {digest.suppressed_count} раз."
+                        ),
+                        reply_markup=reply_markup,
+                        notification_event=NotificationEventType.AUCTION_OUTBID,
+                        auction_id=auction_id,
+                    )
             return
 
     resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)
