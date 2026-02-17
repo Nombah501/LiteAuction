@@ -79,6 +79,57 @@ def _required_purposes(*, include_moderation: bool) -> tuple[PrivateTopicPurpose
     )
 
 
+def _event_value(event: NotificationEventType | None) -> str:
+    if event is None:
+        return "none"
+    return event.value
+
+
+def _log_notification_decision(
+    *,
+    tg_user_id: int,
+    purpose: PrivateTopicPurpose,
+    event_type: NotificationEventType,
+    auction_id: uuid.UUID | None,
+    allowed: bool,
+    reason: str,
+) -> None:
+    logger.info(
+        (
+            "notification_delivery_decision tg_user_id=%s purpose=%s event=%s "
+            "auction_id=%s allowed=%s reason=%s"
+        ),
+        tg_user_id,
+        purpose,
+        event_type.value,
+        auction_id,
+        allowed,
+        reason,
+    )
+
+
+def _log_notification_failure(
+    *,
+    tg_user_id: int,
+    purpose: PrivateTopicPurpose,
+    event_type: NotificationEventType | None,
+    reason: str,
+    error: BaseException,
+) -> None:
+    logger.warning(
+        (
+            "notification_delivery_failed tg_user_id=%s purpose=%s event=%s "
+            "reason=%s failure_class=%s error=%s"
+        ),
+        tg_user_id,
+        purpose,
+        _event_value(event_type),
+        reason,
+        error.__class__.__name__,
+        error,
+    )
+
+
 def topic_title(purpose: PrivateTopicPurpose) -> str:
     if purpose == PrivateTopicPurpose.AUCTIONS:
         return settings.private_topic_title_auctions.strip() or "Аукционы"
@@ -581,6 +632,14 @@ async def send_user_topic_message(
                 event_type=notification_event,
                 auction_id=auction_id,
             )
+        _log_notification_decision(
+            tg_user_id=tg_user_id,
+            purpose=purpose,
+            event_type=notification_event,
+            auction_id=auction_id,
+            allowed=decision.allowed,
+            reason=decision.reason,
+        )
         if not decision.allowed:
             await _record_suppressed(reason=decision.reason)
             if decision.reason == "quiet_hours_deferred":
@@ -674,39 +733,43 @@ async def send_user_topic_message(
             last_bad_request = exc
             continue
         except TelegramForbiddenError as exc:
-            logger.warning(
-                "Failed to deliver user message (tg_user_id=%s, purpose=%s): %s",
-                tg_user_id,
-                purpose,
-                exc,
+            _log_notification_failure(
+                tg_user_id=tg_user_id,
+                purpose=purpose,
+                event_type=notification_event,
+                reason="forbidden",
+                error=exc,
             )
             await _record_suppressed(reason="forbidden")
             return False
         except TelegramAPIError as exc:
-            logger.warning(
-                "Telegram API error while delivering user message (tg_user_id=%s, purpose=%s): %s",
-                tg_user_id,
-                purpose,
-                exc,
+            _log_notification_failure(
+                tg_user_id=tg_user_id,
+                purpose=purpose,
+                event_type=notification_event,
+                reason="telegram_api_error",
+                error=exc,
             )
             await _record_suppressed(reason="telegram_api_error")
             return False
         except Exception as exc:
-            logger.warning(
-                "Unexpected error while delivering user message (tg_user_id=%s, purpose=%s): %s",
-                tg_user_id,
-                purpose,
-                exc,
+            _log_notification_failure(
+                tg_user_id=tg_user_id,
+                purpose=purpose,
+                event_type=notification_event,
+                reason="unexpected_error",
+                error=exc,
             )
             await _record_suppressed(reason="unexpected_error")
             return False
 
     if last_bad_request is not None:
-        logger.warning(
-            "Bad request while delivering user message (tg_user_id=%s, purpose=%s): %s",
-            tg_user_id,
-            purpose,
-            last_bad_request,
+        _log_notification_failure(
+            tg_user_id=tg_user_id,
+            purpose=purpose,
+            event_type=notification_event,
+            reason="bad_request",
+            error=last_bad_request,
         )
         await _record_suppressed(reason="bad_request")
     return False
