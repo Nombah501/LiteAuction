@@ -41,9 +41,10 @@ from app.services.notification_policy_service import (
     clear_auction_notification_snooze,
     list_active_auction_notification_snoozes,
     load_notification_settings,
+    notification_event_from_token,
     parse_notification_snooze_callback_data,
+    parse_notification_mute_callback_data,
     notification_event_action_key,
-    notification_event_from_action_key,
     set_auction_notification_snooze,
     set_notification_event_enabled,
     set_master_notifications_enabled,
@@ -1238,7 +1239,7 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
                 snapshot = await load_notification_settings(session, user_id=user.id)
                 result_message = "Пауза снята" if removed else "Пауза уже не активна"
             elif action == "unmute":
-                event_type = notification_event_from_action_key(raw_value)
+                event_type = notification_event_from_token(raw_value)
                 if event_type is None:
                     await callback.answer("Неизвестный тип уведомления", show_alert=True)
                     return
@@ -1269,7 +1270,10 @@ async def callback_notification_snooze_auction(callback: CallbackQuery) -> None:
 
     parsed = parse_notification_snooze_callback_data(callback.data)
     if parsed is None:
-        await callback.answer("Некорректное действие", show_alert=True)
+        await callback.answer(
+            "Кнопка устарела. Откройте /settings и настройте уведомления снова.",
+            show_alert=True,
+        )
         return
     auction_id, duration_minutes = parsed
 
@@ -1298,14 +1302,12 @@ async def callback_notification_mute_type(callback: CallbackQuery) -> None:
     if callback.from_user is None or callback.data is None:
         return
 
-    parts = callback.data.split(":")
-    if len(parts) != 3:
-        await callback.answer("Некорректное действие", show_alert=True)
-        return
-
-    event_type = notification_event_from_action_key(parts[2])
+    event_type = parse_notification_mute_callback_data(callback.data)
     if event_type is None:
-        await callback.answer("Неизвестный тип уведомления", show_alert=True)
+        await callback.answer(
+            "Кнопка устарела. Тип уведомления можно изменить в /settings.",
+            show_alert=True,
+        )
         return
 
     async with SessionFactory() as session:

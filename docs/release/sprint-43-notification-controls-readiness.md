@@ -11,7 +11,7 @@ Ship actionable direct-notification controls that let users mute noisy categorie
 - Per-auction snooze storage with automatic expiry (`user_auction_notification_snoozes`)
 - Settings panel visibility for active snoozes and one-tap remove actions
 - Settings polish: quick re-enable buttons for disabled notification types
-- Backward-safe callback parsing for stale/invalid snooze payloads
+- Backward-safe callback parsing for stale/invalid mute and snooze payloads
 
 ## Validation Checklist
 
@@ -34,6 +34,7 @@ Notes:
 - [ ] Tap `Снять паузу #...` and verify next auction event for the same lot is delivered
 - [ ] Disable a category from a notification, then verify `/settings` shows `Включить: ...` quick action
 - [ ] Tap `Включить: ...` and verify category resumes delivery
+- [ ] Tap an outdated notification action payload and verify user sees a clear alert without traceback/noise in logs
 
 ## Rollout Plan
 

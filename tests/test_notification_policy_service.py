@@ -8,10 +8,12 @@ from app.services.notification_policy_service import (
     NotificationEventType,
     NotificationPreset,
     _snapshot_from_row,
+    parse_notification_mute_callback_data,
     parse_notification_snooze_callback_data,
     notification_snooze_callback_data,
     notification_event_action_key,
     notification_event_from_action_key,
+    notification_event_from_token,
 )
 
 
@@ -57,6 +59,12 @@ def test_notification_event_action_key_roundtrip() -> None:
     assert notification_event_from_action_key("unknown") is None
 
 
+def test_notification_event_from_token_supports_action_key_and_raw_value() -> None:
+    assert notification_event_from_token("outbid") == NotificationEventType.AUCTION_OUTBID
+    assert notification_event_from_token("auction_outbid") == NotificationEventType.AUCTION_OUTBID
+    assert notification_event_from_token("unknown") is None
+
+
 def test_notification_snooze_callback_roundtrip() -> None:
     auction_id = UUID("12345678-1234-5678-1234-567812345678")
     callback_data = notification_snooze_callback_data(auction_id=auction_id, duration_minutes=90)
@@ -70,6 +78,13 @@ def test_notification_snooze_callback_parser_rejects_invalid_payloads() -> None:
     assert parse_notification_snooze_callback_data("notif:snooze:12345678-1234-5678-1234-567812345678:-1") is None
 
 
+def test_notification_snooze_callback_parser_accepts_legacy_without_duration() -> None:
+    parsed = parse_notification_snooze_callback_data(
+        "notif:snooze:12345678-1234-5678-1234-567812345678"
+    )
+    assert parsed == (UUID("12345678-1234-5678-1234-567812345678"), 60)
+
+
 def test_notification_snooze_callback_clamps_duration_bounds() -> None:
     auction_id = UUID("12345678-1234-5678-1234-567812345678")
 
@@ -78,3 +93,13 @@ def test_notification_snooze_callback_clamps_duration_bounds() -> None:
 
     assert short_callback.endswith(":1")
     assert long_callback.endswith(":1440")
+
+
+def test_parse_notification_mute_callback_data_supports_legacy_prefixes() -> None:
+    assert parse_notification_mute_callback_data("notif:mute:outbid") == NotificationEventType.AUCTION_OUTBID
+    assert parse_notification_mute_callback_data("notif:disable:win") == NotificationEventType.AUCTION_WIN
+    assert (
+        parse_notification_mute_callback_data("notif:off:auction_mod_action")
+        == NotificationEventType.AUCTION_MOD_ACTION
+    )
+    assert parse_notification_mute_callback_data("notif:mute:unknown") is None
