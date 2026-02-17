@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 import uuid
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,7 @@ class NotificationSettingsSnapshot:
     quiet_hours_enabled: bool
     quiet_hours_start_hour: int
     quiet_hours_end_hour: int
+    quiet_hours_timezone: str
     configured: bool
 
 
@@ -123,6 +125,7 @@ _AUCTION_SNOOZE_MINUTES_DEFAULT = 60
 _AUCTION_SNOOZE_MINUTES_MAX = 24 * 60
 _QUIET_HOURS_START_DEFAULT = 23
 _QUIET_HOURS_END_DEFAULT = 8
+_QUIET_HOURS_TIMEZONE_DEFAULT = "UTC"
 
 _AUCTION_EVENT_TYPES: set[NotificationEventType] = {
     NotificationEventType.AUCTION_OUTBID,
@@ -189,13 +192,42 @@ def _normalize_quiet_hour(raw: int | None, *, default: int) -> int:
     return default
 
 
-def is_within_quiet_hours(*, now_utc: datetime, start_hour: int, end_hour: int) -> bool:
-    hour = now_utc.hour
+def _normalize_quiet_hours_timezone(raw: str | None, *, default: str) -> str:
+    if raw is None:
+        return default
+
+    timezone_name = str(raw).strip()
+    if not timezone_name:
+        return default
+
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return default
+    return timezone_name
+
+
+def is_within_quiet_hours(
+    *,
+    now_utc: datetime,
+    start_hour: int,
+    end_hour: int,
+    timezone_name: str = _QUIET_HOURS_TIMEZONE_DEFAULT,
+) -> bool:
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+
+    normalized_timezone = _normalize_quiet_hours_timezone(
+        timezone_name,
+        default=_QUIET_HOURS_TIMEZONE_DEFAULT,
+    )
+    local_hour = now_utc.astimezone(ZoneInfo(normalized_timezone)).hour
+
     if start_hour == end_hour:
         return False
     if start_hour < end_hour:
-        return start_hour <= hour < end_hour
-    return hour >= start_hour or hour < end_hour
+        return start_hour <= local_hour < end_hour
+    return local_hour >= start_hour or local_hour < end_hour
 
 
 def notification_event_action_key(event_type: NotificationEventType) -> str:
@@ -301,6 +333,10 @@ def _snapshot_from_row(*, user: User, row: UserNotificationPreference | None) ->
         getattr(row, "quiet_hours_end_hour", None),
         default=_QUIET_HOURS_END_DEFAULT,
     )
+    quiet_hours_timezone = _normalize_quiet_hours_timezone(
+        getattr(row, "quiet_hours_timezone", None),
+        default=_QUIET_HOURS_TIMEZONE_DEFAULT,
+    )
 
     return NotificationSettingsSnapshot(
         master_enabled=bool(user.is_notifications_enabled),
@@ -314,6 +350,7 @@ def _snapshot_from_row(*, user: User, row: UserNotificationPreference | None) ->
         quiet_hours_enabled=quiet_hours_enabled,
         quiet_hours_start_hour=quiet_hours_start_hour,
         quiet_hours_end_hour=quiet_hours_end_hour,
+        quiet_hours_timezone=quiet_hours_timezone,
         configured=row is not None and row.configured_at is not None,
     )
 
@@ -342,6 +379,7 @@ async def get_or_create_notification_preferences(
         quiet_hours_enabled=False,
         quiet_hours_start_hour=_QUIET_HOURS_START_DEFAULT,
         quiet_hours_end_hour=_QUIET_HOURS_END_DEFAULT,
+        quiet_hours_timezone=_QUIET_HOURS_TIMEZONE_DEFAULT,
         configured_at=None,
         updated_at=now_utc,
     )
@@ -507,6 +545,32 @@ async def set_quiet_hours_settings(
     row.quiet_hours_end_hour = _normalize_quiet_hour(
         end_hour,
         default=_QUIET_HOURS_END_DEFAULT,
+    )
+
+    await session.flush()
+    return _snapshot_from_row(user=user, row=row)
+
+
+async def set_quiet_hours_timezone(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    timezone_name: str,
+    mark_configured: bool = True,
+) -> NotificationSettingsSnapshot | None:
+    user = await session.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        return None
+
+    row = await get_or_create_notification_preferences(session, user_id=user_id)
+    now_utc = datetime.now(timezone.utc)
+    row.updated_at = now_utc
+    if mark_configured and row.configured_at is None:
+        row.configured_at = now_utc
+
+    row.quiet_hours_timezone = _normalize_quiet_hours_timezone(
+        timezone_name,
+        default=_QUIET_HOURS_TIMEZONE_DEFAULT,
     )
 
     await session.flush()
@@ -684,6 +748,7 @@ async def notification_delivery_decision(
             now_utc=datetime.now(timezone.utc),
             start_hour=snapshot.quiet_hours_start_hour,
             end_hour=snapshot.quiet_hours_end_hour,
+            timezone_name=snapshot.quiet_hours_timezone,
         ):
             return NotificationDeliveryDecision(allowed=False, reason="quiet_hours_deferred")
 

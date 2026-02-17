@@ -35,6 +35,7 @@ def test_snapshot_defaults_to_recommended_when_row_missing() -> None:
     assert snapshot.quiet_hours_enabled is False
     assert snapshot.quiet_hours_start_hour == 23
     assert snapshot.quiet_hours_end_hour == 8
+    assert snapshot.quiet_hours_timezone == "UTC"
     assert snapshot.configured is False
 
 
@@ -52,6 +53,7 @@ def test_snapshot_uses_custom_values_for_custom_preset() -> None:
         quiet_hours_enabled=True,
         quiet_hours_start_hour=22,
         quiet_hours_end_hour=7,
+        quiet_hours_timezone="Europe/Moscow",
         configured_at=datetime.now(UTC),
     )
 
@@ -64,7 +66,30 @@ def test_snapshot_uses_custom_values_for_custom_preset() -> None:
     assert snapshot.quiet_hours_enabled is True
     assert snapshot.quiet_hours_start_hour == 22
     assert snapshot.quiet_hours_end_hour == 7
+    assert snapshot.quiet_hours_timezone == "Europe/Moscow"
     assert snapshot.configured is True
+
+
+def test_snapshot_defaults_to_utc_when_timezone_value_is_invalid() -> None:
+    user = User(tg_user_id=123, is_notifications_enabled=True)
+    row = UserNotificationPreference(
+        user_id=1,
+        preset=NotificationPreset.CUSTOM.value,
+        outbid_enabled=True,
+        auction_finish_enabled=True,
+        auction_win_enabled=True,
+        auction_mod_actions_enabled=True,
+        points_enabled=True,
+        support_enabled=True,
+        quiet_hours_enabled=True,
+        quiet_hours_start_hour=22,
+        quiet_hours_end_hour=7,
+        quiet_hours_timezone="Mars/Phobos",
+    )
+
+    snapshot = _snapshot_from_row(user=user, row=row)
+
+    assert snapshot.quiet_hours_timezone == "UTC"
 
 
 def test_notification_event_action_key_roundtrip() -> None:
@@ -180,4 +205,28 @@ def test_is_within_quiet_hours_for_cross_midnight_window() -> None:
         now_utc=datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
         start_hour=23,
         end_hour=8,
+    )
+
+
+def test_is_within_quiet_hours_respects_user_timezone() -> None:
+    assert is_within_quiet_hours(
+        now_utc=datetime(2026, 2, 18, 20, 15, tzinfo=UTC),
+        start_hour=23,
+        end_hour=8,
+        timezone_name="Europe/Moscow",
+    )
+    assert not is_within_quiet_hours(
+        now_utc=datetime(2026, 2, 18, 8, 0, tzinfo=UTC),
+        start_hour=23,
+        end_hour=8,
+        timezone_name="Europe/Moscow",
+    )
+
+
+def test_is_within_quiet_hours_uses_utc_fallback_for_invalid_timezone() -> None:
+    assert is_within_quiet_hours(
+        now_utc=datetime(2026, 2, 18, 23, 15, tzinfo=UTC),
+        start_hour=23,
+        end_hour=8,
+        timezone_name="Mars/Phobos",
     )

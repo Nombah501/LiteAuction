@@ -31,6 +31,7 @@ def test_render_settings_text_includes_state_markers() -> None:
         quiet_hours_enabled=False,
         quiet_hours_start_hour=23,
         quiet_hours_end_hour=8,
+        quiet_hours_timezone="UTC",
         configured=True,
     )
 
@@ -40,6 +41,7 @@ def test_render_settings_text_includes_state_markers() -> None:
     assert "Глобально: <b>отключены</b>" in text
     assert "Пресет: <b>Только важные</b>" in text
     assert "Тихие часы:" in text
+    assert "Часовой пояс тихих часов: <b>UTC</b>" in text
     assert "Статус первичной настройки: <b>настроены</b>" in text
 
 
@@ -56,6 +58,7 @@ def test_render_settings_text_includes_active_snoozes() -> None:
         quiet_hours_enabled=False,
         quiet_hours_start_hour=23,
         quiet_hours_end_hour=8,
+        quiet_hours_timezone="UTC",
         configured=True,
     )
     snoozes = [
@@ -85,6 +88,7 @@ def test_render_settings_text_includes_disabled_types_block() -> None:
         quiet_hours_enabled=True,
         quiet_hours_start_hour=23,
         quiet_hours_end_hour=8,
+        quiet_hours_timezone="Europe/Moscow",
         configured=True,
     )
 
