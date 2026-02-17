@@ -55,7 +55,9 @@ class _DummyState:
     async def set_state(self, state) -> None:
         self.state = state
 
-    async def update_data(self, **kwargs) -> None:
+    async def update_data(self, data: dict[str, object] | None = None, **kwargs) -> None:
+        if isinstance(data, dict):
+            self.data.update(data)
         self.data.update(kwargs)
 
     async def get_data(self) -> dict[str, object]:
@@ -80,8 +82,9 @@ async def test_album_flow_prompts_description_once() -> None:
     await create_description_collect_photo(trailing_album_photo, state)
 
     assert state.state == AuctionCreateStates.waiting_description
-    assert callback_message.answers.count("Отлично. Теперь отправьте описание лота.") == 1
+    assert callback_message.answers == []
     assert trailing_album_photo.answers == []
+    assert state.data.get("create_wizard_last_event") == "Фото сохранены. Переход к описанию."
 
 
 @pytest.mark.asyncio
@@ -107,9 +110,8 @@ async def test_album_feedback_does_not_show_stale_single_count() -> None:
     await create_photo_step(first_photo, state)
     await create_photo_step(second_photo, state)
 
-    assert first_photo.answers == [
-        "Альбом принят. После отправки всех фото нажмите 'Готово'."
-    ]
+    assert state.data.get("create_wizard_last_event") == "Принят альбом. Фото сейчас: 1/10."
+    assert state.data.get("photo_file_ids") == ["photo-1", "photo-2"]
     assert second_photo.answers == []
 
 
@@ -121,4 +123,5 @@ async def test_single_photo_feedback_keeps_exact_counter() -> None:
     single_photo = _DummyMessage(photo_file_id="photo-1")
     await create_photo_step(single_photo, state)
 
-    assert single_photo.answers == ["Фото добавлено (1/10). Отправьте еще или нажмите 'Готово'."]
+    assert state.data.get("create_wizard_last_event") == "Добавлено фото: 1/10."
+    assert state.data.get("photo_file_ids") == ["photo-1"]

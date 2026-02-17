@@ -16,6 +16,7 @@ from app.config import settings
 from app.db.models import User, UserPrivateTopic
 from app.db.session import SessionFactory
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
+from app.services.notification_policy_service import NotificationEventType, is_notification_allowed
 
 logger = logging.getLogger(__name__)
 _TOPICS_CAPABILITY_CACHE: dict[int, bool] = {}
@@ -496,7 +497,18 @@ async def send_user_topic_message(
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
     message_effect_id: str | None = None,
+    notification_event: NotificationEventType | None = None,
 ) -> bool:
+    if notification_event is not None:
+        async with SessionFactory() as session:
+            allowed = await is_notification_allowed(
+                session,
+                tg_user_id=tg_user_id,
+                event_type=notification_event,
+            )
+        if not allowed:
+            return False
+
     thread_id: int | None = None
 
     if settings.private_topics_enabled:
@@ -512,43 +524,89 @@ async def send_user_topic_message(
             except Exception:
                 thread_id = None
 
-    send_kwargs: dict[str, object] = {
-        "chat_id": tg_user_id,
-        "text": text,
-        "reply_markup": reply_markup,
-    }
-    if thread_id is not None:
-        send_kwargs["message_thread_id"] = thread_id
-
     normalized_effect_id = message_effect_id.strip() if message_effect_id else ""
+    attempts: list[tuple[bool, bool]] = [
+        (thread_id is not None, bool(normalized_effect_id)),
+    ]
     if normalized_effect_id:
-        send_kwargs["message_effect_id"] = normalized_effect_id
+        attempts.append((thread_id is not None, False))
+    if thread_id is not None:
+        attempts.append((False, bool(normalized_effect_id)))
+        attempts.append((False, False))
 
-    try:
-        await bot.send_message(**send_kwargs)
-        return True
-    except TelegramBadRequest as exc:
-        if "message_effect_id" not in send_kwargs:
-            return False
-        if not _is_unsupported_message_effect_error(exc):
-            return False
-        send_kwargs.pop("message_effect_id", None)
+    deduplicated_attempts: list[tuple[bool, bool]] = []
+    for attempt in attempts:
+        if attempt not in deduplicated_attempts:
+            deduplicated_attempts.append(attempt)
+
+    last_bad_request: TelegramBadRequest | None = None
+    for use_thread, use_effect in deduplicated_attempts:
         try:
-            await bot.send_message(**send_kwargs)
+            if use_thread and thread_id is not None and use_effect and normalized_effect_id:
+                await bot.send_message(
+                    chat_id=tg_user_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    message_thread_id=thread_id,
+                    message_effect_id=normalized_effect_id,
+                )
+            elif use_thread and thread_id is not None:
+                await bot.send_message(
+                    chat_id=tg_user_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    message_thread_id=thread_id,
+                )
+            elif use_effect and normalized_effect_id:
+                await bot.send_message(
+                    chat_id=tg_user_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    message_effect_id=normalized_effect_id,
+                )
+            else:
+                await bot.send_message(
+                    chat_id=tg_user_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                )
             return True
-        except Exception:
+        except TelegramBadRequest as exc:
+            last_bad_request = exc
+            continue
+        except TelegramForbiddenError as exc:
+            logger.warning(
+                "Failed to deliver user message (tg_user_id=%s, purpose=%s): %s",
+                tg_user_id,
+                purpose,
+                exc,
+            )
             return False
-    except Exception:
-        return False
+        except TelegramAPIError as exc:
+            logger.warning(
+                "Telegram API error while delivering user message (tg_user_id=%s, purpose=%s): %s",
+                tg_user_id,
+                purpose,
+                exc,
+            )
+            return False
+        except Exception as exc:
+            logger.warning(
+                "Unexpected error while delivering user message (tg_user_id=%s, purpose=%s): %s",
+                tg_user_id,
+                purpose,
+                exc,
+            )
+            return False
 
-
-def _is_unsupported_message_effect_error(exc: TelegramBadRequest) -> bool:
-    message = str(exc).lower()
-    return (
-        "message effect" in message
-        or "message_effect" in message
-        or ("effect" in message and "support" in message)
-    )
+    if last_bad_request is not None:
+        logger.warning(
+            "Bad request while delivering user message (tg_user_id=%s, purpose=%s): %s",
+            tg_user_id,
+            purpose,
+            last_bad_request,
+        )
+    return False
 
 
 async def render_user_topics_overview(

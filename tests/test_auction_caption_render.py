@@ -36,7 +36,7 @@ def _build_view(*, top_bids: list[TopBidView]) -> AuctionView:
     )
 
 
-def test_render_auction_caption_contains_compact_emotional_sections() -> None:
+def test_render_auction_caption_contains_compact_core_sections() -> None:
     view = _build_view(
         top_bids=[
             TopBidView(
@@ -61,10 +61,10 @@ def test_render_auction_caption_contains_compact_emotional_sections() -> None:
     caption = render_auction_caption(view)
 
     assert "🔥 Аукцион #12345678" in caption
-    assert "⚡ Торги в разгаре" in caption
     assert "💸 Текущая ставка: <b>$95</b>" in caption
-    assert "⏭ Следующая ставка: <b>$100</b>" in caption
-    assert "🖼 Фото: 4 | 🚨 Жалобы: 2" in caption
+    assert "🏁 Старт: $50" in caption
+    assert "💰 Выкуп: $150" in caption
+    assert "🛡 Антиснайпер: вкл" in caption
     assert "🏆 <b>Топ-3 ставок</b>" in caption
     assert "🥇 $95 — @anna" in caption
     assert "🥈 $90" in caption

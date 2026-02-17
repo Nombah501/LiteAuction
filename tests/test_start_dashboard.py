@@ -8,6 +8,7 @@ import pytest
 from aiogram.types import CallbackQuery
 
 from app.bot.handlers.start import (
+    _extract_report_auction_id,
     _parse_my_auctions_item_payload,
     _parse_my_auctions_list_payload,
     _render_bid_logs_text,
@@ -24,6 +25,9 @@ from app.services.seller_dashboard_service import SellerAuctionListItem, SellerB
 class _DummyCallback:
     def __init__(self) -> None:
         self.answers: list[tuple[str, bool]] = []
+        self.from_user = None
+        self.message = None
+        self.data = None
 
     async def answer(self, text: str = "", show_alert: bool = False, **_kwargs) -> None:
         self.answers.append((text, show_alert))
@@ -56,6 +60,14 @@ def test_parse_my_auctions_item_payload() -> None:
         )
         is None
     )
+
+
+def test_extract_report_auction_id_from_start_payload() -> None:
+    assert _extract_report_auction_id("report_12345678-1234-5678-1234-567812345678") == UUID(
+        "12345678-1234-5678-1234-567812345678"
+    )
+    assert _extract_report_auction_id("report_invalid") is None
+    assert _extract_report_auction_id("other_123") is None
 
 
 def test_render_my_auctions_list_text_empty_state() -> None:
@@ -135,12 +147,12 @@ def test_render_my_auction_detail_text_contains_outcome_metrics() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dashboard_settings_callback_returns_in_development_alert() -> None:
+async def test_dashboard_settings_callback_ignores_missing_user() -> None:
     callback = _DummyCallback()
 
     await callback_dashboard_settings(cast(CallbackQuery, callback))
 
-    assert callback.answers == [("Раздел «Настройки» в разработке.", True)]
+    assert callback.answers == []
 
 
 @pytest.mark.asyncio
