@@ -247,7 +247,7 @@ def notification_snooze_callback_data(*, auction_id: uuid.UUID, duration_minutes
 
 
 def parse_notification_snooze_callback_data(callback_data: str) -> tuple[uuid.UUID, int] | None:
-    parts = callback_data.split(":")
+    parts = callback_data.split(":", 3)
     if len(parts) not in {3, 4}:
         return None
     if parts[0] != "notif" or parts[1] != "snooze":
@@ -270,7 +270,7 @@ def parse_notification_snooze_callback_data(callback_data: str) -> tuple[uuid.UU
 
 
 def parse_notification_mute_callback_data(callback_data: str) -> NotificationEventType | None:
-    parts = callback_data.split(":")
+    parts = callback_data.split(":", 2)
     if len(parts) != 3:
         return None
     if parts[0] != "notif" or parts[1] not in {"mute", "disable", "off"}:
@@ -648,6 +648,7 @@ async def is_notification_allowed(
     event_type: NotificationEventType,
     auction_id: uuid.UUID | None = None,
 ) -> bool:
+    """Backward-compatible boolean wrapper around notification_delivery_decision."""
     decision = await notification_delivery_decision(
         session,
         tg_user_id=tg_user_id,

@@ -121,6 +121,16 @@ def test_parse_notification_mute_callback_data_supports_legacy_prefixes() -> Non
     assert parse_notification_mute_callback_data("notif:mute:unknown") is None
 
 
+def test_notification_callback_parsers_reject_extra_segments_safely() -> None:
+    assert (
+        parse_notification_snooze_callback_data(
+            "notif:snooze:12345678-1234-5678-1234-567812345678:60:extra"
+        )
+        is None
+    )
+    assert parse_notification_mute_callback_data("notif:mute:outbid:extra") is None
+
+
 def test_notification_event_priority_mapping() -> None:
     assert notification_priority_tier(NotificationEventType.AUCTION_WIN) == NotificationPriorityTier.CRITICAL
     assert notification_priority_tier(NotificationEventType.AUCTION_FINISH) == NotificationPriorityTier.HIGH
