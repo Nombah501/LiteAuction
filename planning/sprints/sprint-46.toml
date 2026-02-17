@@ -1,0 +1,53 @@
+sprint = "Sprint 46"
+milestone = "Sprint 46"
+milestone_description = "Notification backlog stabilization and operator visibility follow-up"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S46-001"
+title = "Add user timezone support for quiet hours"
+description = "Store timezone preference for notification scheduling and evaluate quiet-hour windows in local user time."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:bot", "area:ux", "priority:p1", "tech-debt"]
+assignees = ["Nombah501"]
+create_draft_pr = true
+acceptance = [
+  "User timezone preference is stored and editable",
+  "Quiet-hours checks are evaluated in local timezone with UTC-safe fallback",
+  "Migration keeps existing users on backward-compatible defaults",
+]
+
+[[items]]
+id = "S46-002"
+title = "Add operator snapshot command for notification metrics"
+description = "Provide a lightweight operator-facing snapshot of notification counters and top suppression reasons for support triage."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:enhancement", "area:ops", "area:metrics", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Operator command returns sent, suppressed, and aggregated totals",
+  "Snapshot includes top suppression reasons grouped by event/reason",
+  "Runbook documents command usage and interpretation",
+]
+
+[[items]]
+id = "S46-003"
+title = "Improve pluralization in digest and deferred summaries"
+description = "Add Russian pluralization helpers for count-dependent notification phrases and apply them in digest/deferred templates."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:enhancement", "area:bot", "area:ux", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Pluralization helpers cover common Russian count edge cases",
+  "Digest and deferred-summary templates use shared pluralization helpers",
+  "Unit tests cover 1, 2-4, 5+, and 11-14 count scenarios",
+]
