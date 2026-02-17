@@ -15,6 +15,7 @@ from app.db.session import SessionFactory
 from app.services.anti_fool_service import (
     acquire_bid_cooldown,
     acquire_complaint_cooldown,
+    acquire_outbid_notification_debounce,
     arm_or_confirm_action,
 )
 from app.services.auction_service import (
@@ -280,6 +281,9 @@ async def _notify_outbid(
     post_url: str | None,
 ) -> None:
     if outbid_user_tg_id is None or outbid_user_tg_id == actor_tg_id:
+        return
+
+    if not await acquire_outbid_notification_debounce(auction_id, outbid_user_tg_id):
         return
 
     resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)

@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     anti_sniper_extend_minutes: int = 3
     anti_sniper_max_extensions: int = 3
     bid_cooldown_seconds: int = 2
+    outbid_notification_debounce_seconds: int = 60
     duplicate_bid_window_seconds: int = 15
     confirmation_ttl_seconds: int = 5
     complaint_cooldown_seconds: int = 60
