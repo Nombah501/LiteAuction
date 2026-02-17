@@ -1,13 +1,13 @@
 # Planning Status
 
-Last sync: 2026-02-17 21:26 UTC
-Active sprint: Sprint 46
+Last sync: 2026-02-17 22:30 UTC
+Active sprint: Sprint 47
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S46-001 | Add user timezone support for quiet hours | [#167](https://github.com/Nombah501/LiteAuction/issues/167) (open) | - |
-| S46-002 | Add operator snapshot command for notification metrics | [#168](https://github.com/Nombah501/LiteAuction/issues/168) (open) | - |
-| S46-003 | Improve pluralization in digest and deferred summaries | [#169](https://github.com/Nombah501/LiteAuction/issues/169) (open) | - |
+| S47-001 | Add windowed /notifstats snapshot for operators | [#174](https://github.com/Nombah501/LiteAuction/issues/174) (open) | - |
+| S47-002 | Add /notifstats filters by event and reason | [#175](https://github.com/Nombah501/LiteAuction/issues/175) (open) | - |
+| S47-003 | Document notification metrics retention and reset workflow | [#176](https://github.com/Nombah501/LiteAuction/issues/176) (open) | - |
 
 ## Recovery Checklist
 
