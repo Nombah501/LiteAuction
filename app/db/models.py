@@ -98,6 +98,11 @@ class UserNotificationPreference(Base, TimestampMixin):
         nullable=False,
         server_default=text("8"),
     )
+    quiet_hours_timezone: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        server_default=text("'UTC'"),
+    )
     configured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

@@ -106,6 +106,7 @@ from app.services.notification_copy_service import (
     moderation_unfrozen_text,
     moderation_winner_text,
 )
+from app.services.notification_metrics_service import load_notification_metrics_snapshot
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -127,6 +128,15 @@ PANEL_PAGE_SIZE = 5
 DEFAULT_POINTS_HISTORY_LIMIT = 5
 MAX_POINTS_HISTORY_LIMIT = 20
 MODPOINTS_HISTORY_PAGE_SIZE = 10
+
+_NOTIFICATION_EVENT_LABELS: dict[NotificationEventType, str] = {
+    NotificationEventType.AUCTION_OUTBID: "Перебили ставку",
+    NotificationEventType.AUCTION_FINISH: "Финиш лота",
+    NotificationEventType.AUCTION_WIN: "Победа в лоте",
+    NotificationEventType.AUCTION_MOD_ACTION: "Действия модерации",
+    NotificationEventType.POINTS: "Points",
+    NotificationEventType.SUPPORT: "Поддержка",
+}
 
 
 @dataclass(slots=True)
@@ -699,6 +709,30 @@ async def _render_mod_stats_text() -> str:
     )
 
 
+def _notification_event_label(event_type: NotificationEventType) -> str:
+    return _NOTIFICATION_EVENT_LABELS.get(event_type, event_type.value)
+
+
+async def _render_notification_metrics_snapshot_text() -> str:
+    snapshot = await load_notification_metrics_snapshot(top_limit=5)
+    lines = [
+        "Notification metrics snapshot",
+        f"- sent total: {snapshot.sent_total}",
+        f"- suppressed total: {snapshot.suppressed_total}",
+        f"- aggregated total: {snapshot.aggregated_total}",
+        "",
+        "Top suppression reasons (event/reason):",
+    ]
+    if not snapshot.top_suppressed:
+        lines.append("- пока нет данных")
+    else:
+        for item in snapshot.top_suppressed:
+            lines.append(
+                f"- {_notification_event_label(item.event_type)} / {item.reason}: {item.total}"
+            )
+    return "\n".join(lines)
+
+
 def _parse_page(raw: str) -> int | None:
     if not raw.isdigit():
         return None
@@ -748,6 +782,7 @@ async def mod_help(message: Message, bot: Bot) -> None:
         "/mod",
         "/modpanel",
         "/modstats",
+        "/notifstats",
         "/audit [auction_uuid]",
         "/risk [auction_uuid]",
     ]
@@ -817,6 +852,22 @@ async def mod_stats(message: Message, bot: Bot | None = None) -> None:
         scope_key="modstats",
     )
     await message.answer(await _render_mod_stats_text())
+
+
+@router.message(Command("notifstats"), F.chat.type == ChatType.PRIVATE)
+async def mod_notification_stats(message: Message, bot: Bot | None = None) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/notifstats"):
+        return
+    if not await _require_moderator(message):
+        return
+
+    await send_progress_draft(
+        bot,
+        message,
+        text="Собираю snapshot по метрикам уведомлений...",
+        scope_key="notifstats",
+    )
+    await message.answer(await _render_notification_metrics_snapshot_text())
 
 
 @router.message(Command("botphoto"), F.chat.type == ChatType.PRIVATE)

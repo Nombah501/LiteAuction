@@ -198,6 +198,7 @@ def test_settings_keyboard_contains_unsnooze_buttons() -> None:
         quiet_hours_enabled=False,
         quiet_hours_start_hour=23,
         quiet_hours_end_hour=8,
+        quiet_hours_timezone="UTC",
         configured=True,
     )
     snoozes = [
@@ -230,6 +231,7 @@ def test_settings_keyboard_contains_unmute_buttons_for_disabled_events() -> None
         quiet_hours_enabled=True,
         quiet_hours_start_hour=23,
         quiet_hours_end_hour=8,
+        quiet_hours_timezone="Europe/Moscow",
         configured=True,
     )
 
@@ -246,6 +248,8 @@ def test_settings_keyboard_contains_unmute_buttons_for_disabled_events() -> None
     assert "dash:settings:quiet:toggle" in callback_data
     assert "dash:settings:quiet:23-8" in callback_data
     assert "dash:settings:quiet:off" in callback_data
+    assert "dash:settings:tz:UTC" in callback_data
+    assert "dash:settings:tz:Europe/Moscow" in callback_data
 
 
 @pytest.mark.asyncio

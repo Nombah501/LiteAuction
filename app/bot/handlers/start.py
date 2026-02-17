@@ -49,6 +49,7 @@ from app.services.notification_policy_service import (
     set_auction_notification_snooze,
     set_notification_event_enabled,
     set_quiet_hours_settings,
+    set_quiet_hours_timezone,
     set_master_notifications_enabled,
     set_notification_preset,
     toggle_notification_event,
@@ -142,6 +143,15 @@ _EVENT_LABELS: dict[NotificationEventType, str] = {
     NotificationEventType.SUPPORT: "Поддержка и апелляции",
 }
 
+_QUIET_HOURS_TIMEZONE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("UTC", "UTC"),
+    ("Europe/Moscow", "Москва"),
+    ("Asia/Yekaterinburg", "Екатеринбург"),
+    ("Asia/Novosibirsk", "Новосибирск"),
+    ("Asia/Vladivostok", "Владивосток"),
+)
+_QUIET_HOURS_TIMEZONE_CODES = {code for code, _ in _QUIET_HOURS_TIMEZONE_OPTIONS}
+
 
 def _preset_title(preset: NotificationPreset) -> str:
     labels = {
@@ -175,7 +185,10 @@ def _disabled_events(snapshot: NotificationSettingsSnapshot) -> list[Notificatio
 
 
 def _format_quiet_hours_range(snapshot: NotificationSettingsSnapshot) -> str:
-    return f"{snapshot.quiet_hours_start_hour:02d}:00-{snapshot.quiet_hours_end_hour:02d}:00 UTC"
+    return (
+        f"{snapshot.quiet_hours_start_hour:02d}:00-"
+        f"{snapshot.quiet_hours_end_hour:02d}:00 {snapshot.quiet_hours_timezone}"
+    )
 
 
 def _quiet_hours_status(snapshot: NotificationSettingsSnapshot) -> str:
@@ -185,6 +198,7 @@ def _quiet_hours_status(snapshot: NotificationSettingsSnapshot) -> str:
         now_utc=datetime.now(UTC),
         start_hour=snapshot.quiet_hours_start_hour,
         end_hour=snapshot.quiet_hours_end_hour,
+        timezone_name=snapshot.quiet_hours_timezone,
     ):
         return "активны сейчас"
     return "включены"
@@ -202,6 +216,7 @@ def _render_settings_text(
         f"Глобально: <b>{global_state}</b>",
         f"Пресет: <b>{_preset_title(snapshot.preset)}</b>",
         f"Тихие часы: <b>{_quiet_hours_status(snapshot)}</b> ({_format_quiet_hours_range(snapshot)})",
+        f"Часовой пояс тихих часов: <b>{snapshot.quiet_hours_timezone}</b>",
         f"Статус первичной настройки: <b>{configured_state}</b>",
         "",
         "Выберите пресет или переключите отдельные события кнопками ниже.",
@@ -269,15 +284,30 @@ def _settings_keyboard(
     rows.append(
         [
             InlineKeyboardButton(
-                text="23:00-08:00 UTC",
+                text=f"23:00-08:00 ({snapshot.quiet_hours_timezone})",
                 callback_data="dash:settings:quiet:23-8",
             ),
             InlineKeyboardButton(
-                text="00:00-07:00 UTC",
+                text=f"00:00-07:00 ({snapshot.quiet_hours_timezone})",
                 callback_data="dash:settings:quiet:0-7",
             ),
         ]
     )
+    timezone_buttons: list[InlineKeyboardButton] = []
+    for timezone_code, timezone_label in _QUIET_HOURS_TIMEZONE_OPTIONS:
+        button_text = (
+            f"[{timezone_label}]"
+            if snapshot.quiet_hours_timezone == timezone_code
+            else timezone_label
+        )
+        timezone_buttons.append(
+            InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"dash:settings:tz:{timezone_code}",
+            )
+        )
+    for offset in range(0, len(timezone_buttons), 2):
+        rows.append(timezone_buttons[offset : offset + 2])
     rows.append(
         [
             InlineKeyboardButton(
@@ -1346,6 +1376,17 @@ async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
                 result_message = (
                     "Тихие часы включены" if enabled else "Тихие часы отключены"
                 )
+            elif action == "tz":
+                if raw_value not in _QUIET_HOURS_TIMEZONE_CODES:
+                    await callback.answer("Неизвестный часовой пояс", show_alert=True)
+                    return
+                snapshot = await set_quiet_hours_timezone(
+                    session,
+                    user_id=user.id,
+                    timezone_name=raw_value,
+                    mark_configured=True,
+                )
+                result_message = f"Часовой пояс обновлен: {raw_value}"
             else:
                 await callback.answer("Некорректное действие", show_alert=True)
                 return
