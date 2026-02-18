@@ -213,3 +213,83 @@ Escalation path for threshold breach:
    - current runtime/policy toggles relevant to notifications
 3. Open engineering escalation with severity (`warning`/`high`/`critical`) and include the evidence bundle.
 4. If `high` or `critical` persists >15 minutes, start incident thread and update every 15 minutes until stabilized.
+
+## 11) Operator Playbook Scenarios
+
+Use these short playbooks when `/notifstats` shows a spike pattern. Each scenario references current fields (`Alert hints`, `Last 24h totals`, `24h delta`, and top suppression sections).
+
+### Scenario A: User Opt-Out Spike (`blocked_master` / `blocked_event_toggle`)
+
+Expected signals:
+
+- `Alert hints` contains warning/high for suppression concentration
+- `Last 24h totals` shows increased `suppressed total`
+- `Top suppression reasons (24h)` dominated by `blocked_master` or `blocked_event_toggle`
+
+Operator actions:
+
+1. Run `/notifstats support` and `/notifstats auction_outbid` to check if spike is broad or event-specific.
+2. Confirm no recent UI regression in `/settings` toggles.
+3. Share user guidance macro: check global switch and event toggles.
+
+Escalation template:
+
+```text
+[warning] notifstats opt-out spike
+- UTC: <timestamp>
+- suppressed delta: <value>
+- top 24h reason: <event/reason> (<count>)
+- impact: user-side opt-out pattern suspected
+- action taken: user guidance broadcast / support macro update
+```
+
+### Scenario B: Transport Degradation (`forbidden` + `bad_request`)
+
+Expected signals:
+
+- `Alert hints` contains high signal for `forbidden+bad_request share`
+- `Top suppression reasons (24h)` includes `support/forbidden` or `<event>/bad_request`
+- `sent delta` flat/negative while suppression rises
+
+Operator actions:
+
+1. Run `/notifstats reason=forbidden` and `/notifstats reason=bad_request`.
+2. Query logs (`notification_delivery_failed`) for sample `tg_user_id` and UTC timestamps.
+3. For `forbidden`, ask affected users to unblock bot and send `/start`.
+4. For `bad_request`, collect payload context and escalate to engineering.
+
+Escalation template:
+
+```text
+[high] notifstats transport suppression spike
+- UTC: <timestamp>
+- forbidden+bad_request share (24h): <value>
+- top reasons 24h: <list>
+- sample tg_user_id set: <id1,id2,id3>
+- action taken: user unblock guidance + failure logs attached
+```
+
+### Scenario C: Quiet-Hours Deferral Burst (`quiet_hours_deferred`)
+
+Expected signals:
+
+- `Top suppression reasons (24h)` shows `quiet_hours_deferred` as top-1
+- `suppressed delta` positive with stable/healthy transport reasons
+- support tickets mention delayed notifications, not missing notifications
+
+Operator actions:
+
+1. Validate timezone and quiet-hours windows in `/settings` for affected users.
+2. Check whether burst coincides with expected local night window.
+3. Confirm deferred summary flush appears after quiet window ends.
+
+Escalation template:
+
+```text
+[warning] notifstats quiet-hours deferral burst
+- UTC: <timestamp>
+- top 24h reason: quiet_hours_deferred (<count>)
+- affected event scope: <event or all>
+- action taken: timezone/window verification with support
+- escalation need: <yes/no>
+```
