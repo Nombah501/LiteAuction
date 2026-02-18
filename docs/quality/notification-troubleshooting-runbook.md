@@ -92,10 +92,10 @@ Use `/notifstats` in private moderation topic for a compact Redis-based snapshot
 
 Output blocks:
 
-- `sent total`: delivered notification attempts
-- `suppressed total`: blocked/failed deliveries recorded as suppression
-- `aggregated total`: anti-noise aggregation counters (digest/deferred flush/debounce)
-- `Top suppression reasons (event/reason)`: most frequent suppression signatures
+- `All-time totals`: cumulative counters since last metrics reset/Redis flush
+- `Last 24h totals`: rolling short-term activity window
+- `Last 7d totals`: rolling weekly activity window
+- `Top suppression reasons (event/reason, all-time)`: most frequent suppression signatures
 
 Interpretation quick-guide:
 
@@ -105,3 +105,71 @@ Interpretation quick-guide:
   - time-window deferral is active; validate timezone and quiet window in `/settings`
 - high `forbidden` / `bad_request` / `telegram_api_error`
   - transport-level issues; use log queries from section 3 for exact `tg_user_id`
+
+## 7) Metrics Retention and Drift Caveats
+
+Counters are Redis-backed and have different retention semantics:
+
+- all-time counters (`notif:metrics:*`)
+  - monotonic totals; do not naturally decay over time
+  - useful for long-range trend, less useful for short incident windows
+- hourly buckets (`notif:metrics:h:<YYYYMMDDHH>:*`)
+  - used to compute 24h/7d windows
+  - current TTL is 10 days, so 7d window is stable with retention headroom
+
+Expected drift patterns:
+
+- low 24h with high all-time
+  - historical spike no longer active; likely normal decay after incident
+- gap after bot downtime/redeploy outage
+  - window counters can under-report during ingestion interruptions
+- sudden drop to near-zero across all windows
+  - likely Redis flush/restart or namespace reset event
+
+## 8) Safe Reset Workflow (Metrics Only)
+
+Use reset only for operational reasons (for example, start a clean baseline after incident).
+
+Pre-reset safety checks:
+
+1. Capture current `/notifstats` output in incident ticket.
+2. Record UTC timestamp and responder name.
+3. Confirm no ongoing critical incident where historical counters are still needed.
+
+Scoped reset procedure:
+
+1. Count keys before reset:
+   - `redis-cli --scan --pattern 'notif:metrics:*' | wc -l`
+   - `redis-cli --scan --pattern 'notif:metrics:h:*' | wc -l`
+2. Remove only notification metric keys:
+   - `redis-cli --scan --pattern 'notif:metrics:*' | xargs -r redis-cli del`
+   - `redis-cli --scan --pattern 'notif:metrics:h:*' | xargs -r redis-cli del`
+3. Re-run `/notifstats` and verify totals are zeroed.
+4. Add post-reset note to incident timeline with timestamp.
+
+Rollback notes:
+
+- preferred rollback: restore Redis dataset from backup/snapshot if available
+- if restore is unavailable, treat reset timestamp as a new baseline and annotate analytics/reporting exports
+- never run broad `FLUSHALL`/`FLUSHDB` for notification-only reset
+
+## 9) Suppression Signatures -> Operator Actions
+
+- `blocked_master`
+  - meaning: user disabled all notifications
+  - operator action: ask user to enable global switch in `/settings`
+- `blocked_event_toggle`
+  - meaning: event type disabled by user
+  - operator action: ask user to re-enable the specific event toggle
+- `blocked_auction_snooze`
+  - meaning: lot-level mute/snooze still active
+  - operator action: clear snooze in `/settings` or wait for expiry
+- `quiet_hours_deferred`
+  - meaning: message delayed by quiet-hours policy
+  - operator action: validate user timezone + quiet-hour window in `/settings`
+- `forbidden`
+  - meaning: bot cannot deliver DM (blocked/restricted chat)
+  - operator action: ask user to unblock bot and send `/start`
+- `bad_request` / `telegram_api_error`
+  - meaning: delivery payload/API-side failure
+  - operator action: collect `tg_user_id` + UTC timestamp + log lines and escalate
