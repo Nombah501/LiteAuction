@@ -1,13 +1,13 @@
 # Planning Status
 
-Last sync: 2026-02-18 06:03 UTC
-Active sprint: Sprint 48
+Last sync: 2026-02-18 07:09 UTC
+Active sprint: Sprint 49
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S48-001 | Add /notifstats delta view for recent trend shifts | [#180](https://github.com/Nombah501/LiteAuction/issues/180) (open) | - |
-| S48-002 | Add per-window top suppression reasons for /notifstats | [#181](https://github.com/Nombah501/LiteAuction/issues/181) (open) | - |
-| S48-003 | Document notifstats delta interpretation and alert thresholds | [#182](https://github.com/Nombah501/LiteAuction/issues/182) (open) | - |
+| S49-001 | Add suppression-share alert hints to /notifstats | [#186](https://github.com/Nombah501/LiteAuction/issues/186) (open) | - |
+| S49-002 | Add compact /notifstats mode for mobile moderation | [#187](https://github.com/Nombah501/LiteAuction/issues/187) (open) | - |
+| S49-003 | Document notifstats operator playbook examples | [#188](https://github.com/Nombah501/LiteAuction/issues/188) (open) | - |
 
 ## Recovery Checklist
 
