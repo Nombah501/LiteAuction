@@ -1,13 +1,13 @@
 # Planning Status
 
-Last sync: 2026-02-18 07:09 UTC
-Active sprint: Sprint 49
+Last sync: 2026-02-18 08:20 UTC
+Active sprint: Sprint 50
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S49-001 | Add suppression-share alert hints to /notifstats | [#186](https://github.com/Nombah501/LiteAuction/issues/186) (open) | - |
-| S49-002 | Add compact /notifstats mode for mobile moderation | [#187](https://github.com/Nombah501/LiteAuction/issues/187) (open) | - |
-| S49-003 | Document notifstats operator playbook examples | [#188](https://github.com/Nombah501/LiteAuction/issues/188) (open) | - |
+| S50-001 | Add suppression-share percentages to /notifstats top sections | [#192](https://github.com/Nombah501/LiteAuction/issues/192) (open) | - |
+| S50-002 | Add /notifstats window selector for focused triage output | [#193](https://github.com/Nombah501/LiteAuction/issues/193) (open) | - |
+| S50-003 | Document suppression-share triage heuristics for operators | [#194](https://github.com/Nombah501/LiteAuction/issues/194) (open) | - |
 
 ## Recovery Checklist
 
