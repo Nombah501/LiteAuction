@@ -186,6 +186,27 @@ Rollback notes:
 
 `24h delta vs previous 24h` helps detect trend shifts without manual calculation.
 
+Suppression-share quick heuristics (based on `Top suppression reasons (24h)` and `suppressed total (24h)`):
+
+- warning concentration
+  - top-1 suppression reason share in 24h is `35-49%`
+  - usually one dominant user/policy pattern, but spread is still moderate
+- high concentration
+  - top-1 suppression reason share in 24h is `>=50%` OR top-2 combined share is `>=70%`
+  - likely a single failing path or one policy bucket overwhelming the window
+- critical concentration
+  - transport reasons (`forbidden`, `bad_request`, `telegram_api_error`) combined share is `>=40%`
+  - especially critical when paired with negative `sent delta`
+
+Reason-family interpretation:
+
+- policy-heavy share (`blocked_master`, `blocked_event_toggle`, `blocked_auction_snooze`)
+  - most likely user preference/config pattern, not transport outage
+- transport-heavy share (`forbidden`, `bad_request`, `telegram_api_error`)
+  - likely delivery-path degradation; gather sample `tg_user_id` and escalate early
+- deferral-heavy share (`quiet_hours_deferred`)
+  - expected delayed-delivery pattern; verify timezone/quiet-window before escalating
+
 Interpretation examples:
 
 - `suppressed delta: +80`, `sent delta: -20`
@@ -214,9 +235,10 @@ Escalation path for threshold breach:
 
 1. Re-check sections 1-4 to rule out user/config-only causes.
 2. Capture evidence bundle:
-   - `/notifstats` (full + filtered by dominant event/reason)
-   - key log lines from section 3 with UTC timestamps
-   - current runtime/policy toggles relevant to notifications
+    - `/notifstats` (full + filtered by dominant event/reason)
+    - top reason shares and denominator context (`suppressed total (24h)`, top-1/top-2 reasons)
+    - key log lines from section 3 with UTC timestamps
+    - current runtime/policy toggles relevant to notifications
 3. Open engineering escalation with severity (`warning`/`high`/`critical`) and include the evidence bundle.
 4. If `high` or `critical` persists >15 minutes, start incident thread and update every 15 minutes until stabilized.
 
@@ -230,7 +252,7 @@ Expected signals:
 
 - `Alert hints` contains warning/high for suppression concentration
 - `Last 24h totals` shows increased `suppressed total`
-- `Top suppression reasons (24h)` dominated by `blocked_master` or `blocked_event_toggle`
+- `Top suppression reasons (24h)` dominated by `blocked_master` or `blocked_event_toggle` with top-1 share `>=35%`
 
 Operator actions:
 
@@ -245,6 +267,7 @@ Escalation template:
 - UTC: <timestamp>
 - suppressed delta: <value>
 - top 24h reason: <event/reason> (<count>)
+- top 24h reason share: <share>
 - impact: user-side opt-out pattern suspected
 - action taken: user guidance broadcast / support macro update
 ```
@@ -255,6 +278,7 @@ Expected signals:
 
 - `Alert hints` contains high signal for `forbidden+bad_request share`
 - `Top suppression reasons (24h)` includes `support/forbidden` or `<event>/bad_request`
+- transport reasons combined share in 24h is `>=25%`
 - `sent delta` flat/negative while suppression rises
 
 Operator actions:
@@ -270,6 +294,7 @@ Escalation template:
 [high] notifstats transport suppression spike
 - UTC: <timestamp>
 - forbidden+bad_request share (24h): <value>
+- top 24h transport reason share: <share>
 - top reasons 24h: <list>
 - sample tg_user_id set: <id1,id2,id3>
 - action taken: user unblock guidance + failure logs attached
@@ -280,6 +305,7 @@ Escalation template:
 Expected signals:
 
 - `Top suppression reasons (24h)` shows `quiet_hours_deferred` as top-1
+- top-1 `quiet_hours_deferred` share is elevated (typically `>=40%` during local night window)
 - `suppressed delta` positive with stable/healthy transport reasons
 - support tickets mention delayed notifications, not missing notifications
 
@@ -295,6 +321,7 @@ Escalation template:
 [warning] notifstats quiet-hours deferral burst
 - UTC: <timestamp>
 - top 24h reason: quiet_hours_deferred (<count>)
+- top 24h reason share: <share>
 - affected event scope: <event or all>
 - action taken: timezone/window verification with support
 - escalation need: <yes/no>
