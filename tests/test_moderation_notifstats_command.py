@@ -131,8 +131,9 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
     assert "HIGH: suppressed delta +80 >= +80" in text
     assert "Top suppression reasons (24h):" in text
     assert "Top suppression reasons (7d):" in text
-    assert "Перебили ставку / blocked_master: 4" in text
-    assert "Поддержка / forbidden: 3" in text
+    assert "Перебили ставку / blocked_master: 2 (share=100%)" in text
+    assert "Перебили ставку / blocked_master: 4 (share=57%)" in text
+    assert "Поддержка / forbidden: 3 (share=43%)" in text
     assert captured_filters == [(5, None, None)]
 
 
@@ -174,6 +175,48 @@ async def test_render_notification_metrics_snapshot_text_compact_mode(monkeypatc
     assert "delta24h: sent=+1, suppressed=+1, aggregated=0" in text
     assert "top-1 suppression: 24h Поддержка/forbidden: 2" in text
     assert captured_filters == [(1, None, None)]
+
+
+@pytest.mark.asyncio
+async def test_render_notification_metrics_snapshot_text_handles_zero_suppressed_totals(monkeypatch) -> None:
+    async def _snapshot_loader(
+        *,
+        top_limit: int = 5,
+        event_type_filter: NotificationEventType | None = None,
+        reason_filter: str | None = None,
+    ) -> NotificationMetricsSnapshot:  # noqa: ARG001
+        return NotificationMetricsSnapshot(
+            all_time=NotificationMetricTotals(sent_total=3, suppressed_total=0, aggregated_total=1),
+            last_24h=NotificationMetricTotals(sent_total=1, suppressed_total=0, aggregated_total=0),
+            previous_24h=NotificationMetricTotals(sent_total=1, suppressed_total=0, aggregated_total=0),
+            delta_24h_vs_previous_24h=NotificationMetricDelta(sent_delta=0, suppressed_delta=0, aggregated_delta=0),
+            last_7d=NotificationMetricTotals(sent_total=2, suppressed_total=0, aggregated_total=1),
+            top_suppressed_24h=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.SUPPORT,
+                    reason="forbidden",
+                    total=1,
+                ),
+            ),
+            top_suppressed_7d=(),
+            top_suppressed=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.AUCTION_OUTBID,
+                    reason="blocked_master",
+                    total=2,
+                ),
+            ),
+            alert_hints=(),
+        )
+
+    monkeypatch.setattr("app.bot.handlers.moderation.load_notification_metrics_snapshot", _snapshot_loader)
+
+    text = await _render_notification_metrics_snapshot_text()
+
+    assert "Top suppression reasons (24h):" in text
+    assert "Поддержка / forbidden: 1 (share=n/a)" in text
+    assert "Top suppression reasons (event/reason, all-time):" in text
+    assert "Перебили ставку / blocked_master: 2 (share=n/a)" in text
 
 
 @pytest.mark.asyncio

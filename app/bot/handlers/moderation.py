@@ -719,6 +719,12 @@ def _delta_value(delta: int) -> str:
     return str(delta)
 
 
+def _suppression_share_value(*, value: int, total: int) -> str:
+    if total <= 0:
+        return "n/a"
+    return f"{value / total:.0%}"
+
+
 def _alert_prefix(severity: str) -> str:
     if severity == "critical":
         return "CRITICAL"
@@ -831,14 +837,15 @@ async def _render_notification_metrics_snapshot_text(
     )
     event_filter_label = event_type_filter.value if event_type_filter is not None else "all"
     reason_filter_label = reason_filter or "all"
-    def _top_section(title: str, items: tuple) -> list[str]:
+    def _top_section(title: str, items: tuple, suppressed_total: int) -> list[str]:
         lines = [title]
         if not items:
             lines.append("- пока нет данных")
             return lines
         for item in items:
+            share = _suppression_share_value(value=item.total, total=suppressed_total)
             lines.append(
-                f"- {_notification_event_label(item.event_type)} / {item.reason}: {item.total}"
+                f"- {_notification_event_label(item.event_type)} / {item.reason}: {item.total} (share={share})"
             )
         return lines
 
@@ -930,11 +937,29 @@ async def _render_notification_metrics_snapshot_text(
             "",
         ]
     )
-    lines.extend(_top_section("Top suppression reasons (24h):", snapshot.top_suppressed_24h))
+    lines.extend(
+        _top_section(
+            "Top suppression reasons (24h):",
+            snapshot.top_suppressed_24h,
+            snapshot.last_24h.suppressed_total,
+        )
+    )
     lines.append("")
-    lines.extend(_top_section("Top suppression reasons (7d):", snapshot.top_suppressed_7d))
+    lines.extend(
+        _top_section(
+            "Top suppression reasons (7d):",
+            snapshot.top_suppressed_7d,
+            snapshot.last_7d.suppressed_total,
+        )
+    )
     lines.append("")
-    lines.extend(_top_section("Top suppression reasons (event/reason, all-time):", snapshot.top_suppressed))
+    lines.extend(
+        _top_section(
+            "Top suppression reasons (event/reason, all-time):",
+            snapshot.top_suppressed,
+            snapshot.all_time.suppressed_total,
+        )
+    )
     return "\n".join(lines)
 
 
