@@ -10,6 +10,9 @@ from app.bot.handlers.moderation import (
     mod_notification_stats,
 )
 from app.services.notification_metrics_service import (
+    NotificationAlertCode,
+    NotificationAlertHint,
+    NotificationAlertSeverity,
     NotificationMetricDelta,
     NotificationMetricBucket,
     NotificationMetricsSnapshot,
@@ -98,6 +101,13 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
                     total=3,
                 ),
             ),
+            alert_hints=(
+                NotificationAlertHint(
+                    severity=NotificationAlertSeverity.HIGH,
+                    code=NotificationAlertCode.SUPPRESSED_DELTA_HIGH,
+                    message="suppressed delta +80 >= +80",
+                ),
+            ),
         )
 
     monkeypatch.setattr("app.bot.handlers.moderation.load_notification_metrics_snapshot", _snapshot_loader)
@@ -117,6 +127,8 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
     assert "sent total (7d): 9" in text
     assert "suppressed total (7d): 5" in text
     assert "aggregated total (7d): 3" in text
+    assert "Alert hints:" in text
+    assert "HIGH: suppressed delta +80 >= +80" in text
     assert "Top suppression reasons (24h):" in text
     assert "Top suppression reasons (7d):" in text
     assert "Перебили ставку / blocked_master: 4" in text

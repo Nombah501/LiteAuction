@@ -1,0 +1,53 @@
+sprint = "Sprint 49"
+milestone = "Sprint 49"
+milestone_description = "Notification metrics alerting and operator ergonomics"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S49-001"
+title = "Add suppression-share alert hints to /notifstats"
+description = "Show warning/high/critical hint lines when suppression deltas or suppression share thresholds are exceeded to speed operator triage."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:ops", "area:metrics", "priority:p1", "tech-debt"]
+assignees = ["Nombah501"]
+create_draft_pr = true
+acceptance = [
+  "`/notifstats` renders severity hint block when thresholds are exceeded",
+  "Hints are computed with and without event/reason filters",
+  "Unit tests cover warning/high/critical and no-alert scenarios",
+]
+
+[[items]]
+id = "S49-002"
+title = "Add compact /notifstats mode for mobile moderation"
+description = "Introduce a compact command mode (or argument) that returns only key totals and top-1 suppression reason for quick checks from mobile Telegram clients."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:enhancement", "area:ops", "area:bot", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Command supports compact output mode",
+  "Compact mode includes totals, deltas, and top-1 suppression reason",
+  "Help text documents compact mode usage",
+]
+
+[[items]]
+id = "S49-003"
+title = "Document notifstats operator playbook examples"
+description = "Expand runbook with short real-world playbook flows for common suppression spikes and incident communications templates."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:docs", "area:ops", "area:metrics", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Runbook includes at least three playbook scenarios",
+  "Each scenario has expected signals, action steps, and escalation template",
+  "Examples align with current `/notifstats` output fields",
+]

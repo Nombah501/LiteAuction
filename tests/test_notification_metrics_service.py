@@ -49,6 +49,10 @@ class _RedisSnapshotStub:
         return [self.entries.get(key) for key in keys]
 
 
+def _alert_codes(snapshot: notification_metrics_service.NotificationMetricsSnapshot) -> set[notification_metrics_service.NotificationAlertCode]:
+    return {hint.code for hint in snapshot.alert_hints}
+
+
 @pytest.mark.asyncio
 async def test_record_notification_sent_increments_counter_with_normalized_reason(monkeypatch) -> None:
     redis_stub = _RedisIncrStub(total=7)
@@ -178,6 +182,9 @@ async def test_load_notification_metrics_snapshot_returns_totals_and_top_suppres
             total=8,
         ),
     )
+    assert _alert_codes(snapshot) == {
+        notification_metrics_service.NotificationAlertCode.TOP_SUPPRESSION_SHARE_WARNING,
+    }
 
 
 @pytest.mark.asyncio
@@ -205,6 +212,7 @@ async def test_load_notification_metrics_snapshot_returns_zeros_when_no_data(mon
     assert snapshot.top_suppressed_24h == ()
     assert snapshot.top_suppressed_7d == ()
     assert snapshot.top_suppressed == ()
+    assert snapshot.alert_hints == ()
 
 
 @pytest.mark.asyncio
@@ -270,6 +278,10 @@ async def test_load_notification_metrics_snapshot_applies_event_and_reason_filte
             total=4,
         ),
     )
+    assert _alert_codes(snapshot) == {
+        notification_metrics_service.NotificationAlertCode.TOP_SUPPRESSION_SHARE_WARNING,
+        notification_metrics_service.NotificationAlertCode.FORBIDDEN_BAD_REQUEST_SHARE_HIGH,
+    }
 
 
 @pytest.mark.asyncio
@@ -317,6 +329,9 @@ async def test_load_notification_metrics_snapshot_delta_supports_positive_negati
             total=7,
         ),
     )
+    assert _alert_codes(snapshot) == {
+        notification_metrics_service.NotificationAlertCode.TOP_SUPPRESSION_SHARE_WARNING,
+    }
 
 
 @pytest.mark.asyncio
@@ -354,6 +369,95 @@ async def test_load_notification_metrics_snapshot_window_top_suppressed_sorting_
             total=5,
         ),
     )
+    assert _alert_codes(snapshot) == {
+        notification_metrics_service.NotificationAlertCode.FORBIDDEN_BAD_REQUEST_SHARE_HIGH,
+    }
+
+
+@pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_emits_warning_delta_alert(monkeypatch) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+    h_prev = (fixed_now - timedelta(hours=25)).strftime("%Y%m%d%H")
+
+    redis_stub = _RedisSnapshotStub(
+        {
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:blocked_master": "35",
+            f"notif:metrics:h:{h_prev}:suppressed:auction_outbid:blocked_master": "5",
+        }
+    )
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(now_utc=fixed_now)
+
+    assert notification_metrics_service.NotificationAlertCode.SUPPRESSED_DELTA_WARNING in _alert_codes(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_emits_high_for_forbidden_bad_request_share(monkeypatch) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+    h_prev = (fixed_now - timedelta(hours=25)).strftime("%Y%m%d%H")
+
+    redis_stub = _RedisSnapshotStub(
+        {
+            f"notif:metrics:h:{h_now}:suppressed:support:forbidden": "4",
+            f"notif:metrics:h:{h_now}:suppressed:support:bad_request": "3",
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:blocked_master": "13",
+            f"notif:metrics:h:{h_prev}:suppressed:support:forbidden": "4",
+            f"notif:metrics:h:{h_prev}:suppressed:support:bad_request": "3",
+            f"notif:metrics:h:{h_prev}:suppressed:auction_outbid:blocked_master": "13",
+        }
+    )
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(now_utc=fixed_now)
+
+    assert notification_metrics_service.NotificationAlertCode.FORBIDDEN_BAD_REQUEST_SHARE_HIGH in _alert_codes(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_emits_critical_alert(monkeypatch) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+    h_prev = (fixed_now - timedelta(hours=25)).strftime("%Y%m%d%H")
+
+    redis_stub = _RedisSnapshotStub(
+        {
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:blocked_master": "190",
+            f"notif:metrics:h:{h_prev}:suppressed:auction_outbid:blocked_master": "10",
+        }
+    )
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(now_utc=fixed_now)
+
+    assert notification_metrics_service.NotificationAlertCode.SUPPRESSED_DELTA_CRITICAL in _alert_codes(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_no_alerts_when_thresholds_not_hit(monkeypatch) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+    h_prev = (fixed_now - timedelta(hours=25)).strftime("%Y%m%d%H")
+
+    redis_stub = _RedisSnapshotStub(
+        {
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:r1": "3",
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:r2": "3",
+            f"notif:metrics:h:{h_now}:suppressed:support:r3": "2",
+            f"notif:metrics:h:{h_now}:suppressed:support:r4": "2",
+            f"notif:metrics:h:{h_prev}:suppressed:auction_outbid:r1": "3",
+            f"notif:metrics:h:{h_prev}:suppressed:auction_outbid:r2": "3",
+            f"notif:metrics:h:{h_prev}:suppressed:support:r3": "2",
+            f"notif:metrics:h:{h_prev}:suppressed:support:r4": "2",
+        }
+    )
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(now_utc=fixed_now)
+
+    assert snapshot.alert_hints == ()
 
 
 @pytest.mark.asyncio
@@ -385,4 +489,5 @@ async def test_load_notification_metrics_snapshot_returns_empty_snapshot_on_redi
     assert snapshot.top_suppressed_24h == ()
     assert snapshot.top_suppressed_7d == ()
     assert snapshot.top_suppressed == ()
+    assert snapshot.alert_hints == ()
     assert "notification_metrics_snapshot_failed" in caplog.text
