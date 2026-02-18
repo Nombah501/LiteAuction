@@ -94,7 +94,9 @@ Output blocks:
 
 - `All-time totals`: cumulative counters since last metrics reset/Redis flush
 - `Last 24h totals`: rolling short-term activity window
+- `24h delta vs previous 24h`: signed trend change for sent/suppressed/aggregated
 - `Last 7d totals`: rolling weekly activity window
+- `Top suppression reasons (24h)` / `Top suppression reasons (7d)`: short/medium window suppression signatures
 - `Top suppression reasons (event/reason, all-time)`: most frequent suppression signatures
 
 Interpretation quick-guide:
@@ -173,3 +175,41 @@ Rollback notes:
 - `bad_request` / `telegram_api_error`
   - meaning: delivery payload/API-side failure
   - operator action: collect `tg_user_id` + UTC timestamp + log lines and escalate
+
+## 10) Delta Interpretation and Alert Thresholds
+
+`24h delta vs previous 24h` helps detect trend shifts without manual calculation.
+
+Interpretation examples:
+
+- `suppressed delta: +80`, `sent delta: -20`
+  - suppression pressure increased while successful deliveries dropped
+  - likely user-level policy spike, transport degradation, or both
+- `suppressed delta: -40`, `sent delta: +35`
+  - recovery pattern after mitigation or natural traffic normalization
+- `aggregated delta: +120` with stable `sent delta`
+  - anti-noise batching increased; check digest/debounce behavior and campaign bursts
+
+Default alert thresholds (operator baseline):
+
+- warning
+  - `suppressed delta >= +30` OR
+  - top 24h suppression reason contributes >= 35% of 24h suppressed total
+- high
+  - `suppressed delta >= +80` OR
+  - `forbidden` / `bad_request` combined >= 25% of 24h suppressed total
+- critical
+  - `suppressed delta >= +150` OR
+  - `sent delta <= -80` with simultaneous `suppressed delta > 0`
+
+Thresholds are heuristics; compare with day-of-week traffic and active release windows.
+
+Escalation path for threshold breach:
+
+1. Re-check sections 1-4 to rule out user/config-only causes.
+2. Capture evidence bundle:
+   - `/notifstats` (full + filtered by dominant event/reason)
+   - key log lines from section 3 with UTC timestamps
+   - current runtime/policy toggles relevant to notifications
+3. Open engineering escalation with severity (`warning`/`high`/`critical`) and include the evidence bundle.
+4. If `high` or `critical` persists >15 minutes, start incident thread and update every 15 minutes until stabilized.
