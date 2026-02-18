@@ -143,6 +143,12 @@ async def test_load_notification_metrics_snapshot_returns_totals_and_top_suppres
     assert snapshot.last_24h.sent_total == 5
     assert snapshot.last_24h.suppressed_total == 2
     assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.previous_24h.sent_total == 0
+    assert snapshot.previous_24h.suppressed_total == 0
+    assert snapshot.previous_24h.aggregated_total == 4
+    assert snapshot.delta_24h_vs_previous_24h.sent_delta == 5
+    assert snapshot.delta_24h_vs_previous_24h.suppressed_delta == 2
+    assert snapshot.delta_24h_vs_previous_24h.aggregated_delta == -4
     assert snapshot.last_7d.sent_total == 8
     assert snapshot.last_7d.suppressed_total == 2
     assert snapshot.last_7d.aggregated_total == 4
@@ -173,6 +179,12 @@ async def test_load_notification_metrics_snapshot_returns_zeros_when_no_data(mon
     assert snapshot.last_24h.sent_total == 0
     assert snapshot.last_24h.suppressed_total == 0
     assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.previous_24h.sent_total == 0
+    assert snapshot.previous_24h.suppressed_total == 0
+    assert snapshot.previous_24h.aggregated_total == 0
+    assert snapshot.delta_24h_vs_previous_24h.sent_delta == 0
+    assert snapshot.delta_24h_vs_previous_24h.suppressed_delta == 0
+    assert snapshot.delta_24h_vs_previous_24h.aggregated_delta == 0
     assert snapshot.last_7d.sent_total == 0
     assert snapshot.last_7d.suppressed_total == 0
     assert snapshot.last_7d.aggregated_total == 0
@@ -212,6 +224,12 @@ async def test_load_notification_metrics_snapshot_applies_event_and_reason_filte
     assert snapshot.last_24h.sent_total == 0
     assert snapshot.last_24h.suppressed_total == 1
     assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.previous_24h.sent_total == 0
+    assert snapshot.previous_24h.suppressed_total == 8
+    assert snapshot.previous_24h.aggregated_total == 0
+    assert snapshot.delta_24h_vs_previous_24h.sent_delta == 0
+    assert snapshot.delta_24h_vs_previous_24h.suppressed_delta == -7
+    assert snapshot.delta_24h_vs_previous_24h.aggregated_delta == 0
     assert snapshot.last_7d.sent_total == 0
     assert snapshot.last_7d.suppressed_total == 9
     assert snapshot.last_7d.aggregated_total == 0
@@ -222,6 +240,39 @@ async def test_load_notification_metrics_snapshot_applies_event_and_reason_filte
             total=4,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_delta_supports_positive_negative_and_zero_values(
+    monkeypatch,
+) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+    h_prev = (fixed_now - timedelta(hours=25)).strftime("%Y%m%d%H")
+
+    redis_stub = _RedisSnapshotStub(
+        {
+            f"notif:metrics:h:{h_now}:sent:auction_outbid:delivered": "5",
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:blocked_master": "3",
+            f"notif:metrics:h:{h_now}:aggregated:auction_outbid:debounce_gate": "2",
+            f"notif:metrics:h:{h_prev}:sent:auction_outbid:delivered": "2",
+            f"notif:metrics:h:{h_prev}:suppressed:auction_outbid:blocked_master": "4",
+            f"notif:metrics:h:{h_prev}:aggregated:auction_outbid:debounce_gate": "2",
+        }
+    )
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(now_utc=fixed_now)
+
+    assert snapshot.last_24h.sent_total == 5
+    assert snapshot.last_24h.suppressed_total == 3
+    assert snapshot.last_24h.aggregated_total == 2
+    assert snapshot.previous_24h.sent_total == 2
+    assert snapshot.previous_24h.suppressed_total == 4
+    assert snapshot.previous_24h.aggregated_total == 2
+    assert snapshot.delta_24h_vs_previous_24h.sent_delta == 3
+    assert snapshot.delta_24h_vs_previous_24h.suppressed_delta == -1
+    assert snapshot.delta_24h_vs_previous_24h.aggregated_delta == 0
 
 
 @pytest.mark.asyncio
@@ -241,6 +292,12 @@ async def test_load_notification_metrics_snapshot_returns_empty_snapshot_on_redi
     assert snapshot.last_24h.sent_total == 0
     assert snapshot.last_24h.suppressed_total == 0
     assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.previous_24h.sent_total == 0
+    assert snapshot.previous_24h.suppressed_total == 0
+    assert snapshot.previous_24h.aggregated_total == 0
+    assert snapshot.delta_24h_vs_previous_24h.sent_delta == 0
+    assert snapshot.delta_24h_vs_previous_24h.suppressed_delta == 0
+    assert snapshot.delta_24h_vs_previous_24h.aggregated_delta == 0
     assert snapshot.last_7d.sent_total == 0
     assert snapshot.last_7d.suppressed_total == 0
     assert snapshot.last_7d.aggregated_total == 0

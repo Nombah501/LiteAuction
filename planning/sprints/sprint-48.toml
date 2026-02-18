@@ -1,0 +1,53 @@
+sprint = "Sprint 48"
+milestone = "Sprint 48"
+milestone_description = "Notification metrics analysis follow-up for operators"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S48-001"
+title = "Add /notifstats delta view for recent trend shifts"
+description = "Show 24h vs previous-24h deltas for sent/suppressed/aggregated metrics so operators can quickly detect trend changes without manual calculations."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:ops", "area:metrics", "priority:p1", "tech-debt"]
+assignees = ["Nombah501"]
+create_draft_pr = true
+acceptance = [
+  "`/notifstats` output includes delta block for 24h vs previous 24h",
+  "Delta block works with event/reason filters",
+  "Unit tests cover positive, negative, and zero delta cases",
+]
+
+[[items]]
+id = "S48-002"
+title = "Add per-window top suppression reasons for /notifstats"
+description = "Extend snapshot to show top suppression signatures for 24h and 7d windows in addition to all-time totals."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:enhancement", "area:ops", "area:metrics", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Snapshot shows top suppression reasons for 24h and 7d windows",
+  "Sorting and tie-breaking are deterministic and tested",
+  "Output remains compact and readable in Telegram messages",
+]
+
+[[items]]
+id = "S48-003"
+title = "Document notifstats delta interpretation and alert thresholds"
+description = "Update runbook with delta interpretation guidance and default escalation thresholds for suppression spikes."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:docs", "area:ops", "area:metrics", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Runbook includes delta interpretation examples",
+  "Suggested suppression spike thresholds are documented",
+  "Escalation path for threshold breaches is explicit",
+]

@@ -23,6 +23,13 @@ class NotificationMetricTotals:
 
 
 @dataclass(slots=True, frozen=True)
+class NotificationMetricDelta:
+    sent_delta: int
+    suppressed_delta: int
+    aggregated_delta: int
+
+
+@dataclass(slots=True, frozen=True)
 class NotificationMetricBucket:
     event_type: NotificationEventType
     reason: str
@@ -33,6 +40,8 @@ class NotificationMetricBucket:
 class NotificationMetricsSnapshot:
     all_time: NotificationMetricTotals
     last_24h: NotificationMetricTotals
+    previous_24h: NotificationMetricTotals
+    delta_24h_vs_previous_24h: NotificationMetricDelta
     last_7d: NotificationMetricTotals
     top_suppressed: tuple[NotificationMetricBucket, ...]
 
@@ -123,11 +132,17 @@ def _empty_totals_map() -> dict[NotificationMetricKind, int]:
     }
 
 
-def _recent_hour_buckets(*, now_utc: datetime, hours: int) -> tuple[str, ...]:
-    normalized_hours = max(int(hours), 1)
+def _window_hour_buckets(
+    *,
+    now_utc: datetime,
+    start_offset_hours: int,
+    duration_hours: int,
+) -> tuple[str, ...]:
+    normalized_start = max(int(start_offset_hours), 0)
+    normalized_duration = max(int(duration_hours), 1)
     return tuple(
-        _hour_bucket(now_utc - timedelta(hours=offset))
-        for offset in range(normalized_hours)
+        _hour_bucket(now_utc - timedelta(hours=normalized_start + offset))
+        for offset in range(normalized_duration)
     )
 
 
@@ -143,6 +158,14 @@ def _matches_metric_filters(
     if reason_filter is not None and reason_filter not in reason:
         return False
     return True
+
+
+def _totals_delta(*, current: NotificationMetricTotals, previous: NotificationMetricTotals) -> NotificationMetricDelta:
+    return NotificationMetricDelta(
+        sent_delta=current.sent_total - previous.sent_total,
+        suppressed_delta=current.suppressed_total - previous.suppressed_total,
+        aggregated_delta=current.aggregated_total - previous.aggregated_total,
+    )
 
 
 async def _record_metric(
@@ -303,11 +326,18 @@ async def _load_all_time_totals_and_top(
 async def _load_recent_window_totals(
     *,
     now_utc: datetime,
-    hours: int,
+    start_offset_hours: int,
+    duration_hours: int,
     event_type_filter: NotificationEventType | None,
     reason_filter: str | None,
 ) -> dict[NotificationMetricKind, int]:
-    buckets = set(_recent_hour_buckets(now_utc=now_utc, hours=hours))
+    buckets = set(
+        _window_hour_buckets(
+            now_utc=now_utc,
+            start_offset_hours=start_offset_hours,
+            duration_hours=duration_hours,
+        )
+    )
     totals = _empty_totals_map()
 
     try:
@@ -350,7 +380,12 @@ async def _load_recent_window_totals(
                 if cursor == 0:
                     break
     except Exception as exc:  # noqa: BLE001
-        logger.warning("notification_metrics_window_snapshot_failed hours=%s error=%s", hours, exc)
+        logger.warning(
+            "notification_metrics_window_snapshot_failed start_offset_hours=%s duration_hours=%s error=%s",
+            start_offset_hours,
+            duration_hours,
+            exc,
+        )
 
     return totals
 
@@ -379,20 +414,37 @@ async def load_notification_metrics_snapshot(
     )
     last_24h_totals_map = await _load_recent_window_totals(
         now_utc=effective_now_utc,
-        hours=24,
+        start_offset_hours=0,
+        duration_hours=24,
+        event_type_filter=event_type_filter,
+        reason_filter=normalized_reason_filter,
+    )
+    previous_24h_totals_map = await _load_recent_window_totals(
+        now_utc=effective_now_utc,
+        start_offset_hours=24,
+        duration_hours=24,
         event_type_filter=event_type_filter,
         reason_filter=normalized_reason_filter,
     )
     last_7d_totals_map = await _load_recent_window_totals(
         now_utc=effective_now_utc,
-        hours=24 * 7,
+        start_offset_hours=0,
+        duration_hours=24 * 7,
         event_type_filter=event_type_filter,
         reason_filter=normalized_reason_filter,
     )
 
+    last_24h_totals = _totals_from_map(last_24h_totals_map)
+    previous_24h_totals = _totals_from_map(previous_24h_totals_map)
+
     return NotificationMetricsSnapshot(
         all_time=_totals_from_map(all_time_totals_map),
-        last_24h=_totals_from_map(last_24h_totals_map),
+        last_24h=last_24h_totals,
+        previous_24h=previous_24h_totals,
+        delta_24h_vs_previous_24h=_totals_delta(
+            current=last_24h_totals,
+            previous=previous_24h_totals,
+        ),
         last_7d=_totals_from_map(last_7d_totals_map),
         top_suppressed=top_suppressed,
     )
