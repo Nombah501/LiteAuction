@@ -138,6 +138,9 @@ _NOTIFICATION_EVENT_LABELS: dict[NotificationEventType, str] = {
     NotificationEventType.SUPPORT: "Поддержка",
 }
 
+_NOTIFSTATS_WINDOWS: frozenset[str] = frozenset({"24h", "7d", "all"})
+NotifstatsWindow = Literal["24h", "7d", "all"]
+
 
 @dataclass(slots=True)
 class _PendingChecklistReply:
@@ -740,10 +743,11 @@ def _notifstats_usage_text(*, error: str | None = None) -> str:
         lines.append(error)
     lines.extend(
         [
-            "Формат: /notifstats [compact] [event=<type>] [reason=<token>]",
-            "Сокращенно: /notifstats [compact] [<type>] [<token>]",
+            "Формат: /notifstats [compact] [window=<24h|7d|all>] [event=<type>] [reason=<token>]",
+            "Сокращенно: /notifstats [compact] [24h|7d|all] [<type>] [<token>]",
             f"Доступные <type>: {available_types}",
             "compact: короткий режим для мобильных клиентов",
+            "window: выбрать одно окно (24h, 7d, all) для короткого вывода",
         ]
     )
     return "\n".join(lines)
@@ -751,21 +755,28 @@ def _notifstats_usage_text(*, error: str | None = None) -> str:
 
 def _parse_notifstats_filters(
     text: str | None,
-) -> tuple[NotificationEventType | None, str | None, bool, str | None]:
+) -> tuple[NotificationEventType | None, str | None, bool, NotifstatsWindow | None, str | None]:
     if text is None:
-        return None, None, False, None
+        return None, None, False, None, None
 
     parts = text.split()
     if not parts:
-        return None, None, False, None
+        return None, None, False, None, None
 
     args = parts[1:]
-    if len(args) > 3:
-        return None, None, False, _notifstats_usage_text(error="Слишком много фильтров для /notifstats.")
+    if len(args) > 4:
+        return (
+            None,
+            None,
+            False,
+            None,
+            _notifstats_usage_text(error="Слишком много фильтров для /notifstats."),
+        )
 
     event_filter: NotificationEventType | None = None
     reason_filter: str | None = None
     compact_mode = False
+    window_filter: NotifstatsWindow | None = None
 
     for raw_arg in args:
         token = raw_arg.strip()
@@ -777,11 +788,52 @@ def _parse_notifstats_filters(
             compact_mode = True
             continue
 
+        if lowered in _NOTIFSTATS_WINDOWS:
+            parsed_window = cast(NotifstatsWindow, lowered)
+            if window_filter is not None and window_filter != parsed_window:
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error="Укажите только один window-фильтр."),
+                )
+            window_filter = parsed_window
+            continue
+
         if lowered.startswith("mode="):
             mode_token = lowered.removeprefix("mode=").strip()
             if mode_token != "compact":
-                return None, None, False, _notifstats_usage_text(error=f"Неизвестный mode: {mode_token}")
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error=f"Неизвестный mode: {mode_token}"),
+                )
             compact_mode = True
+            continue
+
+        if lowered.startswith("window="):
+            window_token = lowered.removeprefix("window=").strip()
+            if window_token not in _NOTIFSTATS_WINDOWS:
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error=f"Неизвестный window-фильтр: {window_token}"),
+                )
+            parsed_window = cast(NotifstatsWindow, window_token)
+            if window_filter is not None and window_filter != parsed_window:
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error="Укажите только один window-фильтр."),
+                )
+            window_filter = parsed_window
             continue
 
         if lowered.startswith("event="):
@@ -789,18 +841,42 @@ def _parse_notifstats_filters(
             try:
                 parsed_event = NotificationEventType(event_token)
             except ValueError:
-                return None, None, False, _notifstats_usage_text(error=f"Неизвестный event-фильтр: {event_token}")
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error=f"Неизвестный event-фильтр: {event_token}"),
+                )
             if event_filter is not None and event_filter != parsed_event:
-                return None, None, False, _notifstats_usage_text(error="Укажите только один event-фильтр.")
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error="Укажите только один event-фильтр."),
+                )
             event_filter = parsed_event
             continue
 
         if lowered.startswith("reason="):
             reason_token = lowered.removeprefix("reason=").strip()
             if not reason_token or not any(char.isalnum() for char in reason_token):
-                return None, None, False, _notifstats_usage_text(error="reason-фильтр должен содержать буквы или цифры.")
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error="reason-фильтр должен содержать буквы или цифры."),
+                )
             if reason_filter is not None and reason_filter != reason_token:
-                return None, None, False, _notifstats_usage_text(error="Укажите только один reason-фильтр.")
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error="Укажите только один reason-фильтр."),
+                )
             reason_filter = reason_token
             continue
 
@@ -810,17 +886,35 @@ def _parse_notifstats_filters(
             parsed_event = None
         if parsed_event is not None:
             if event_filter is not None and event_filter != parsed_event:
-                return None, None, False, _notifstats_usage_text(error="Укажите только один event-фильтр.")
+                return (
+                    None,
+                    None,
+                    False,
+                    None,
+                    _notifstats_usage_text(error="Укажите только один event-фильтр."),
+                )
             event_filter = parsed_event
             continue
 
         if reason_filter is not None:
-            return None, None, False, _notifstats_usage_text(error=f"Некорректная комбинация фильтров: {token}")
+            return (
+                None,
+                None,
+                False,
+                None,
+                _notifstats_usage_text(error=f"Некорректная комбинация фильтров: {token}"),
+            )
         if not any(char.isalnum() for char in lowered):
-            return None, None, False, _notifstats_usage_text(error="reason-фильтр должен содержать буквы или цифры.")
+            return (
+                None,
+                None,
+                False,
+                None,
+                _notifstats_usage_text(error="reason-фильтр должен содержать буквы или цифры."),
+            )
         reason_filter = lowered
 
-    return event_filter, reason_filter, compact_mode, None
+    return event_filter, reason_filter, compact_mode, window_filter, None
 
 
 async def _render_notification_metrics_snapshot_text(
@@ -828,6 +922,7 @@ async def _render_notification_metrics_snapshot_text(
     event_type_filter: NotificationEventType | None = None,
     reason_filter: str | None = None,
     compact_mode: bool = False,
+    window_filter: NotifstatsWindow | None = None,
 ) -> str:
     top_limit = 1 if compact_mode else 5
     snapshot = await load_notification_metrics_snapshot(
@@ -837,6 +932,7 @@ async def _render_notification_metrics_snapshot_text(
     )
     event_filter_label = event_type_filter.value if event_type_filter is not None else "all"
     reason_filter_label = reason_filter or "all"
+    window_filter_label = window_filter or "default"
     def _top_section(title: str, items: tuple, suppressed_total: int) -> list[str]:
         lines = [title]
         if not items:
@@ -851,7 +947,7 @@ async def _render_notification_metrics_snapshot_text(
 
     lines = [
         "Notification metrics snapshot",
-        f"Filters: event={event_filter_label}, reason={reason_filter_label}",
+        f"Filters: event={event_filter_label}, reason={reason_filter_label}, window={window_filter_label}",
     ]
     if snapshot.alert_hints:
         lines.append("Alert hints:")
@@ -860,6 +956,73 @@ async def _render_notification_metrics_snapshot_text(
         lines.append("")
 
     if compact_mode:
+        if window_filter == "all":
+            top_all = snapshot.top_suppressed[0] if snapshot.top_suppressed else None
+            top_line = (
+                f"all-time {_notification_event_label(top_all.event_type)}/{top_all.reason}: {top_all.total}"
+                if top_all is not None
+                else "нет данных"
+            )
+            lines.extend(
+                [
+                    "Compact totals:",
+                    (
+                        "- all-time: "
+                        f"sent={snapshot.all_time.sent_total}, "
+                        f"suppressed={snapshot.all_time.suppressed_total}, "
+                        f"aggregated={snapshot.all_time.aggregated_total}"
+                    ),
+                    f"- top-1 suppression: {top_line}",
+                ]
+            )
+            return "\n".join(lines)
+        if window_filter == "24h":
+            top_24h = snapshot.top_suppressed_24h[0] if snapshot.top_suppressed_24h else None
+            top_line = (
+                f"24h {_notification_event_label(top_24h.event_type)}/{top_24h.reason}: {top_24h.total}"
+                if top_24h is not None
+                else "нет данных"
+            )
+            lines.extend(
+                [
+                    "Compact totals:",
+                    (
+                        "- 24h: "
+                        f"sent={snapshot.last_24h.sent_total}, "
+                        f"suppressed={snapshot.last_24h.suppressed_total}, "
+                        f"aggregated={snapshot.last_24h.aggregated_total}"
+                    ),
+                    (
+                        "- delta24h: "
+                        f"sent={_delta_value(snapshot.delta_24h_vs_previous_24h.sent_delta)}, "
+                        f"suppressed={_delta_value(snapshot.delta_24h_vs_previous_24h.suppressed_delta)}, "
+                        f"aggregated={_delta_value(snapshot.delta_24h_vs_previous_24h.aggregated_delta)}"
+                    ),
+                    f"- top-1 suppression: {top_line}",
+                ]
+            )
+            return "\n".join(lines)
+        if window_filter == "7d":
+            top_7d = snapshot.top_suppressed_7d[0] if snapshot.top_suppressed_7d else None
+            top_line = (
+                f"7d {_notification_event_label(top_7d.event_type)}/{top_7d.reason}: {top_7d.total}"
+                if top_7d is not None
+                else "нет данных"
+            )
+            lines.extend(
+                [
+                    "Compact totals:",
+                    (
+                        "- 7d: "
+                        f"sent={snapshot.last_7d.sent_total}, "
+                        f"suppressed={snapshot.last_7d.suppressed_total}, "
+                        f"aggregated={snapshot.last_7d.aggregated_total}"
+                    ),
+                    f"- top-1 suppression: {top_line}",
+                ]
+            )
+            return "\n".join(lines)
+
         top_24h = snapshot.top_suppressed_24h[0] if snapshot.top_suppressed_24h else None
         top_7d = snapshot.top_suppressed_7d[0] if snapshot.top_suppressed_7d else None
         top_all = snapshot.top_suppressed[0] if snapshot.top_suppressed else None
@@ -910,6 +1073,68 @@ async def _render_notification_metrics_snapshot_text(
                 ),
                 f"- top-1 suppression: {top_line}",
             ]
+        )
+        return "\n".join(lines)
+
+    if window_filter == "all":
+        lines.extend(
+            [
+                "All-time totals:",
+                f"- sent total: {snapshot.all_time.sent_total}",
+                f"- suppressed total: {snapshot.all_time.suppressed_total}",
+                f"- aggregated total: {snapshot.all_time.aggregated_total}",
+                "",
+            ]
+        )
+        lines.extend(
+            _top_section(
+                "Top suppression reasons (event/reason, all-time):",
+                snapshot.top_suppressed,
+                snapshot.all_time.suppressed_total,
+            )
+        )
+        return "\n".join(lines)
+
+    if window_filter == "24h":
+        lines.extend(
+            [
+                "Last 24h totals:",
+                f"- sent total (24h): {snapshot.last_24h.sent_total}",
+                f"- suppressed total (24h): {snapshot.last_24h.suppressed_total}",
+                f"- aggregated total (24h): {snapshot.last_24h.aggregated_total}",
+                "",
+                "24h delta vs previous 24h:",
+                f"- sent delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.sent_delta)}",
+                f"- suppressed delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.suppressed_delta)}",
+                f"- aggregated delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.aggregated_delta)}",
+                "",
+            ]
+        )
+        lines.extend(
+            _top_section(
+                "Top suppression reasons (24h):",
+                snapshot.top_suppressed_24h,
+                snapshot.last_24h.suppressed_total,
+            )
+        )
+        return "\n".join(lines)
+
+    if window_filter == "7d":
+        lines.extend(
+            [
+                "Last 7d totals:",
+                f"- sent total (7d): {snapshot.last_7d.sent_total}",
+                f"- suppressed total (7d): {snapshot.last_7d.suppressed_total}",
+                f"- aggregated total (7d): {snapshot.last_7d.aggregated_total}",
+                "",
+            ]
+        )
+        lines.extend(
+            _top_section(
+                "Top suppression reasons (7d):",
+                snapshot.top_suppressed_7d,
+                snapshot.last_7d.suppressed_total,
+            )
         )
         return "\n".join(lines)
 
@@ -1012,7 +1237,7 @@ async def mod_help(message: Message, bot: Bot) -> None:
         "/mod",
         "/modpanel",
         "/modstats",
-        "/notifstats [compact] [event] [reason]",
+        "/notifstats [compact] [window] [event] [reason]",
         "/audit [auction_uuid]",
         "/risk [auction_uuid]",
     ]
@@ -1091,7 +1316,9 @@ async def mod_notification_stats(message: Message, bot: Bot | None = None) -> No
     if not await _require_moderator(message):
         return
 
-    event_filter, reason_filter, compact_mode, parse_error = _parse_notifstats_filters(message.text)
+    event_filter, reason_filter, compact_mode, window_filter, parse_error = _parse_notifstats_filters(
+        message.text
+    )
     if parse_error is not None:
         await message.answer(parse_error)
         return
@@ -1107,6 +1334,7 @@ async def mod_notification_stats(message: Message, bot: Bot | None = None) -> No
             event_type_filter=event_filter,
             reason_filter=reason_filter,
             compact_mode=compact_mode,
+            window_filter=window_filter,
         )
     )
 

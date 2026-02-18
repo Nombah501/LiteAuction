@@ -90,6 +90,12 @@ When escalating to engineering, include:
 
 Use `/notifstats` in private moderation topic for a compact Redis-based snapshot.
 
+Useful selector forms:
+
+- `/notifstats 24h` or `/notifstats window=24h`: only 24h totals/delta and 24h top suppression reasons
+- `/notifstats 7d` or `/notifstats window=7d`: only 7d totals and 7d top suppression reasons
+- `/notifstats all` or `/notifstats window=all`: only all-time totals and all-time top suppression reasons
+
 Output blocks:
 
 - `All-time totals`: cumulative counters since last metrics reset/Redis flush

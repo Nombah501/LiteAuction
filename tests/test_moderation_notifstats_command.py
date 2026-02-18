@@ -220,10 +220,98 @@ async def test_render_notification_metrics_snapshot_text_handles_zero_suppressed
 
 
 @pytest.mark.asyncio
+async def test_render_notification_metrics_snapshot_text_window_24h_only(monkeypatch) -> None:
+    async def _snapshot_loader(
+        *,
+        top_limit: int = 5,
+        event_type_filter: NotificationEventType | None = None,
+        reason_filter: str | None = None,
+    ) -> NotificationMetricsSnapshot:  # noqa: ARG001
+        return NotificationMetricsSnapshot(
+            all_time=NotificationMetricTotals(sent_total=30, suppressed_total=15, aggregated_total=6),
+            last_24h=NotificationMetricTotals(sent_total=8, suppressed_total=4, aggregated_total=2),
+            previous_24h=NotificationMetricTotals(sent_total=6, suppressed_total=3, aggregated_total=1),
+            delta_24h_vs_previous_24h=NotificationMetricDelta(sent_delta=2, suppressed_delta=1, aggregated_delta=1),
+            last_7d=NotificationMetricTotals(sent_total=22, suppressed_total=11, aggregated_total=5),
+            top_suppressed_24h=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.AUCTION_OUTBID,
+                    reason="blocked_master",
+                    total=3,
+                ),
+            ),
+            top_suppressed_7d=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.SUPPORT,
+                    reason="forbidden",
+                    total=7,
+                ),
+            ),
+            top_suppressed=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.AUCTION_OUTBID,
+                    reason="blocked_master",
+                    total=10,
+                ),
+            ),
+            alert_hints=(),
+        )
+
+    monkeypatch.setattr("app.bot.handlers.moderation.load_notification_metrics_snapshot", _snapshot_loader)
+
+    text = await _render_notification_metrics_snapshot_text(window_filter="24h")
+
+    assert "Last 24h totals:" in text
+    assert "24h delta vs previous 24h:" in text
+    assert "Top suppression reasons (24h):" in text
+    assert "Last 7d totals:" not in text
+    assert "All-time totals:" not in text
+
+
+@pytest.mark.asyncio
+async def test_render_notification_metrics_snapshot_text_compact_window_7d(monkeypatch) -> None:
+    async def _snapshot_loader(
+        *,
+        top_limit: int = 5,
+        event_type_filter: NotificationEventType | None = None,
+        reason_filter: str | None = None,
+    ) -> NotificationMetricsSnapshot:  # noqa: ARG001
+        return NotificationMetricsSnapshot(
+            all_time=NotificationMetricTotals(sent_total=30, suppressed_total=15, aggregated_total=6),
+            last_24h=NotificationMetricTotals(sent_total=8, suppressed_total=4, aggregated_total=2),
+            previous_24h=NotificationMetricTotals(sent_total=6, suppressed_total=3, aggregated_total=1),
+            delta_24h_vs_previous_24h=NotificationMetricDelta(sent_delta=2, suppressed_delta=1, aggregated_delta=1),
+            last_7d=NotificationMetricTotals(sent_total=22, suppressed_total=11, aggregated_total=5),
+            top_suppressed_24h=(),
+            top_suppressed_7d=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.SUPPORT,
+                    reason="forbidden",
+                    total=7,
+                ),
+            ),
+            top_suppressed=(),
+            alert_hints=(),
+        )
+
+    monkeypatch.setattr("app.bot.handlers.moderation.load_notification_metrics_snapshot", _snapshot_loader)
+
+    text = await _render_notification_metrics_snapshot_text(compact_mode=True, window_filter="7d")
+
+    assert "Compact totals:" in text
+    assert "- 7d: sent=22, suppressed=11, aggregated=5" in text
+    assert "top-1 suppression: 7d Поддержка/forbidden: 7" in text
+    assert "delta24h" not in text
+    assert "all-time:" not in text
+
+
+@pytest.mark.asyncio
 async def test_mod_notification_stats_sends_snapshot(monkeypatch) -> None:
     message = _DummyMessage()
     progress_calls: list[tuple[str, str]] = []
-    captured_render_filters: list[tuple[NotificationEventType | None, str | None, bool]] = []
+    captured_render_filters: list[
+        tuple[NotificationEventType | None, str | None, bool, str | None]
+    ] = []
 
     async def _ensure_topic(_message, _bot, _command_hint):
         return True
@@ -239,8 +327,9 @@ async def test_mod_notification_stats_sends_snapshot(monkeypatch) -> None:
         event_type_filter: NotificationEventType | None = None,
         reason_filter: str | None = None,
         compact_mode: bool = False,
+        window_filter: str | None = None,
     ) -> str:
-        captured_render_filters.append((event_type_filter, reason_filter, compact_mode))
+        captured_render_filters.append((event_type_filter, reason_filter, compact_mode, window_filter))
         return "snapshot text"
 
     monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
@@ -252,13 +341,15 @@ async def test_mod_notification_stats_sends_snapshot(monkeypatch) -> None:
 
     assert progress_calls == [("Собираю snapshot по метрикам уведомлений...", "notifstats")]
     assert message.answers == ["snapshot text"]
-    assert captured_render_filters == [(None, None, False)]
+    assert captured_render_filters == [(None, None, False, None)]
 
 
 @pytest.mark.asyncio
 async def test_mod_notification_stats_accepts_event_and_reason_filters(monkeypatch) -> None:
     message = _DummyMessage(text="/notifstats auction_outbid quiet")
-    captured_render_filters: list[tuple[NotificationEventType | None, str | None, bool]] = []
+    captured_render_filters: list[
+        tuple[NotificationEventType | None, str | None, bool, str | None]
+    ] = []
 
     async def _ensure_topic(_message, _bot, _command_hint):
         return True
@@ -274,8 +365,9 @@ async def test_mod_notification_stats_accepts_event_and_reason_filters(monkeypat
         event_type_filter: NotificationEventType | None = None,
         reason_filter: str | None = None,
         compact_mode: bool = False,
+        window_filter: str | None = None,
     ) -> str:
-        captured_render_filters.append((event_type_filter, reason_filter, compact_mode))
+        captured_render_filters.append((event_type_filter, reason_filter, compact_mode, window_filter))
         return "filtered snapshot"
 
     monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
@@ -286,13 +378,15 @@ async def test_mod_notification_stats_accepts_event_and_reason_filters(monkeypat
     await mod_notification_stats(message, bot=SimpleNamespace())
 
     assert message.answers == ["filtered snapshot"]
-    assert captured_render_filters == [(NotificationEventType.AUCTION_OUTBID, "quiet", False)]
+    assert captured_render_filters == [(NotificationEventType.AUCTION_OUTBID, "quiet", False, None)]
 
 
 @pytest.mark.asyncio
 async def test_mod_notification_stats_accepts_compact_mode(monkeypatch) -> None:
     message = _DummyMessage(text="/notifstats compact auction_outbid")
-    captured_render_filters: list[tuple[NotificationEventType | None, str | None, bool]] = []
+    captured_render_filters: list[
+        tuple[NotificationEventType | None, str | None, bool, str | None]
+    ] = []
 
     async def _ensure_topic(_message, _bot, _command_hint):
         return True
@@ -308,8 +402,9 @@ async def test_mod_notification_stats_accepts_compact_mode(monkeypatch) -> None:
         event_type_filter: NotificationEventType | None = None,
         reason_filter: str | None = None,
         compact_mode: bool = False,
+        window_filter: str | None = None,
     ) -> str:
-        captured_render_filters.append((event_type_filter, reason_filter, compact_mode))
+        captured_render_filters.append((event_type_filter, reason_filter, compact_mode, window_filter))
         return "compact snapshot"
 
     monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
@@ -320,7 +415,44 @@ async def test_mod_notification_stats_accepts_compact_mode(monkeypatch) -> None:
     await mod_notification_stats(message, bot=SimpleNamespace())
 
     assert message.answers == ["compact snapshot"]
-    assert captured_render_filters == [(NotificationEventType.AUCTION_OUTBID, None, True)]
+    assert captured_render_filters == [(NotificationEventType.AUCTION_OUTBID, None, True, None)]
+
+
+@pytest.mark.asyncio
+async def test_mod_notification_stats_accepts_window_selector(monkeypatch) -> None:
+    message = _DummyMessage(text="/notifstats 24h auction_outbid")
+    captured_render_filters: list[
+        tuple[NotificationEventType | None, str | None, bool, str | None]
+    ] = []
+
+    async def _ensure_topic(_message, _bot, _command_hint):
+        return True
+
+    async def _require_moderator(_message):
+        return True
+
+    async def _send_progress(bot, _message, *, text: str, scope_key: str):  # noqa: ARG001
+        return None
+
+    async def _render_snapshot(
+        *,
+        event_type_filter: NotificationEventType | None = None,
+        reason_filter: str | None = None,
+        compact_mode: bool = False,
+        window_filter: str | None = None,
+    ) -> str:
+        captured_render_filters.append((event_type_filter, reason_filter, compact_mode, window_filter))
+        return "window snapshot"
+
+    monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
+    monkeypatch.setattr("app.bot.handlers.moderation._require_moderator", _require_moderator)
+    monkeypatch.setattr("app.bot.handlers.moderation.send_progress_draft", _send_progress)
+    monkeypatch.setattr("app.bot.handlers.moderation._render_notification_metrics_snapshot_text", _render_snapshot)
+
+    await mod_notification_stats(message, bot=SimpleNamespace())
+
+    assert message.answers == ["window snapshot"]
+    assert captured_render_filters == [(NotificationEventType.AUCTION_OUTBID, None, False, "24h")]
 
 
 @pytest.mark.asyncio
@@ -363,6 +495,25 @@ async def test_mod_notification_stats_rejects_unknown_mode(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mod_notification_stats_rejects_unknown_window(monkeypatch) -> None:
+    message = _DummyMessage(text="/notifstats window=30d")
+
+    async def _ensure_topic(_message, _bot, _command_hint):
+        return True
+
+    async def _require_moderator(_message):
+        return True
+
+    monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
+    monkeypatch.setattr("app.bot.handlers.moderation._require_moderator", _require_moderator)
+
+    await mod_notification_stats(message, bot=SimpleNamespace())
+
+    assert len(message.answers) == 1
+    assert "Неизвестный window-фильтр" in message.answers[0]
+
+
+@pytest.mark.asyncio
 async def test_mod_help_lists_notifstats_command(monkeypatch) -> None:
     message = _DummyMessage(text="/mod")
 
@@ -383,4 +534,4 @@ async def test_mod_help_lists_notifstats_command(monkeypatch) -> None:
     await mod_help(message, bot=SimpleNamespace())
 
     assert message.answers
-    assert "/notifstats [compact] [event] [reason]" in message.answers[-1]
+    assert "/notifstats [compact] [window] [event] [reason]" in message.answers[-1]
