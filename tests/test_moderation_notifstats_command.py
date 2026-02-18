@@ -47,7 +47,15 @@ class _DummySessionFactory:
 
 @pytest.mark.asyncio
 async def test_render_notification_metrics_snapshot_text_includes_top_reasons(monkeypatch) -> None:
-    async def _snapshot_loader(*, top_limit: int = 5) -> NotificationMetricsSnapshot:  # noqa: ARG001
+    captured_filters: list[tuple[NotificationEventType | None, str | None]] = []
+
+    async def _snapshot_loader(
+        *,
+        top_limit: int = 5,
+        event_type_filter: NotificationEventType | None = None,
+        reason_filter: str | None = None,
+    ) -> NotificationMetricsSnapshot:  # noqa: ARG001
+        captured_filters.append((event_type_filter, reason_filter))
         return NotificationMetricsSnapshot(
             all_time=NotificationMetricTotals(sent_total=11, suppressed_total=7, aggregated_total=5),
             last_24h=NotificationMetricTotals(sent_total=4, suppressed_total=2, aggregated_total=1),
@@ -82,12 +90,14 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
     assert "aggregated total (7d): 3" in text
     assert "Перебили ставку / blocked_master: 4" in text
     assert "Поддержка / forbidden: 3" in text
+    assert captured_filters == [(None, None)]
 
 
 @pytest.mark.asyncio
 async def test_mod_notification_stats_sends_snapshot(monkeypatch) -> None:
     message = _DummyMessage()
     progress_calls: list[tuple[str, str]] = []
+    captured_render_filters: list[tuple[NotificationEventType | None, str | None]] = []
 
     async def _ensure_topic(_message, _bot, _command_hint):
         return True
@@ -98,7 +108,12 @@ async def test_mod_notification_stats_sends_snapshot(monkeypatch) -> None:
     async def _send_progress(bot, _message, *, text: str, scope_key: str):  # noqa: ARG001
         progress_calls.append((text, scope_key))
 
-    async def _render_snapshot() -> str:
+    async def _render_snapshot(
+        *,
+        event_type_filter: NotificationEventType | None = None,
+        reason_filter: str | None = None,
+    ) -> str:
+        captured_render_filters.append((event_type_filter, reason_filter))
         return "snapshot text"
 
     monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
@@ -110,6 +125,60 @@ async def test_mod_notification_stats_sends_snapshot(monkeypatch) -> None:
 
     assert progress_calls == [("Собираю snapshot по метрикам уведомлений...", "notifstats")]
     assert message.answers == ["snapshot text"]
+    assert captured_render_filters == [(None, None)]
+
+
+@pytest.mark.asyncio
+async def test_mod_notification_stats_accepts_event_and_reason_filters(monkeypatch) -> None:
+    message = _DummyMessage(text="/notifstats auction_outbid quiet")
+    captured_render_filters: list[tuple[NotificationEventType | None, str | None]] = []
+
+    async def _ensure_topic(_message, _bot, _command_hint):
+        return True
+
+    async def _require_moderator(_message):
+        return True
+
+    async def _send_progress(bot, _message, *, text: str, scope_key: str):  # noqa: ARG001
+        return None
+
+    async def _render_snapshot(
+        *,
+        event_type_filter: NotificationEventType | None = None,
+        reason_filter: str | None = None,
+    ) -> str:
+        captured_render_filters.append((event_type_filter, reason_filter))
+        return "filtered snapshot"
+
+    monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
+    monkeypatch.setattr("app.bot.handlers.moderation._require_moderator", _require_moderator)
+    monkeypatch.setattr("app.bot.handlers.moderation.send_progress_draft", _send_progress)
+    monkeypatch.setattr("app.bot.handlers.moderation._render_notification_metrics_snapshot_text", _render_snapshot)
+
+    await mod_notification_stats(message, bot=SimpleNamespace())
+
+    assert message.answers == ["filtered snapshot"]
+    assert captured_render_filters == [(NotificationEventType.AUCTION_OUTBID, "quiet")]
+
+
+@pytest.mark.asyncio
+async def test_mod_notification_stats_rejects_invalid_filters_with_help(monkeypatch) -> None:
+    message = _DummyMessage(text="/notifstats event=unknown")
+
+    async def _ensure_topic(_message, _bot, _command_hint):
+        return True
+
+    async def _require_moderator(_message):
+        return True
+
+    monkeypatch.setattr("app.bot.handlers.moderation._ensure_moderation_topic", _ensure_topic)
+    monkeypatch.setattr("app.bot.handlers.moderation._require_moderator", _require_moderator)
+
+    await mod_notification_stats(message, bot=SimpleNamespace())
+
+    assert len(message.answers) == 1
+    assert "Формат: /notifstats" in message.answers[0]
+    assert "Неизвестный event-фильтр" in message.answers[0]
 
 
 @pytest.mark.asyncio
@@ -133,4 +202,4 @@ async def test_mod_help_lists_notifstats_command(monkeypatch) -> None:
     await mod_help(message, bot=SimpleNamespace())
 
     assert message.answers
-    assert "/notifstats" in message.answers[-1]
+    assert "/notifstats [event] [reason]" in message.answers[-1]

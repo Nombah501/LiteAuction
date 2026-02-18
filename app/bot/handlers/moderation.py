@@ -713,10 +713,98 @@ def _notification_event_label(event_type: NotificationEventType) -> str:
     return _NOTIFICATION_EVENT_LABELS.get(event_type, event_type.value)
 
 
-async def _render_notification_metrics_snapshot_text() -> str:
-    snapshot = await load_notification_metrics_snapshot(top_limit=5)
+def _notifstats_usage_text(*, error: str | None = None) -> str:
+    available_types = ", ".join(event.value for event in NotificationEventType)
+    lines = []
+    if error:
+        lines.append(error)
+    lines.extend(
+        [
+            "Формат: /notifstats [event=<type>] [reason=<token>]",
+            "Сокращенно: /notifstats [<type>] [<token>]",
+            f"Доступные <type>: {available_types}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _parse_notifstats_filters(
+    text: str | None,
+) -> tuple[NotificationEventType | None, str | None, str | None]:
+    if text is None:
+        return None, None, None
+
+    parts = text.split()
+    if not parts:
+        return None, None, None
+
+    args = parts[1:]
+    if len(args) > 2:
+        return None, None, _notifstats_usage_text(error="Слишком много фильтров для /notifstats.")
+
+    event_filter: NotificationEventType | None = None
+    reason_filter: str | None = None
+
+    for raw_arg in args:
+        token = raw_arg.strip()
+        if not token:
+            continue
+
+        lowered = token.lower()
+        if lowered.startswith("event="):
+            event_token = lowered.removeprefix("event=").strip()
+            try:
+                parsed_event = NotificationEventType(event_token)
+            except ValueError:
+                return None, None, _notifstats_usage_text(error=f"Неизвестный event-фильтр: {event_token}")
+            if event_filter is not None and event_filter != parsed_event:
+                return None, None, _notifstats_usage_text(error="Укажите только один event-фильтр.")
+            event_filter = parsed_event
+            continue
+
+        if lowered.startswith("reason="):
+            reason_token = lowered.removeprefix("reason=").strip()
+            if not reason_token or not any(char.isalnum() for char in reason_token):
+                return None, None, _notifstats_usage_text(error="reason-фильтр должен содержать буквы или цифры.")
+            if reason_filter is not None and reason_filter != reason_token:
+                return None, None, _notifstats_usage_text(error="Укажите только один reason-фильтр.")
+            reason_filter = reason_token
+            continue
+
+        try:
+            parsed_event = NotificationEventType(lowered)
+        except ValueError:
+            parsed_event = None
+        if parsed_event is not None:
+            if event_filter is not None and event_filter != parsed_event:
+                return None, None, _notifstats_usage_text(error="Укажите только один event-фильтр.")
+            event_filter = parsed_event
+            continue
+
+        if reason_filter is not None:
+            return None, None, _notifstats_usage_text(error=f"Некорректная комбинация фильтров: {token}")
+        if not any(char.isalnum() for char in lowered):
+            return None, None, _notifstats_usage_text(error="reason-фильтр должен содержать буквы или цифры.")
+        reason_filter = lowered
+
+    return event_filter, reason_filter, None
+
+
+async def _render_notification_metrics_snapshot_text(
+    *,
+    event_type_filter: NotificationEventType | None = None,
+    reason_filter: str | None = None,
+) -> str:
+    snapshot = await load_notification_metrics_snapshot(
+        top_limit=5,
+        event_type_filter=event_type_filter,
+        reason_filter=reason_filter,
+    )
+    event_filter_label = event_type_filter.value if event_type_filter is not None else "all"
+    reason_filter_label = reason_filter or "all"
     lines = [
         "Notification metrics snapshot",
+        f"Filters: event={event_filter_label}, reason={reason_filter_label}",
         "All-time totals:",
         f"- sent total: {snapshot.all_time.sent_total}",
         f"- suppressed total: {snapshot.all_time.suppressed_total}",
@@ -793,7 +881,7 @@ async def mod_help(message: Message, bot: Bot) -> None:
         "/mod",
         "/modpanel",
         "/modstats",
-        "/notifstats",
+        "/notifstats [event] [reason]",
         "/audit [auction_uuid]",
         "/risk [auction_uuid]",
     ]
@@ -872,13 +960,23 @@ async def mod_notification_stats(message: Message, bot: Bot | None = None) -> No
     if not await _require_moderator(message):
         return
 
+    event_filter, reason_filter, parse_error = _parse_notifstats_filters(message.text)
+    if parse_error is not None:
+        await message.answer(parse_error)
+        return
+
     await send_progress_draft(
         bot,
         message,
         text="Собираю snapshot по метрикам уведомлений...",
         scope_key="notifstats",
     )
-    await message.answer(await _render_notification_metrics_snapshot_text())
+    await message.answer(
+        await _render_notification_metrics_snapshot_text(
+            event_type_filter=event_filter,
+            reason_filter=reason_filter,
+        )
+    )
 
 
 @router.message(Command("botphoto"), F.chat.type == ChatType.PRIVATE)
