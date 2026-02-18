@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 _METRIC_SCAN_MATCH = "notif:metrics:*"
 _METRIC_HOURLY_RETENTION_HOURS = 10 * 24
 _METRIC_HOURLY_RETENTION_SECONDS = _METRIC_HOURLY_RETENTION_HOURS * 3600
+_SUPPRESSED_DELTA_WARNING_THRESHOLD = 30
+_SUPPRESSED_DELTA_HIGH_THRESHOLD = 80
+_SUPPRESSED_DELTA_CRITICAL_THRESHOLD = 150
+_TOP_SUPPRESSION_SHARE_WARNING_THRESHOLD = 0.35
+_FORBIDDEN_BAD_REQUEST_SHARE_HIGH_THRESHOLD = 0.25
+_SENT_DELTA_CRITICAL_DROP_THRESHOLD = -80
 
 
 @dataclass(slots=True, frozen=True)
@@ -27,6 +33,28 @@ class NotificationMetricDelta:
     sent_delta: int
     suppressed_delta: int
     aggregated_delta: int
+
+
+class NotificationAlertSeverity(StrEnum):
+    WARNING = "warning"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class NotificationAlertCode(StrEnum):
+    SUPPRESSED_DELTA_WARNING = "suppressed_delta_warning"
+    SUPPRESSED_DELTA_HIGH = "suppressed_delta_high"
+    SUPPRESSED_DELTA_CRITICAL = "suppressed_delta_critical"
+    TOP_SUPPRESSION_SHARE_WARNING = "top_suppression_share_warning"
+    FORBIDDEN_BAD_REQUEST_SHARE_HIGH = "forbidden_bad_request_share_high"
+    SENT_DROP_WITH_SUPPRESSION_CRITICAL = "sent_drop_with_suppression_critical"
+
+
+@dataclass(slots=True, frozen=True)
+class NotificationAlertHint:
+    severity: NotificationAlertSeverity
+    code: NotificationAlertCode
+    message: str
 
 
 @dataclass(slots=True, frozen=True)
@@ -46,6 +74,7 @@ class NotificationMetricsSnapshot:
     top_suppressed: tuple[NotificationMetricBucket, ...]
     top_suppressed_24h: tuple[NotificationMetricBucket, ...]
     top_suppressed_7d: tuple[NotificationMetricBucket, ...]
+    alert_hints: tuple[NotificationAlertHint, ...]
 
 
 class NotificationMetricKind(StrEnum):
@@ -183,6 +212,107 @@ def _top_suppressed_from_groups(
             key=lambda item: (-item[1], item[0][0].value, item[0][1]),
         )[:normalized_top_limit]
     )
+
+
+def _notification_bucket_label(item: NotificationMetricBucket) -> str:
+    return f"{item.event_type.value}/{item.reason}"
+
+
+def _format_signed_int(value: int) -> str:
+    if value > 0:
+        return f"+{value}"
+    return str(value)
+
+
+def _build_alert_hints(
+    *,
+    last_24h: NotificationMetricTotals,
+    delta_24h_vs_previous_24h: NotificationMetricDelta,
+    top_suppressed_24h: tuple[NotificationMetricBucket, ...],
+    forbidden_bad_request_suppressed_24h_total: int,
+) -> tuple[NotificationAlertHint, ...]:
+    hints: list[NotificationAlertHint] = []
+    suppressed_delta = delta_24h_vs_previous_24h.suppressed_delta
+
+    if suppressed_delta >= _SUPPRESSED_DELTA_CRITICAL_THRESHOLD:
+        hints.append(
+            NotificationAlertHint(
+                severity=NotificationAlertSeverity.CRITICAL,
+                code=NotificationAlertCode.SUPPRESSED_DELTA_CRITICAL,
+                message=(
+                    f"suppressed delta {_format_signed_int(suppressed_delta)} "
+                    f">= +{_SUPPRESSED_DELTA_CRITICAL_THRESHOLD}"
+                ),
+            )
+        )
+    elif suppressed_delta >= _SUPPRESSED_DELTA_HIGH_THRESHOLD:
+        hints.append(
+            NotificationAlertHint(
+                severity=NotificationAlertSeverity.HIGH,
+                code=NotificationAlertCode.SUPPRESSED_DELTA_HIGH,
+                message=(
+                    f"suppressed delta {_format_signed_int(suppressed_delta)} "
+                    f">= +{_SUPPRESSED_DELTA_HIGH_THRESHOLD}"
+                ),
+            )
+        )
+    elif suppressed_delta >= _SUPPRESSED_DELTA_WARNING_THRESHOLD:
+        hints.append(
+            NotificationAlertHint(
+                severity=NotificationAlertSeverity.WARNING,
+                code=NotificationAlertCode.SUPPRESSED_DELTA_WARNING,
+                message=(
+                    f"suppressed delta {_format_signed_int(suppressed_delta)} "
+                    f">= +{_SUPPRESSED_DELTA_WARNING_THRESHOLD}"
+                ),
+            )
+        )
+
+    if (
+        delta_24h_vs_previous_24h.sent_delta <= _SENT_DELTA_CRITICAL_DROP_THRESHOLD
+        and suppressed_delta > 0
+    ):
+        hints.append(
+            NotificationAlertHint(
+                severity=NotificationAlertSeverity.CRITICAL,
+                code=NotificationAlertCode.SENT_DROP_WITH_SUPPRESSION_CRITICAL,
+                message=(
+                    f"sent delta {_format_signed_int(delta_24h_vs_previous_24h.sent_delta)} <= "
+                    f"{_SENT_DELTA_CRITICAL_DROP_THRESHOLD} with suppression growth"
+                ),
+            )
+        )
+
+    suppressed_total = last_24h.suppressed_total
+    if suppressed_total > 0 and top_suppressed_24h:
+        top_item = top_suppressed_24h[0]
+        top_share = top_item.total / suppressed_total
+        if top_share >= _TOP_SUPPRESSION_SHARE_WARNING_THRESHOLD:
+            hints.append(
+                NotificationAlertHint(
+                    severity=NotificationAlertSeverity.WARNING,
+                    code=NotificationAlertCode.TOP_SUPPRESSION_SHARE_WARNING,
+                    message=(
+                        f"top 24h suppression share {top_share:.0%} "
+                        f"({_notification_bucket_label(top_item)} / {top_item.total} of {suppressed_total})"
+                    ),
+                )
+            )
+
+        forbidden_bad_request_share = forbidden_bad_request_suppressed_24h_total / suppressed_total
+        if forbidden_bad_request_share >= _FORBIDDEN_BAD_REQUEST_SHARE_HIGH_THRESHOLD:
+            hints.append(
+                NotificationAlertHint(
+                    severity=NotificationAlertSeverity.HIGH,
+                    code=NotificationAlertCode.FORBIDDEN_BAD_REQUEST_SHARE_HIGH,
+                    message=(
+                        f"forbidden+bad_request share {forbidden_bad_request_share:.0%} "
+                        f"({forbidden_bad_request_suppressed_24h_total} of {suppressed_total})"
+                    ),
+                )
+            )
+
+    return tuple(hints)
 
 
 async def _record_metric(
@@ -344,7 +474,7 @@ async def _load_recent_window_totals(
     top_limit: int,
     event_type_filter: NotificationEventType | None,
     reason_filter: str | None,
-) -> tuple[dict[NotificationMetricKind, int], tuple[NotificationMetricBucket, ...]]:
+) -> tuple[dict[NotificationMetricKind, int], tuple[NotificationMetricBucket, ...], int]:
     buckets = set(
         _window_hour_buckets(
             now_utc=now_utc,
@@ -354,6 +484,7 @@ async def _load_recent_window_totals(
     )
     totals = _empty_totals_map()
     suppressed_groups: dict[tuple[NotificationEventType, str], int] = {}
+    forbidden_bad_request_suppressed_total = 0
 
     try:
         for hour_bucket in buckets:
@@ -394,6 +525,8 @@ async def _load_recent_window_totals(
                         if kind == NotificationMetricKind.SUPPRESSED:
                             group_key = (event_type, reason)
                             suppressed_groups[group_key] = suppressed_groups.get(group_key, 0) + value
+                            if reason in {"forbidden", "bad_request"}:
+                                forbidden_bad_request_suppressed_total += value
 
                 if cursor == 0:
                     break
@@ -405,7 +538,11 @@ async def _load_recent_window_totals(
             exc,
         )
 
-    return totals, _top_suppressed_from_groups(suppressed_groups=suppressed_groups, top_limit=top_limit)
+    return (
+        totals,
+        _top_suppressed_from_groups(suppressed_groups=suppressed_groups, top_limit=top_limit),
+        forbidden_bad_request_suppressed_total,
+    )
 
 
 async def load_notification_metrics_snapshot(
@@ -455,23 +592,34 @@ async def load_notification_metrics_snapshot(
         reason_filter=normalized_reason_filter,
     )
 
-    last_24h_totals_values, top_suppressed_24h = last_24h_totals_map
-    previous_24h_totals_values, _ = previous_24h_totals_map
-    last_7d_totals_values, top_suppressed_7d = last_7d_totals_map
+    (
+        last_24h_totals_values,
+        top_suppressed_24h,
+        forbidden_bad_request_suppressed_24h_total,
+    ) = last_24h_totals_map
+    previous_24h_totals_values, _, _ = previous_24h_totals_map
+    last_7d_totals_values, top_suppressed_7d, _ = last_7d_totals_map
 
     last_24h_totals = _totals_from_map(last_24h_totals_values)
     previous_24h_totals = _totals_from_map(previous_24h_totals_values)
+    delta_24h_vs_previous_24h = _totals_delta(
+        current=last_24h_totals,
+        previous=previous_24h_totals,
+    )
 
     return NotificationMetricsSnapshot(
         all_time=_totals_from_map(all_time_totals_map),
         last_24h=last_24h_totals,
         previous_24h=previous_24h_totals,
-        delta_24h_vs_previous_24h=_totals_delta(
-            current=last_24h_totals,
-            previous=previous_24h_totals,
-        ),
+        delta_24h_vs_previous_24h=delta_24h_vs_previous_24h,
         last_7d=_totals_from_map(last_7d_totals_values),
         top_suppressed=top_suppressed,
         top_suppressed_24h=top_suppressed_24h,
         top_suppressed_7d=top_suppressed_7d,
+        alert_hints=_build_alert_hints(
+            last_24h=last_24h_totals,
+            delta_24h_vs_previous_24h=delta_24h_vs_previous_24h,
+            top_suppressed_24h=top_suppressed_24h,
+            forbidden_bad_request_suppressed_24h_total=forbidden_bad_request_suppressed_24h_total,
+        ),
     )

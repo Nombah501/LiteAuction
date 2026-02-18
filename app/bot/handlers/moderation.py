@@ -719,6 +719,14 @@ def _delta_value(delta: int) -> str:
     return str(delta)
 
 
+def _alert_prefix(severity: str) -> str:
+    if severity == "critical":
+        return "CRITICAL"
+    if severity == "high":
+        return "HIGH"
+    return "WARNING"
+
+
 def _notifstats_usage_text(*, error: str | None = None) -> str:
     available_types = ", ".join(event.value for event in NotificationEventType)
     lines = []
@@ -822,27 +830,37 @@ async def _render_notification_metrics_snapshot_text(
     lines = [
         "Notification metrics snapshot",
         f"Filters: event={event_filter_label}, reason={reason_filter_label}",
-        "All-time totals:",
-        f"- sent total: {snapshot.all_time.sent_total}",
-        f"- suppressed total: {snapshot.all_time.suppressed_total}",
-        f"- aggregated total: {snapshot.all_time.aggregated_total}",
-        "",
-        "Last 24h totals:",
-        f"- sent total (24h): {snapshot.last_24h.sent_total}",
-        f"- suppressed total (24h): {snapshot.last_24h.suppressed_total}",
-        f"- aggregated total (24h): {snapshot.last_24h.aggregated_total}",
-        "",
-        "24h delta vs previous 24h:",
-        f"- sent delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.sent_delta)}",
-        f"- suppressed delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.suppressed_delta)}",
-        f"- aggregated delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.aggregated_delta)}",
-        "",
-        "Last 7d totals:",
-        f"- sent total (7d): {snapshot.last_7d.sent_total}",
-        f"- suppressed total (7d): {snapshot.last_7d.suppressed_total}",
-        f"- aggregated total (7d): {snapshot.last_7d.aggregated_total}",
-        "",
     ]
+    if snapshot.alert_hints:
+        lines.append("Alert hints:")
+        for hint in snapshot.alert_hints:
+            lines.append(f"- {_alert_prefix(hint.severity.value)}: {hint.message}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "All-time totals:",
+            f"- sent total: {snapshot.all_time.sent_total}",
+            f"- suppressed total: {snapshot.all_time.suppressed_total}",
+            f"- aggregated total: {snapshot.all_time.aggregated_total}",
+            "",
+            "Last 24h totals:",
+            f"- sent total (24h): {snapshot.last_24h.sent_total}",
+            f"- suppressed total (24h): {snapshot.last_24h.suppressed_total}",
+            f"- aggregated total (24h): {snapshot.last_24h.aggregated_total}",
+            "",
+            "24h delta vs previous 24h:",
+            f"- sent delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.sent_delta)}",
+            f"- suppressed delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.suppressed_delta)}",
+            f"- aggregated delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.aggregated_delta)}",
+            "",
+            "Last 7d totals:",
+            f"- sent total (7d): {snapshot.last_7d.sent_total}",
+            f"- suppressed total (7d): {snapshot.last_7d.suppressed_total}",
+            f"- aggregated total (7d): {snapshot.last_7d.aggregated_total}",
+            "",
+        ]
+    )
     lines.extend(_top_section("Top suppression reasons (24h):", snapshot.top_suppressed_24h))
     lines.append("")
     lines.extend(_top_section("Top suppression reasons (7d):", snapshot.top_suppressed_7d))
