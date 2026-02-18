@@ -67,6 +67,25 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
                 aggregated_delta=0,
             ),
             last_7d=NotificationMetricTotals(sent_total=9, suppressed_total=5, aggregated_total=3),
+            top_suppressed_24h=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.AUCTION_OUTBID,
+                    reason="blocked_master",
+                    total=2,
+                ),
+            ),
+            top_suppressed_7d=(
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.AUCTION_OUTBID,
+                    reason="blocked_master",
+                    total=4,
+                ),
+                NotificationMetricBucket(
+                    event_type=NotificationEventType.SUPPORT,
+                    reason="forbidden",
+                    total=3,
+                ),
+            ),
             top_suppressed=(
                 NotificationMetricBucket(
                     event_type=NotificationEventType.AUCTION_OUTBID,
@@ -98,6 +117,8 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
     assert "sent total (7d): 9" in text
     assert "suppressed total (7d): 5" in text
     assert "aggregated total (7d): 3" in text
+    assert "Top suppression reasons (24h):" in text
+    assert "Top suppression reasons (7d):" in text
     assert "Перебили ставку / blocked_master: 4" in text
     assert "Поддержка / forbidden: 3" in text
     assert captured_filters == [(None, None)]
