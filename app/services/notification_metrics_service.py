@@ -44,6 +44,8 @@ class NotificationMetricsSnapshot:
     delta_24h_vs_previous_24h: NotificationMetricDelta
     last_7d: NotificationMetricTotals
     top_suppressed: tuple[NotificationMetricBucket, ...]
+    top_suppressed_24h: tuple[NotificationMetricBucket, ...]
+    top_suppressed_7d: tuple[NotificationMetricBucket, ...]
 
 
 class NotificationMetricKind(StrEnum):
@@ -165,6 +167,21 @@ def _totals_delta(*, current: NotificationMetricTotals, previous: NotificationMe
         sent_delta=current.sent_total - previous.sent_total,
         suppressed_delta=current.suppressed_total - previous.suppressed_total,
         aggregated_delta=current.aggregated_total - previous.aggregated_total,
+    )
+
+
+def _top_suppressed_from_groups(
+    *,
+    suppressed_groups: dict[tuple[NotificationEventType, str], int],
+    top_limit: int,
+) -> tuple[NotificationMetricBucket, ...]:
+    normalized_top_limit = max(int(top_limit), 1)
+    return tuple(
+        NotificationMetricBucket(event_type=event_type, reason=reason, total=total)
+        for (event_type, reason), total in sorted(
+            suppressed_groups.items(),
+            key=lambda item: (-item[1], item[0][0].value, item[0][1]),
+        )[:normalized_top_limit]
     )
 
 
@@ -311,13 +328,9 @@ async def _load_all_time_totals_and_top(
     except Exception as exc:  # noqa: BLE001
         logger.warning("notification_metrics_snapshot_failed error=%s", exc)
 
-    normalized_top_limit = max(int(top_limit), 1)
-    top_suppressed = tuple(
-        NotificationMetricBucket(event_type=event_type, reason=reason, total=total)
-        for (event_type, reason), total in sorted(
-            suppressed_groups.items(),
-            key=lambda item: (-item[1], item[0][0].value, item[0][1]),
-        )[:normalized_top_limit]
+    top_suppressed = _top_suppressed_from_groups(
+        suppressed_groups=suppressed_groups,
+        top_limit=top_limit,
     )
 
     return totals, top_suppressed
@@ -328,9 +341,10 @@ async def _load_recent_window_totals(
     now_utc: datetime,
     start_offset_hours: int,
     duration_hours: int,
+    top_limit: int,
     event_type_filter: NotificationEventType | None,
     reason_filter: str | None,
-) -> dict[NotificationMetricKind, int]:
+) -> tuple[dict[NotificationMetricKind, int], tuple[NotificationMetricBucket, ...]]:
     buckets = set(
         _window_hour_buckets(
             now_utc=now_utc,
@@ -339,6 +353,7 @@ async def _load_recent_window_totals(
         )
     )
     totals = _empty_totals_map()
+    suppressed_groups: dict[tuple[NotificationEventType, str], int] = {}
 
     try:
         for hour_bucket in buckets:
@@ -376,6 +391,9 @@ async def _load_recent_window_totals(
                             continue
 
                         totals[kind] += value
+                        if kind == NotificationMetricKind.SUPPRESSED:
+                            group_key = (event_type, reason)
+                            suppressed_groups[group_key] = suppressed_groups.get(group_key, 0) + value
 
                 if cursor == 0:
                     break
@@ -387,7 +405,7 @@ async def _load_recent_window_totals(
             exc,
         )
 
-    return totals
+    return totals, _top_suppressed_from_groups(suppressed_groups=suppressed_groups, top_limit=top_limit)
 
 
 async def load_notification_metrics_snapshot(
@@ -416,6 +434,7 @@ async def load_notification_metrics_snapshot(
         now_utc=effective_now_utc,
         start_offset_hours=0,
         duration_hours=24,
+        top_limit=top_limit,
         event_type_filter=event_type_filter,
         reason_filter=normalized_reason_filter,
     )
@@ -423,6 +442,7 @@ async def load_notification_metrics_snapshot(
         now_utc=effective_now_utc,
         start_offset_hours=24,
         duration_hours=24,
+        top_limit=top_limit,
         event_type_filter=event_type_filter,
         reason_filter=normalized_reason_filter,
     )
@@ -430,12 +450,17 @@ async def load_notification_metrics_snapshot(
         now_utc=effective_now_utc,
         start_offset_hours=0,
         duration_hours=24 * 7,
+        top_limit=top_limit,
         event_type_filter=event_type_filter,
         reason_filter=normalized_reason_filter,
     )
 
-    last_24h_totals = _totals_from_map(last_24h_totals_map)
-    previous_24h_totals = _totals_from_map(previous_24h_totals_map)
+    last_24h_totals_values, top_suppressed_24h = last_24h_totals_map
+    previous_24h_totals_values, _ = previous_24h_totals_map
+    last_7d_totals_values, top_suppressed_7d = last_7d_totals_map
+
+    last_24h_totals = _totals_from_map(last_24h_totals_values)
+    previous_24h_totals = _totals_from_map(previous_24h_totals_values)
 
     return NotificationMetricsSnapshot(
         all_time=_totals_from_map(all_time_totals_map),
@@ -445,6 +470,8 @@ async def load_notification_metrics_snapshot(
             current=last_24h_totals,
             previous=previous_24h_totals,
         ),
-        last_7d=_totals_from_map(last_7d_totals_map),
+        last_7d=_totals_from_map(last_7d_totals_values),
         top_suppressed=top_suppressed,
+        top_suppressed_24h=top_suppressed_24h,
+        top_suppressed_7d=top_suppressed_7d,
     )

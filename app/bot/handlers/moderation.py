@@ -808,6 +808,17 @@ async def _render_notification_metrics_snapshot_text(
     )
     event_filter_label = event_type_filter.value if event_type_filter is not None else "all"
     reason_filter_label = reason_filter or "all"
+    def _top_section(title: str, items: tuple) -> list[str]:
+        lines = [title]
+        if not items:
+            lines.append("- пока нет данных")
+            return lines
+        for item in items:
+            lines.append(
+                f"- {_notification_event_label(item.event_type)} / {item.reason}: {item.total}"
+            )
+        return lines
+
     lines = [
         "Notification metrics snapshot",
         f"Filters: event={event_filter_label}, reason={reason_filter_label}",
@@ -831,15 +842,12 @@ async def _render_notification_metrics_snapshot_text(
         f"- suppressed total (7d): {snapshot.last_7d.suppressed_total}",
         f"- aggregated total (7d): {snapshot.last_7d.aggregated_total}",
         "",
-        "Top suppression reasons (event/reason, all-time):",
     ]
-    if not snapshot.top_suppressed:
-        lines.append("- пока нет данных")
-    else:
-        for item in snapshot.top_suppressed:
-            lines.append(
-                f"- {_notification_event_label(item.event_type)} / {item.reason}: {item.total}"
-            )
+    lines.extend(_top_section("Top suppression reasons (24h):", snapshot.top_suppressed_24h))
+    lines.append("")
+    lines.extend(_top_section("Top suppression reasons (7d):", snapshot.top_suppressed_7d))
+    lines.append("")
+    lines.extend(_top_section("Top suppression reasons (event/reason, all-time):", snapshot.top_suppressed))
     return "\n".join(lines)
 
 

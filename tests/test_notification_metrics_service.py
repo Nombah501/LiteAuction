@@ -152,6 +152,20 @@ async def test_load_notification_metrics_snapshot_returns_totals_and_top_suppres
     assert snapshot.last_7d.sent_total == 8
     assert snapshot.last_7d.suppressed_total == 2
     assert snapshot.last_7d.aggregated_total == 4
+    assert snapshot.top_suppressed_24h == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.AUCTION_OUTBID,
+            reason="blocked_master",
+            total=2,
+        ),
+    )
+    assert snapshot.top_suppressed_7d == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.AUCTION_OUTBID,
+            reason="blocked_master",
+            total=2,
+        ),
+    )
     assert snapshot.top_suppressed == (
         notification_metrics_service.NotificationMetricBucket(
             event_type=NotificationEventType.AUCTION_OUTBID,
@@ -188,6 +202,8 @@ async def test_load_notification_metrics_snapshot_returns_zeros_when_no_data(mon
     assert snapshot.last_7d.sent_total == 0
     assert snapshot.last_7d.suppressed_total == 0
     assert snapshot.last_7d.aggregated_total == 0
+    assert snapshot.top_suppressed_24h == ()
+    assert snapshot.top_suppressed_7d == ()
     assert snapshot.top_suppressed == ()
 
 
@@ -233,6 +249,20 @@ async def test_load_notification_metrics_snapshot_applies_event_and_reason_filte
     assert snapshot.last_7d.sent_total == 0
     assert snapshot.last_7d.suppressed_total == 9
     assert snapshot.last_7d.aggregated_total == 0
+    assert snapshot.top_suppressed_24h == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.SUPPORT,
+            reason="forbidden",
+            total=1,
+        ),
+    )
+    assert snapshot.top_suppressed_7d == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.SUPPORT,
+            reason="forbidden",
+            total=9,
+        ),
+    )
     assert snapshot.top_suppressed == (
         notification_metrics_service.NotificationMetricBucket(
             event_type=NotificationEventType.SUPPORT,
@@ -273,6 +303,57 @@ async def test_load_notification_metrics_snapshot_delta_supports_positive_negati
     assert snapshot.delta_24h_vs_previous_24h.sent_delta == 3
     assert snapshot.delta_24h_vs_previous_24h.suppressed_delta == -1
     assert snapshot.delta_24h_vs_previous_24h.aggregated_delta == 0
+    assert snapshot.top_suppressed_24h == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.AUCTION_OUTBID,
+            reason="blocked_master",
+            total=3,
+        ),
+    )
+    assert snapshot.top_suppressed_7d == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.AUCTION_OUTBID,
+            reason="blocked_master",
+            total=7,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_window_top_suppressed_sorting_is_deterministic(
+    monkeypatch,
+) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+
+    redis_stub = _RedisSnapshotStub(
+        {
+            f"notif:metrics:h:{h_now}:suppressed:support:forbidden": "5",
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:zzz": "5",
+            f"notif:metrics:h:{h_now}:suppressed:auction_outbid:aaa": "5",
+        }
+    )
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(now_utc=fixed_now, top_limit=3)
+
+    assert snapshot.top_suppressed_24h == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.AUCTION_OUTBID,
+            reason="aaa",
+            total=5,
+        ),
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.AUCTION_OUTBID,
+            reason="zzz",
+            total=5,
+        ),
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.SUPPORT,
+            reason="forbidden",
+            total=5,
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -301,5 +382,7 @@ async def test_load_notification_metrics_snapshot_returns_empty_snapshot_on_redi
     assert snapshot.last_7d.sent_total == 0
     assert snapshot.last_7d.suppressed_total == 0
     assert snapshot.last_7d.aggregated_total == 0
+    assert snapshot.top_suppressed_24h == ()
+    assert snapshot.top_suppressed_7d == ()
     assert snapshot.top_suppressed == ()
     assert "notification_metrics_snapshot_failed" in caplog.text
