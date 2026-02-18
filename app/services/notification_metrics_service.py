@@ -131,6 +131,20 @@ def _recent_hour_buckets(*, now_utc: datetime, hours: int) -> tuple[str, ...]:
     )
 
 
+def _matches_metric_filters(
+    *,
+    event_type: NotificationEventType,
+    reason: str,
+    event_type_filter: NotificationEventType | None,
+    reason_filter: str | None,
+) -> bool:
+    if event_type_filter is not None and event_type != event_type_filter:
+        return False
+    if reason_filter is not None and reason_filter not in reason:
+        return False
+    return True
+
+
 async def _record_metric(
     *,
     kind: NotificationMetricKind,
@@ -228,6 +242,8 @@ async def record_notification_aggregated(
 async def _load_all_time_totals_and_top(
     *,
     top_limit: int,
+    event_type_filter: NotificationEventType | None,
+    reason_filter: str | None,
 ) -> tuple[dict[NotificationMetricKind, int], tuple[NotificationMetricBucket, ...]]:
     cursor = 0
     totals = _empty_totals_map()
@@ -254,6 +270,14 @@ async def _load_all_time_totals_and_top(
                         continue
 
                     kind, event_type, reason = parsed
+                    if not _matches_metric_filters(
+                        event_type=event_type,
+                        reason=reason,
+                        event_type_filter=event_type_filter,
+                        reason_filter=reason_filter,
+                    ):
+                        continue
+
                     totals[kind] += value
                     if kind == NotificationMetricKind.SUPPRESSED:
                         group_key = (event_type, reason)
@@ -276,7 +300,13 @@ async def _load_all_time_totals_and_top(
     return totals, top_suppressed
 
 
-async def _load_recent_window_totals(*, now_utc: datetime, hours: int) -> dict[NotificationMetricKind, int]:
+async def _load_recent_window_totals(
+    *,
+    now_utc: datetime,
+    hours: int,
+    event_type_filter: NotificationEventType | None,
+    reason_filter: str | None,
+) -> dict[NotificationMetricKind, int]:
     buckets = set(_recent_hour_buckets(now_utc=now_utc, hours=hours))
     totals = _empty_totals_map()
 
@@ -298,7 +328,16 @@ async def _load_recent_window_totals(*, now_utc: datetime, hours: int) -> dict[N
                         if parsed is None or raw_value is None:
                             continue
                         parsed_hour_bucket, kind, _event_type, _reason = parsed
+                        event_type = _event_type
+                        reason = _reason
                         if parsed_hour_bucket not in buckets:
+                            continue
+                        if not _matches_metric_filters(
+                            event_type=event_type,
+                            reason=reason,
+                            event_type_filter=event_type_filter,
+                            reason_filter=reason_filter,
+                        ):
                             continue
 
                         try:
@@ -320,14 +359,36 @@ async def load_notification_metrics_snapshot(
     *,
     top_limit: int = 5,
     now_utc: datetime | None = None,
+    event_type_filter: NotificationEventType | None = None,
+    reason_filter: str | None = None,
 ) -> NotificationMetricsSnapshot:
     effective_now_utc = now_utc or datetime.now(timezone.utc)
     if effective_now_utc.tzinfo is None:
         effective_now_utc = effective_now_utc.replace(tzinfo=timezone.utc)
 
-    all_time_totals_map, top_suppressed = await _load_all_time_totals_and_top(top_limit=top_limit)
-    last_24h_totals_map = await _load_recent_window_totals(now_utc=effective_now_utc, hours=24)
-    last_7d_totals_map = await _load_recent_window_totals(now_utc=effective_now_utc, hours=24 * 7)
+    normalized_reason_filter = None
+    if reason_filter is not None:
+        normalized = _normalize_reason(reason_filter)
+        if normalized and normalized != "unknown":
+            normalized_reason_filter = normalized
+
+    all_time_totals_map, top_suppressed = await _load_all_time_totals_and_top(
+        top_limit=top_limit,
+        event_type_filter=event_type_filter,
+        reason_filter=normalized_reason_filter,
+    )
+    last_24h_totals_map = await _load_recent_window_totals(
+        now_utc=effective_now_utc,
+        hours=24,
+        event_type_filter=event_type_filter,
+        reason_filter=normalized_reason_filter,
+    )
+    last_7d_totals_map = await _load_recent_window_totals(
+        now_utc=effective_now_utc,
+        hours=24 * 7,
+        event_type_filter=event_type_filter,
+        reason_filter=normalized_reason_filter,
+    )
 
     return NotificationMetricsSnapshot(
         all_time=_totals_from_map(all_time_totals_map),

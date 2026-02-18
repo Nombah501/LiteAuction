@@ -180,6 +180,51 @@ async def test_load_notification_metrics_snapshot_returns_zeros_when_no_data(mon
 
 
 @pytest.mark.asyncio
+async def test_load_notification_metrics_snapshot_applies_event_and_reason_filters(monkeypatch) -> None:
+    fixed_now = datetime(2026, 2, 18, 12, 30, tzinfo=timezone.utc)
+    h_now = fixed_now.strftime("%Y%m%d%H")
+    h_minus_30 = (fixed_now - timedelta(hours=30)).strftime("%Y%m%d%H")
+
+    redis_stub = _RedisSnapshotStub(
+        {
+            "notif:metrics:sent:auction_outbid:delivered": "10",
+            "notif:metrics:sent:support:delivered": "7",
+            "notif:metrics:suppressed:auction_outbid:blocked_master": "5",
+            "notif:metrics:suppressed:support:forbidden": "4",
+            "notif:metrics:aggregated:auction_outbid:debounce_gate": "3",
+            f"notif:metrics:h:{h_now}:sent:support:delivered": "2",
+            f"notif:metrics:h:{h_now}:suppressed:support:forbidden": "1",
+            f"notif:metrics:h:{h_now}:aggregated:auction_outbid:debounce_gate": "2",
+            f"notif:metrics:h:{h_minus_30}:suppressed:support:forbidden": "8",
+        }
+    )
+    monkeypatch.setattr(notification_metrics_service, "redis_client", redis_stub)
+
+    snapshot = await notification_metrics_service.load_notification_metrics_snapshot(
+        now_utc=fixed_now,
+        event_type_filter=NotificationEventType.SUPPORT,
+        reason_filter="forbid",
+    )
+
+    assert snapshot.all_time.sent_total == 0
+    assert snapshot.all_time.suppressed_total == 4
+    assert snapshot.all_time.aggregated_total == 0
+    assert snapshot.last_24h.sent_total == 0
+    assert snapshot.last_24h.suppressed_total == 1
+    assert snapshot.last_24h.aggregated_total == 0
+    assert snapshot.last_7d.sent_total == 0
+    assert snapshot.last_7d.suppressed_total == 9
+    assert snapshot.last_7d.aggregated_total == 0
+    assert snapshot.top_suppressed == (
+        notification_metrics_service.NotificationMetricBucket(
+            event_type=NotificationEventType.SUPPORT,
+            reason="forbidden",
+            total=4,
+        ),
+    )
+
+
+@pytest.mark.asyncio
 async def test_load_notification_metrics_snapshot_returns_empty_snapshot_on_redis_failure(
     monkeypatch,
     caplog: pytest.LogCaptureFixture,
