@@ -10,6 +10,7 @@ from app.bot.handlers.moderation import (
     mod_notification_stats,
 )
 from app.services.notification_metrics_service import (
+    NotificationMetricDelta,
     NotificationMetricBucket,
     NotificationMetricsSnapshot,
     NotificationMetricTotals,
@@ -59,6 +60,12 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
         return NotificationMetricsSnapshot(
             all_time=NotificationMetricTotals(sent_total=11, suppressed_total=7, aggregated_total=5),
             last_24h=NotificationMetricTotals(sent_total=4, suppressed_total=2, aggregated_total=1),
+            previous_24h=NotificationMetricTotals(sent_total=2, suppressed_total=3, aggregated_total=1),
+            delta_24h_vs_previous_24h=NotificationMetricDelta(
+                sent_delta=2,
+                suppressed_delta=-1,
+                aggregated_delta=0,
+            ),
             last_7d=NotificationMetricTotals(sent_total=9, suppressed_total=5, aggregated_total=3),
             top_suppressed=(
                 NotificationMetricBucket(
@@ -85,6 +92,9 @@ async def test_render_notification_metrics_snapshot_text_includes_top_reasons(mo
     assert "sent total (24h): 4" in text
     assert "suppressed total (24h): 2" in text
     assert "aggregated total (24h): 1" in text
+    assert "sent delta: +2" in text
+    assert "suppressed delta: -1" in text
+    assert "aggregated delta: 0" in text
     assert "sent total (7d): 9" in text
     assert "suppressed total (7d): 5" in text
     assert "aggregated total (7d): 3" in text

@@ -713,6 +713,12 @@ def _notification_event_label(event_type: NotificationEventType) -> str:
     return _NOTIFICATION_EVENT_LABELS.get(event_type, event_type.value)
 
 
+def _delta_value(delta: int) -> str:
+    if delta > 0:
+        return f"+{delta}"
+    return str(delta)
+
+
 def _notifstats_usage_text(*, error: str | None = None) -> str:
     available_types = ", ".join(event.value for event in NotificationEventType)
     lines = []
@@ -814,6 +820,11 @@ async def _render_notification_metrics_snapshot_text(
         f"- sent total (24h): {snapshot.last_24h.sent_total}",
         f"- suppressed total (24h): {snapshot.last_24h.suppressed_total}",
         f"- aggregated total (24h): {snapshot.last_24h.aggregated_total}",
+        "",
+        "24h delta vs previous 24h:",
+        f"- sent delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.sent_delta)}",
+        f"- suppressed delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.suppressed_delta)}",
+        f"- aggregated delta: {_delta_value(snapshot.delta_24h_vs_previous_24h.aggregated_delta)}",
         "",
         "Last 7d totals:",
         f"- sent total (7d): {snapshot.last_7d.sent_total}",
