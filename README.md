@@ -273,6 +273,13 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - [x] Added release-readiness checklist at `docs/release/sprint-30-readiness.md`
 - [x] Kept backend behavior unchanged while polishing UX and recovery paths
 
+## Sprint 50 Checklist (Admin UX Refresh)
+
+- [x] Reworked admin dashboard into sectioned priority panels with quick-action tiles
+- [x] Unified moderation list pages with shared header, filter toolbar, and table wrappers
+- [x] Refreshed manage-user and manage-users pages with workflow-oriented sections and denser KPI grids
+- [x] Preserved existing routes, filters, and moderation actions while reducing visual overload
+
 ## Quick Start
 
 1. Copy env template:
