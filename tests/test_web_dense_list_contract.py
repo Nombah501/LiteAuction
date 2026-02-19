@@ -54,6 +54,46 @@ def test_dense_list_contract_marks_active_density_chip() -> None:
     assert "class='chip' data-density-option='standard'" in toolbar_html
 
 
+def test_dense_list_contract_renders_column_controls_markup() -> None:
+    config = DenseListConfig(
+        queue_key="complaints",
+        density="standard",
+        table_id="complaints-table",
+        quick_filter_placeholder="id / reason",
+        columns_order=("id", "auction", "status"),
+        columns_visible=("id", "status"),
+        columns_pinned=("id",),
+        csrf_token="csrf-token-value",
+    )
+
+    toolbar_html = render_dense_list_toolbar(config, density_query_builder=_density_path)
+
+    assert "data-column-controls='complaints-table'" in toolbar_html
+    assert "data-columns-order='id,auction,status'" in toolbar_html
+    assert "data-columns-visible='id,status'" in toolbar_html
+    assert "data-columns-pinned='id'" in toolbar_html
+    assert "data-csrf-token='csrf-token-value'" in toolbar_html
+
+
+def test_dense_list_script_contract_contains_order_and_pin_logic() -> None:
+    config = DenseListConfig(
+        queue_key="signals",
+        density="compact",
+        table_id="signals-table",
+        quick_filter_placeholder="id",
+        columns_order=("id", "auction", "status"),
+        columns_visible=("id", "auction", "status"),
+        columns_pinned=("id",),
+    )
+
+    script_html = render_dense_list_script(config)
+
+    assert "data-column-move" in script_html
+    assert "cell.classList.add('is-pinned')" in script_html
+    assert "sanitizeOrder(" in script_html
+    assert "moveColumn(" in script_html
+
+
 def test_dense_list_contract_rejects_unknown_queue_key() -> None:
     with pytest.raises(ValueError):
         DenseListConfig(
