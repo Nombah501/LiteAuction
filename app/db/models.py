@@ -446,6 +446,26 @@ class RuntimeSettingOverride(Base):
     )
 
 
+class AdminListPreference(Base, TimestampMixin):
+    __tablename__ = "admin_list_preferences"
+    __table_args__ = (
+        UniqueConstraint("subject_key", "queue_key", name="uq_admin_list_preferences_subject_queue"),
+        CheckConstraint(
+            "density IN ('compact', 'standard', 'comfortable')",
+            name="admin_list_preferences_density_values",
+        ),
+        Index("ix_admin_list_preferences_subject_key", "subject_key"),
+        Index("ix_admin_list_preferences_queue_key", "queue_key"),
+        Index("ix_admin_list_preferences_updated_at", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    subject_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    queue_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    density: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'standard'"))
+    columns_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
 class ModerationChecklistItem(Base, TimestampMixin):
     __tablename__ = "moderation_checklist_items"
     __table_args__ = (
