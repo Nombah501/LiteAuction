@@ -67,33 +67,33 @@ Explicitly excluded for this milestone.
 
 ## Traceability
 
-Phase mapping will be finalized during roadmap creation.
+Phase mapping finalized in roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DENS-01 | TBD | Pending |
-| DENS-02 | TBD | Pending |
-| PSET-01 | TBD | Pending |
-| PSET-02 | TBD | Pending |
-| PSET-03 | TBD | Pending |
-| FILT-01 | TBD | Pending |
-| FILT-02 | TBD | Pending |
-| LAYT-01 | TBD | Pending |
-| LAYT-02 | TBD | Pending |
-| LAYT-03 | TBD | Pending |
-| DISC-01 | TBD | Pending |
-| DISC-02 | TBD | Pending |
-| DISC-03 | TBD | Pending |
-| KEYB-01 | TBD | Pending |
-| BULK-01 | TBD | Pending |
-| TYPO-01 | TBD | Pending |
-| TEST-01 | TBD | Pending |
+| DENS-01 | Phase 1 | Pending |
+| DENS-02 | Phase 1 | Pending |
+| PSET-01 | Phase 2 | Pending |
+| PSET-02 | Phase 2 | Pending |
+| PSET-03 | Phase 2 | Pending |
+| FILT-01 | Phase 1 | Pending |
+| FILT-02 | Phase 1 | Pending |
+| LAYT-01 | Phase 1 | Pending |
+| LAYT-02 | Phase 1 | Pending |
+| LAYT-03 | Phase 1 | Pending |
+| DISC-01 | Phase 3 | Pending |
+| DISC-02 | Phase 3 | Pending |
+| DISC-03 | Phase 3 | Pending |
+| KEYB-01 | Phase 3 | Pending |
+| BULK-01 | Phase 3 | Pending |
+| TYPO-01 | Phase 4 | Pending |
+| TEST-01 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 after initial definition*
+*Last updated: 2026-02-19 after roadmap creation*
