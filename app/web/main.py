@@ -530,34 +530,65 @@ async def _refresh_auction_posts_from_web(auction_id: uuid.UUID | None) -> None:
 def _render_page(title: str, body: str) -> str:
     styles = (
         ":root{"
-        "--bg-0:#f5f8f9;--bg-1:#e8f0f1;--ink:#1d2b33;--muted:#5d7078;"
-        "--card:#ffffff;--line:#d2dde2;--soft:#eef4f6;--accent:#0f766e;--accent-ink:#0b4f4a;}"
+        "--bg-0:#f3f6f8;--bg-1:#dfe8ee;--ink:#13212c;--muted:#536676;"
+        "--card:#ffffff;--line:#cad8e2;--soft:#eef3f8;--accent:#0f5f8f;--accent-ink:#0c4366;"
+        "--ok:#0f7a56;--warn:#9b6c08;--critical:#a22929;"
+        "--ok-bg:#edf8f3;--warn-bg:#fff8e7;--critical-bg:#fff1f1;}"
         "*{box-sizing:border-box;}"
         "body{margin:0;font-family:'IBM Plex Sans','Trebuchet MS','Segoe UI',sans-serif;"
         "line-height:1.45;color:var(--ink);"
-        "background:radial-gradient(1400px 600px at -10% -20%,#d7ece7 0%,transparent 70%),"
-        "radial-gradient(1200px 500px at 120% -30%,#e5ebe2 0%,transparent 68%),"
+        "background:radial-gradient(1400px 600px at -10% -20%,#d5e3f7 0%,transparent 70%),"
+        "radial-gradient(1200px 500px at 120% -30%,#dbe8de 0%,transparent 68%),"
         "linear-gradient(180deg,var(--bg-0),var(--bg-1));}"
-        ".page-shell{max-width:1280px;margin:20px auto;padding:20px 24px;border:1px solid var(--line);"
-        "border-radius:16px;background:rgba(255,255,255,0.86);backdrop-filter:blur(2px);"
-        "box-shadow:0 20px 36px rgba(18,33,40,0.09);overflow:auto;}"
+        ".page-shell{max-width:1320px;margin:20px auto;padding:20px 24px;border:1px solid var(--line);"
+        "border-radius:18px;background:rgba(255,255,255,0.88);backdrop-filter:blur(3px);"
+        "box-shadow:0 24px 38px rgba(16,35,48,0.11);overflow:auto;}"
+        ".app-header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin-bottom:16px;}"
+        ".app-title{margin:0;font-size:31px;letter-spacing:0.2px;}"
+        ".app-subtitle{margin:4px 0 0;color:var(--muted);font-size:14px;}"
+        ".access-pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;"
+        "background:#ebf2fa;border:1px solid #bfd2e5;color:var(--accent-ink);font-size:12px;font-weight:700;}"
         "h1{margin:0 0 12px;font-size:30px;letter-spacing:0.2px;}"
-        "h2,h3{margin-top:20px;margin-bottom:10px;}"
+        "h2,h3{margin-top:4px;margin-bottom:10px;}"
         "p{margin:10px 0;}"
+        ".section-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;"
+        "box-shadow:0 4px 14px rgba(13,29,39,0.06);margin:14px 0;}"
+        ".section-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px;}"
+        ".section-eyebrow{margin:0;font-size:12px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);}"
+        ".section-note{margin:0;color:var(--muted);font-size:13px;}"
+        ".kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;}"
+        ".kpi{display:flex;flex-direction:column;gap:4px;margin:0;background:var(--card);border:1px solid var(--line);"
+        "padding:10px 12px;border-radius:11px;box-shadow:0 4px 12px rgba(15,26,31,0.06);min-height:68px;}"
+        ".kpi b{color:var(--accent-ink);font-size:13px;font-weight:700;}"
+        ".kpi-critical{border-color:#e4b5b5;background:var(--critical-bg);}"
+        ".kpi-warn{border-color:#edd8a3;background:var(--warn-bg);}"
+        ".kpi-ok{border-color:#b9dfcf;background:var(--ok-bg);}"
+        ".toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--line);"
+        "background:var(--soft);border-radius:11px;margin:10px 0;}"
+        ".toolbar form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0;}"
+        ".link-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}"
+        ".link-tile{display:block;padding:11px 12px;border:1px solid #bfd2e5;border-radius:12px;background:#f2f7fd;"
+        "font-weight:700;color:var(--accent-ink);text-decoration:none;box-shadow:0 2px 8px rgba(14,38,61,0.08);}"
+        ".link-tile:hover{text-decoration:none;background:#e9f2fb;}"
+        ".stack-rows{display:grid;gap:10px;}"
+        ".details{border:1px solid var(--line);border-radius:11px;background:var(--soft);padding:8px 10px;}"
+        ".details summary{cursor:pointer;font-weight:700;color:var(--accent-ink);margin:2px 0 8px;}"
+        ".table-wrap{overflow:auto;border-radius:12px;}"
         "table{border-collapse:separate;border-spacing:0;width:100%;margin-top:12px;background:var(--card);"
         "border:1px solid var(--line);border-radius:12px;overflow:hidden;}"
         "th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;font-size:14px;vertical-align:top;}"
         "th{background:var(--soft);font-weight:600;color:var(--accent-ink);letter-spacing:0.2px;}"
         "tr:nth-child(even) td{background:#fbfdfe;}"
         "tr:last-child td{border-bottom:none;}"
-        ".kpi{display:inline-block;margin:0 14px 10px 0;background:var(--card);border:1px solid var(--line);"
-        "padding:10px 12px;border-radius:10px;box-shadow:0 4px 12px rgba(15,26,31,0.06);}"
         "a{color:var(--accent);text-decoration:none;font-weight:600;}"
         "a:hover{text-decoration:underline;}"
         "a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{"
         "outline:3px solid #ffb454;outline-offset:2px;}"
         ".chip{display:inline-block;padding:4px 9px;border-radius:999px;border:1px solid #b8c9c7;"
         "background:#f3faf8;font-size:12px;font-weight:600;margin-right:6px;margin-bottom:4px;}"
+        ".chip-active{background:#e8f2ff;border-color:#b8cfea;color:var(--accent-ink);}"
+        ".page-links{display:flex;flex-wrap:wrap;gap:12px;font-size:14px;align-items:center;margin:8px 0 0;}"
+        ".pager{display:flex;gap:12px;align-items:center;margin-top:10px;}"
         ".notice{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;}"
         ".notice p{margin:0;}"
         ".notice-error{background:#fff1f1;border-color:#e4b5b5;color:#822727;}"
@@ -576,8 +607,11 @@ def _render_page(title: str, body: str) -> str:
         "button:active{transform:translateY(1px);}"
         "@media (max-width:900px){.page-shell{margin:10px;padding:12px;border-radius:12px;}"
         "h1{font-size:24px;}th,td{font-size:13px;padding:7px;}"
+        ".app-title{font-size:25px;}"
+        ".kpi-grid{grid-template-columns:1fr;}"
+        ".link-grid{grid-template-columns:1fr;}"
         "table{display:block;overflow-x:auto;white-space:nowrap;}"
-        ".kpi{margin-right:8px;}}"
+        ".toolbar form{width:100%;}}"
     )
 
     return (
@@ -609,6 +643,55 @@ def _role_badge(auth: AdminAuthContext) -> str:
     scope_names = sorted(auth.scopes)
     scope_label = ",".join(scope_names) if scope_names else "read-only"
     return f"role={role}, via={via}, scopes={scope_label}"
+
+
+def _render_app_header(title: str, auth: AdminAuthContext, subtitle: str = "") -> str:
+    subtitle_html = ""
+    if subtitle:
+        subtitle_html = f"<p class='app-subtitle'>{escape(subtitle)}</p>"
+    return (
+        "<header class='app-header'>"
+        f"<div><h1 class='app-title'>{escape(title)}</h1>{subtitle_html}</div>"
+        f"<div class='access-pill'>Access: {escape(_role_badge(auth))}</div>"
+        "</header>"
+    )
+
+
+def _kpi_card(label: str, value: str, *, tone: str = "") -> str:
+    tone_class = ""
+    if tone == "critical":
+        tone_class = " kpi-critical"
+    elif tone == "warn":
+        tone_class = " kpi-warn"
+    elif tone == "ok":
+        tone_class = " kpi-ok"
+    return f"<div class='kpi{tone_class}'><b>{escape(label)}:</b> {value}</div>"
+
+
+def _kpi_grid(items: list[str]) -> str:
+    return f"<div class='kpi-grid'>{''.join(items)}</div>"
+
+
+def _panel(title: str, content: str, *, eyebrow: str = "", note: str = "") -> str:
+    eyebrow_html = f"<p class='section-eyebrow'>{escape(eyebrow)}</p>" if eyebrow else ""
+    note_html = f"<p class='section-note'>{escape(note)}</p>" if note else ""
+    return (
+        "<section class='section-card'>"
+        f"<div class='section-head'><div>{eyebrow_html}<h2>{escape(title)}</h2></div>{note_html}</div>"
+        f"{content}"
+        "</section>"
+    )
+
+
+def _pager_html(prev_link: str, next_link: str) -> str:
+    parts: list[str] = []
+    if prev_link:
+        parts.append(prev_link)
+    if next_link:
+        parts.append(next_link)
+    if not parts:
+        return ""
+    return f"<div class='pager'>{' '.join(parts)}</div>"
 
 
 def _scope_title(scope: str) -> str:
@@ -912,70 +995,129 @@ async def dashboard(request: Request) -> Response:
     owner_settings_link = ""
     if auth.role == "owner":
         owner_settings_link = (
-            f"<li><a href='{escape(_path_with_auth(request, '/settings'))}'>Runtime settings</a></li>"
+            f"<a class='link-tile' href='{escape(_path_with_auth(request, '/settings'))}'>Runtime settings</a>"
         )
 
-    body = (
-        "<h1>LiteAuction Admin</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<div class='kpi'><b>Открытые жалобы:</b> {snapshot.open_complaints}</div>"
-        f"<div class='kpi'><b>Открытые сигналы:</b> {snapshot.open_signals}</div>"
-        f"<div class='kpi'><b>Активные аукционы:</b> {snapshot.active_auctions}</div>"
-        f"<div class='kpi'><b>Ставок/час:</b> {snapshot.bids_last_hour}</div>"
-        "<hr>"
-        "<h2>Воронка онбординга / soft-gate</h2>"
-        f"<div class='kpi'><b>Всего пользователей:</b> {snapshot.total_users}</div>"
-        f"<div class='kpi'><b>Private /start:</b> {snapshot.users_private_started} ({_pct(snapshot.users_private_started, snapshot.total_users)})</div>"
-        f"<div class='kpi'><b>С hint:</b> {snapshot.users_with_soft_gate_hint}</div>"
-        f"<div class='kpi'><b>Hint за 24ч:</b> {snapshot.users_soft_gate_hint_last_24h}</div>"
-        f"<div class='kpi'><b>Конверсия после hint:</b> {snapshot.users_converted_after_hint} ({_pct(snapshot.users_converted_after_hint, snapshot.users_with_soft_gate_hint)})</div>"
-        f"<div class='kpi'><b>Ожидают после hint:</b> {snapshot.users_pending_after_hint}</div>"
-        "<hr>"
-        "<h2>Активность пользователей</h2>"
-        f"<div class='kpi'><b>Пользователи со ставками:</b> {snapshot.users_with_bid_activity}</div>"
-        f"<div class='kpi'><b>Пользователи с жалобами:</b> {snapshot.users_with_report_activity}</div>"
-        f"<div class='kpi'><b>Уникально вовлеченные:</b> {snapshot.users_with_engagement}</div>"
-        f"<div class='kpi'><b>Вовлеченные без private /start:</b> {snapshot.users_engaged_without_private_start}</div>"
-        f"<div class='kpi'><b>Вовлеченные с private /start:</b> {engaged_with_private} ({_pct(engaged_with_private, snapshot.users_with_engagement)})</div>"
-        "<hr>"
-        "<h2>Points utility</h2>"
-        f"<div class='kpi'><b>Активные points-пользователи (7д):</b> {snapshot.points_active_users_7d}</div>"
-        f"<div class='kpi'><b>Пользователи с положительным балансом:</b> {snapshot.points_users_with_positive_balance}</div>"
-        f"<div class='kpi'><b>Редимеры points (7д):</b> {snapshot.points_redeemers_7d} ({_pct(snapshot.points_redeemers_7d, snapshot.points_users_with_positive_balance)})</div>"
-        f"<div class='kpi'><b>Редимеры фидбек-буста (7д):</b> {snapshot.points_feedback_boost_redeemers_7d}</div>"
-        f"<div class='kpi'><b>Редимеры буста гаранта (7д):</b> {snapshot.points_guarantor_boost_redeemers_7d}</div>"
-        f"<div class='kpi'><b>Редимеры буста апелляции (7д):</b> {snapshot.points_appeal_boost_redeemers_7d}</div>"
-        f"<div class='kpi'><b>Points начислено (24ч):</b> +{snapshot.points_earned_24h}</div>"
-        f"<div class='kpi'><b>Points списано (24ч):</b> -{snapshot.points_spent_24h}</div>"
-        f"<div class='kpi'><b>Бустов фидбека (24ч):</b> {snapshot.feedback_boost_redeems_24h}</div>"
-        f"<div class='kpi'><b>Бустов гаранта (24ч):</b> {snapshot.guarantor_boost_redeems_24h}</div>"
-        f"<div class='kpi'><b>Бустов апелляций (24ч):</b> {snapshot.appeal_boost_redeems_24h}</div>"
-        f"<div class='kpi'><b>Policy feedback:</b> {'on' if settings.feedback_priority_boost_enabled else 'off'} | cost {settings.feedback_priority_boost_cost_points} | limit {settings.feedback_priority_boost_daily_limit}/day | cooldown {max(settings.feedback_priority_boost_cooldown_seconds, 0)}s</div>"
-        f"<div class='kpi'><b>Policy guarantor:</b> {'on' if settings.guarantor_priority_boost_enabled else 'off'} | cost {settings.guarantor_priority_boost_cost_points} | limit {settings.guarantor_priority_boost_daily_limit}/day | cooldown {max(settings.guarantor_priority_boost_cooldown_seconds, 0)}s</div>"
-        f"<div class='kpi'><b>Policy appeal:</b> {'on' if settings.appeal_priority_boost_enabled else 'off'} | cost {settings.appeal_priority_boost_cost_points} | limit {settings.appeal_priority_boost_daily_limit}/day | cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s</div>"
-        f"<div class='kpi'><b>Policy redemptions:</b> {'on' if settings.points_redemption_enabled else 'off'}</div>"
-        f"{global_daily_limit_line}"
-        f"{global_weekly_limit_line}"
-        f"{global_daily_spend_cap_line}"
-        f"{global_weekly_spend_cap_line}"
-        f"{global_monthly_spend_cap_line}"
-        f"<div class='kpi'><b>Min balance after redemption:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
-        f"<div class='kpi'><b>Min account age for redemption:</b> {max(settings.points_redemption_min_account_age_seconds, 0)}s</div>"
-        f"<div class='kpi'><b>Min earned points for redemption:</b> {max(settings.points_redemption_min_earned_points, 0)} points</div>"
-        f"<div class='kpi'><b>Global redemption cooldown:</b> {max(settings.points_redemption_cooldown_seconds, 0)}s</div>"
-        "<hr>"
-        "<ul>"
-        f"<li><a href='{escape(_path_with_auth(request, '/complaints?status=OPEN'))}'>Открытые жалобы</a></li>"
-        f"<li><a href='{escape(_path_with_auth(request, '/signals?status=OPEN'))}'>Открытые фрод-сигналы</a></li>"
-        f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=ACTIVE'))}'>Активные аукционы</a></li>"
-        f"<li><a href='{escape(_path_with_auth(request, '/auctions?status=FROZEN'))}'>Замороженные аукционы</a></li>"
-        f"<li><a href='{escape(_path_with_auth(request, '/appeals?status=open&source=all'))}'>Апелляции</a></li>"
-        f"<li><a href='{escape(_path_with_auth(request, '/trade-feedback?status=visible'))}'>Отзывы по сделкам</a></li>"
-        f"<li><a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>Нарушители</a></li>"
-        f"<li><a href='{escape(_path_with_auth(request, '/manage/users'))}'>Управление пользователями</a></li>"
+    overview_cards = _kpi_grid(
+        [
+            _kpi_card("Открытые жалобы", str(snapshot.open_complaints), tone="critical"),
+            _kpi_card("Открытые сигналы", str(snapshot.open_signals), tone="warn"),
+            _kpi_card("Активные аукционы", str(snapshot.active_auctions), tone="ok"),
+            _kpi_card("Ставок/час", str(snapshot.bids_last_hour)),
+        ]
+    )
+    onboarding_cards = _kpi_grid(
+        [
+            _kpi_card("Всего пользователей", str(snapshot.total_users)),
+            _kpi_card(
+                "Private /start",
+                f"{snapshot.users_private_started} ({_pct(snapshot.users_private_started, snapshot.total_users)})",
+            ),
+            _kpi_card("С hint", str(snapshot.users_with_soft_gate_hint)),
+            _kpi_card("Hint за 24ч", str(snapshot.users_soft_gate_hint_last_24h)),
+            _kpi_card(
+                "Конверсия после hint",
+                f"{snapshot.users_converted_after_hint} ({_pct(snapshot.users_converted_after_hint, snapshot.users_with_soft_gate_hint)})",
+            ),
+            _kpi_card("Ожидают после hint", str(snapshot.users_pending_after_hint)),
+        ]
+    )
+    activity_cards = _kpi_grid(
+        [
+            _kpi_card("Пользователи со ставками", str(snapshot.users_with_bid_activity)),
+            _kpi_card("Пользователи с жалобами", str(snapshot.users_with_report_activity)),
+            _kpi_card("Уникально вовлеченные", str(snapshot.users_with_engagement)),
+            _kpi_card("Вовлеченные без private /start", str(snapshot.users_engaged_without_private_start)),
+            _kpi_card(
+                "Вовлеченные с private /start",
+                f"{engaged_with_private} ({_pct(engaged_with_private, snapshot.users_with_engagement)})",
+            ),
+        ]
+    )
+    points_cards = _kpi_grid(
+        [
+            _kpi_card("Активные points-пользователи (7д)", str(snapshot.points_active_users_7d)),
+            _kpi_card("Пользователи с положительным балансом", str(snapshot.points_users_with_positive_balance)),
+            _kpi_card(
+                "Редимеры points (7д)",
+                f"{snapshot.points_redeemers_7d} ({_pct(snapshot.points_redeemers_7d, snapshot.points_users_with_positive_balance)})",
+            ),
+            _kpi_card("Редимеры фидбек-буста (7д)", str(snapshot.points_feedback_boost_redeemers_7d)),
+            _kpi_card("Редимеры буста гаранта (7д)", str(snapshot.points_guarantor_boost_redeemers_7d)),
+            _kpi_card("Редимеры буста апелляции (7д)", str(snapshot.points_appeal_boost_redeemers_7d)),
+            _kpi_card("Points начислено (24ч)", f"+{snapshot.points_earned_24h}"),
+            _kpi_card("Points списано (24ч)", f"-{snapshot.points_spent_24h}"),
+            _kpi_card("Бустов фидбека (24ч)", str(snapshot.feedback_boost_redeems_24h)),
+            _kpi_card("Бустов гаранта (24ч)", str(snapshot.guarantor_boost_redeems_24h)),
+            _kpi_card("Бустов апелляций (24ч)", str(snapshot.appeal_boost_redeems_24h)),
+            _kpi_card(
+                "Policy feedback",
+                (
+                    f"{'on' if settings.feedback_priority_boost_enabled else 'off'} | "
+                    f"cost {settings.feedback_priority_boost_cost_points} | "
+                    f"limit {settings.feedback_priority_boost_daily_limit}/day | "
+                    f"cooldown {max(settings.feedback_priority_boost_cooldown_seconds, 0)}s"
+                ),
+            ),
+            _kpi_card(
+                "Policy guarantor",
+                (
+                    f"{'on' if settings.guarantor_priority_boost_enabled else 'off'} | "
+                    f"cost {settings.guarantor_priority_boost_cost_points} | "
+                    f"limit {settings.guarantor_priority_boost_daily_limit}/day | "
+                    f"cooldown {max(settings.guarantor_priority_boost_cooldown_seconds, 0)}s"
+                ),
+            ),
+            _kpi_card(
+                "Policy appeal",
+                (
+                    f"{'on' if settings.appeal_priority_boost_enabled else 'off'} | "
+                    f"cost {settings.appeal_priority_boost_cost_points} | "
+                    f"limit {settings.appeal_priority_boost_daily_limit}/day | "
+                    f"cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s"
+                ),
+            ),
+            _kpi_card("Policy redemptions", "on" if settings.points_redemption_enabled else "off"),
+            global_daily_limit_line,
+            global_weekly_limit_line,
+            global_daily_spend_cap_line,
+            global_weekly_spend_cap_line,
+            global_monthly_spend_cap_line,
+            _kpi_card("Min balance after redemption", f"{max(settings.points_redemption_min_balance, 0)} points"),
+            _kpi_card(
+                "Min account age for redemption",
+                f"{max(settings.points_redemption_min_account_age_seconds, 0)}s",
+            ),
+            _kpi_card(
+                "Min earned points for redemption",
+                f"{max(settings.points_redemption_min_earned_points, 0)} points",
+            ),
+            _kpi_card("Global redemption cooldown", f"{max(settings.points_redemption_cooldown_seconds, 0)}s"),
+        ]
+    )
+
+    quick_actions = (
+        "<div class='link-grid'>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/complaints?status=OPEN'))}'>Открытые жалобы</a>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/signals?status=OPEN'))}'>Открытые фрод-сигналы</a>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/auctions?status=ACTIVE'))}'>Активные аукционы</a>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/auctions?status=FROZEN'))}'>Замороженные аукционы</a>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/appeals?status=open&source=all'))}'>Апелляции</a>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/trade-feedback?status=visible'))}'>Отзывы по сделкам</a>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/violators?status=active'))}'>Нарушители</a>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/manage/users'))}'>Управление пользователями</a>"
         f"{owner_settings_link}"
-        f"<li><a href='{escape(_path_with_auth(request, '/logout'))}'>Выйти</a></li>"
-        "</ul>"
+        f"<a class='link-tile' href='{escape(_path_with_auth(request, '/logout'))}'>Выйти</a>"
+        "</div>"
+    )
+
+    body = (
+        f"{_render_app_header('LiteAuction Admin', auth, 'Операционный центр модерации и риск-контроль')}"
+        f"{_panel('Пульс модерации', overview_cards, eyebrow='priority metrics', note='Критичные метрики всегда сверху')}"
+        f"{_panel('Воронка онбординга / soft-gate', onboarding_cards, eyebrow='growth')}"
+        f"{_panel('Активность пользователей', activity_cards, eyebrow='engagement')}"
+        f"{_panel('Points utility', points_cards, eyebrow='rewards') }"
+        f"{_panel('Быстрые действия', quick_actions, eyebrow='navigation') }"
     )
     return HTMLResponse(_render_page("LiteAuction Admin", body))
 
@@ -1033,15 +1175,16 @@ async def runtime_settings_page(request: Request) -> Response:
         )
 
     body = (
-        "<h1>Runtime settings</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
+        f"{_render_app_header('Runtime settings', auth, 'Owner-only operational overrides')}"
+        "<div class='section-card'>"
         "<div class='notice'><p>Owner-only operational overrides. Keys are allowlisted and validated.</p></div>"
-        "<table><thead><tr>"
+        "<div class='table-wrap'><table><thead><tr>"
         "<th>Key</th><th>Description</th><th>Default</th><th>Effective</th><th>Override</th><th>Updated by</th><th>Updated at</th><th>Actions</th>"
         "</tr></thead>"
         f"<tbody>{''.join(rows) if rows else '<tr><td colspan=8><span class="empty-state">Нет настроек</span></td></tr>'}</tbody>"
-        "</table>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        "</table></div>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        "</div>"
     )
     return HTMLResponse(_render_page("Runtime Settings", body))
 

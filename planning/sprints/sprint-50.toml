@@ -51,3 +51,51 @@ acceptance = [
   "Escalation templates include share fields alongside absolute counts",
   "Examples map directly to `/notifstats` output terminology",
 ]
+
+[[items]]
+id = "S50-004"
+title = "Redesign admin dashboard information hierarchy and visual language"
+description = "Rework admin `/` into role-focused sections with priority metrics, status badges, quick actions, and progressive disclosure so operators can triage faster without losing data visibility."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:admin", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Dashboard top area shows operational priority metrics and status chips before secondary analytics",
+  "Secondary metric groups are still accessible but moved into structured sections with clearer labels",
+  "Quick action navigation is presented as cards/buttons instead of a plain link list",
+]
+
+[[items]]
+id = "S50-005"
+title = "Unify admin list-page UX for moderation queues"
+description = "Apply a shared list-page layout for complaints, fraud signals, auctions, trade feedback, violators, and appeals with consistent headers, filter bars, and table ergonomics."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:moderation", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Key moderation list pages share a common page header and filter-toolbar visual system",
+  "Tables keep existing data and actions while improving readability and scan speed on desktop and mobile",
+  "Existing URL query parameters and pagination behavior remain backward compatible",
+]
+
+[[items]]
+id = "S50-006"
+title = "Refresh manage-user pages with structured operator workflows"
+description = "Reorganize `/manage/users` and `/manage/user/{id}` into clear workflow sections (risk, moderation, rewards, reputation) with denser but readable cards and safer action grouping."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:users", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Manage-users list has clearer search/action framing and improved row readability",
+  "Manage-user detail page groups metrics and actions by workflow intent instead of a single metric stream",
+  "Rewards, trade feedback, complaints, and fraud subsections remain fully functional with current actions",
+]
