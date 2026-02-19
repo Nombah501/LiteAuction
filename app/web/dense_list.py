@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html import escape
+from typing import Callable
 from urllib.parse import urlencode
 
 
@@ -45,7 +46,7 @@ class DenseListConfig:
 def render_dense_list_toolbar(
     config: DenseListConfig,
     *,
-    density_query_builder: callable,
+    density_query_builder: Callable[[str], str],
 ) -> str:
     chips: list[str] = []
     for density_value in _DENSITY_ORDER:

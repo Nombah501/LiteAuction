@@ -95,6 +95,7 @@ from app.services.verification_service import (
     load_verified_user_ids,
     set_user_verification,
 )
+from app.web.dense_list import DenseListConfig, render_dense_list_script, render_dense_list_toolbar
 from app.web.auth import (
     AdminAuthContext,
     build_admin_session_cookie,
@@ -578,6 +579,9 @@ def _render_page(title: str, body: str) -> str:
         "border:1px solid var(--line);border-radius:12px;overflow:hidden;}"
         "th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;font-size:14px;vertical-align:top;}"
         "th{background:var(--soft);font-weight:600;color:var(--accent-ink);letter-spacing:0.2px;}"
+        ".dense-list-shell[data-density='compact'] th,.dense-list-shell[data-density='compact'] td{padding:5px 7px;font-size:12px;}"
+        ".dense-list-shell[data-density='comfortable'] th,.dense-list-shell[data-density='comfortable'] td{padding:12px 13px;font-size:15px;}"
+        ".dense-list-toolbar input[type='search']{min-width:250px;}"
         "tr:nth-child(even) td{background:#fbfdfe;}"
         "tr:last-child td{border-bottom:none;}"
         "a{color:var(--accent);text-decoration:none;font-weight:600;}"
@@ -1370,7 +1374,12 @@ async def action_delete_runtime_setting(
 
 
 @app.get("/complaints", response_class=HTMLResponse)
-async def complaints(request: Request, status: str = "OPEN", page: int = 0) -> Response:
+async def complaints(
+    request: Request,
+    status: str = "OPEN",
+    page: int = 0,
+    density: str = "standard",
+) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
@@ -1390,8 +1399,23 @@ async def complaints(request: Request, status: str = "OPEN", page: int = 0) -> R
     has_next = len(rows) > page_size
     rows = rows[:page_size]
 
+    dense_config = DenseListConfig(
+        queue_key="complaints",
+        density=density,
+        table_id="complaints-table",
+        quick_filter_placeholder="id / auction / reporter / reason",
+    )
+
+    def _complaints_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
+        query = {
+            "status": status_value,
+            "page": str(page_value),
+            "density": density_value or dense_config.density,
+        }
+        return f"/complaints?{urlencode(query)}"
+
     table_rows = "".join(
-        "<tr>"
+        f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.reporter_user_id} {item.status} {item.reason}')}'>"
         f"<td>{item.id}</td>"
         f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
         f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{item.reporter_user_id}'))}'>{item.reporter_user_id}</a></td>"
@@ -1405,36 +1429,50 @@ async def complaints(request: Request, status: str = "OPEN", page: int = 0) -> R
         table_rows = "<tr><td colspan='6'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/complaints?status={status}&page={page-1}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/complaints?status={status}&page={page+1}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page+1, status_value=status)))}'>Вперед →</a>"
         if has_next
         else ""
     )
-    status_open_path = "/complaints?status=OPEN&page=0"
-    status_resolved_path = "/complaints?status=RESOLVED&page=0"
+    status_open_path = _complaints_path(page_value=0, status_value="OPEN")
+    status_resolved_path = _complaints_path(page_value=0, status_value="RESOLVED")
+    dense_toolbar = render_dense_list_toolbar(
+        dense_config,
+        density_query_builder=lambda value: _path_with_auth(
+            request,
+            _complaints_path(page_value=0, status_value=status, density_value=value),
+        ),
+    )
 
     body = (
         f"{_render_app_header('Жалобы', auth, f'Статус: {status}') }"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        f"{dense_toolbar}"
         "<div class='toolbar'>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>Reporter UID</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Auction</th><th>Reporter UID</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
+        f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Complaints", body))
 
 
 @app.get("/signals", response_class=HTMLResponse)
-async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Response:
+async def signals(
+    request: Request,
+    status: str = "OPEN",
+    page: int = 0,
+    density: str = "standard",
+) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
@@ -1464,11 +1502,26 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
         removed_bids=0,
     )
 
+    dense_config = DenseListConfig(
+        queue_key="signals",
+        density=density,
+        table_id="signals-table",
+        quick_filter_placeholder="id / auction / user / status",
+    )
+
+    def _signals_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
+        query = {
+            "status": status_value,
+            "page": str(page_value),
+            "density": density_value or dense_config.density,
+        }
+        return f"/signals?{urlencode(query)}"
+
     table_rows = ""
     for item in rows:
         user_risk = risk_by_user_id.get(item.user_id, default_risk_snapshot)
         table_rows += (
-            "<tr>"
+            f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.user_id} {item.status} {item.score}')}'>"
             f"<td>{item.id}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{item.user_id}'))}'>{item.user_id}</a></td>"
@@ -1482,29 +1535,38 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
         table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/signals?status={status}&page={page-1}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _signals_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/signals?status={status}&page={page+1}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _signals_path(page_value=page+1, status_value=status)))}'>Вперед →</a>"
         if has_next
         else ""
     )
-    status_open_path = "/signals?status=OPEN&page=0"
-    status_resolved_path = "/signals?status=RESOLVED&page=0"
+    status_open_path = _signals_path(page_value=0, status_value="OPEN")
+    status_resolved_path = _signals_path(page_value=0, status_value="RESOLVED")
+    dense_toolbar = render_dense_list_toolbar(
+        dense_config,
+        density_query_builder=lambda value: _path_with_auth(
+            request,
+            _signals_path(page_value=0, status_value=status, density_value=value),
+        ),
+    )
 
     body = (
         f"{_render_app_header('Фрод-сигналы', auth, f'Статус: {status}') }"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        f"{dense_toolbar}"
         "<div class='toolbar'>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>User ID</th><th>User Risk</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Auction</th><th>User ID</th><th>User Risk</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
+        f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Fraud Signals", body))
@@ -1521,6 +1583,7 @@ async def trade_feedback(
     author_tg: str = "",
     target_tg: str = "",
     moderator_tg: str = "",
+    density: str = "standard",
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -1609,10 +1672,18 @@ async def trade_feedback(
     has_next = len(rows) > page_size
     rows = rows[:page_size]
 
+    dense_config = DenseListConfig(
+        queue_key="trade_feedback",
+        density=density,
+        table_id="trade-feedback-table",
+        quick_filter_placeholder="id / auction / users / comment",
+    )
+
     base_query = {
         "status": status_value,
         "moderated": moderated_value,
         "q": query_value,
+        "density": dense_config.density,
     }
     if min_rating_value is not None:
         base_query["min_rating"] = str(min_rating_value)
@@ -1671,7 +1742,7 @@ async def trade_feedback(
             )
 
         table_rows += (
-            "<tr>"
+            f"<tr data-row='{escape(f"{item.id} {auction.id} {author_label} {target_label} {item.status} {item.rating} {item.comment or ''} {item.moderation_note or ''}")}'>"
             f"<td>{item.id}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>{escape(str(auction.id))}</a></td>"
             f"<td><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, author_tg=str(author.tg_user_id), target_tg='')))}'>{escape(author_label)}</a></td>"
@@ -1705,16 +1776,25 @@ async def trade_feedback(
     author_filter_text = "all" if author_tg_value is None else str(author_tg_value)
     target_filter_text = "all" if target_tg_value is None else str(target_tg_value)
     moderator_filter_text = "all" if moderator_tg_value is None else str(moderator_tg_value)
+    dense_toolbar = render_dense_list_toolbar(
+        dense_config,
+        density_query_builder=lambda value: _path_with_auth(
+            request,
+            _trade_feedback_path(page_value=0, density=value),
+        ),
+    )
 
     body = (
         f"{_render_app_header('Отзывы по сделкам', auth, 'Модерация репутации и спорных отзывов')}"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
+        f"{dense_toolbar}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/trade-feedback'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input type='hidden' name='moderated' value='{escape(moderated_value)}'>"
+        f"<input type='hidden' name='density' value='{escape(dense_config.density)}'>"
         f"<input type='hidden' name='min_rating' value='{escape(min_rating_text if min_rating_text != 'all' else '')}'>"
         f"<input type='hidden' name='author_tg' value='{escape(author_filter_text if author_filter_text != 'all' else '')}'>"
         f"<input type='hidden' name='target_tg' value='{escape(target_filter_text if target_filter_text != 'all' else '')}'>"
@@ -1738,16 +1818,22 @@ async def trade_feedback(
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='none')))}'>без модерации</a>"
         "</div>"
         f"<p>Автор TG: {escape(author_filter_text)} | Получатель TG: {escape(target_filter_text)} | Модератор TG: {escape(moderator_filter_text)}</p>"
-        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Примечание</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Примечание</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
+        f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Trade Feedback", body))
 
 
 @app.get("/auctions", response_class=HTMLResponse)
-async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> Response:
+async def auctions(
+    request: Request,
+    status: str = "ACTIVE",
+    page: int = 0,
+    density: str = "standard",
+) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
@@ -1783,11 +1869,26 @@ async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> R
         has_active_blacklist=False,
         removed_bids=0,
     )
+    dense_config = DenseListConfig(
+        queue_key="auctions",
+        density=density,
+        table_id="auctions-table",
+        quick_filter_placeholder="auction id / seller / status",
+    )
+
+    def _auctions_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
+        query = {
+            "status": status_value,
+            "page": str(page_value),
+            "density": density_value or dense_config.density,
+        }
+        return f"/auctions?{urlencode(query)}"
+
     table_rows = ""
     for item in rows:
         seller_risk = seller_risk_map.get(item.seller_user_id, default_risk_snapshot)
         table_rows += (
-            "<tr>"
+            f"<tr data-row='{escape(f"{item.id} {item.seller_user_id} {item.status} {item.start_price} {item.buyout_price or ''}")}'>"
             f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.id}'))}'>{escape(str(item.id))}</a></td>"
             f"<td>{item.seller_user_id}</td>"
             f"<td>{_risk_snapshot_inline_html(seller_risk)}</td>"
@@ -1802,30 +1903,39 @@ async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> R
         table_rows = "<tr><td colspan='8'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/auctions?status={status}&page={page-1}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _auctions_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/auctions?status={status}&page={page+1}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _auctions_path(page_value=page+1, status_value=status)))}'>Вперед →</a>"
         if has_next
         else ""
     )
     status_chips = " ".join(
         [
-            f"<a class='chip' href='{escape(_path_with_auth(request, f'/auctions?status={item.value}&page=0'))}'>{item.value}</a>"
+            f"<a class='chip' href='{escape(_path_with_auth(request, _auctions_path(page_value=0, status_value=item.value)))}'>{item.value}</a>"
             for item in AuctionStatus
         ]
+    )
+    dense_toolbar = render_dense_list_toolbar(
+        dense_config,
+        density_query_builder=lambda value: _path_with_auth(
+            request,
+            _auctions_path(page_value=0, status_value=status, density_value=value),
+        ),
     )
 
     body = (
         f"{_render_app_header('Аукционы', auth, f'Статус: {status}') }"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        f"{dense_toolbar}"
         f"<div class='toolbar'><span>Фильтр:</span> {status_chips}</div>"
-        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Seller UID</th><th>Seller Risk</th><th>Start</th><th>Buyout</th><th>Status</th><th>Ends At</th><th>Actions</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Seller UID</th><th>Seller Risk</th><th>Start</th><th>Buyout</th><th>Status</th><th>Ends At</th><th>Actions</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
+        f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Auctions", body))
@@ -2632,7 +2742,12 @@ async def manage_user(
 
 
 @app.get("/manage/users", response_class=HTMLResponse)
-async def manage_users(request: Request, page: int = 0, q: str = "") -> Response:
+async def manage_users(
+    request: Request,
+    page: int = 0,
+    q: str = "",
+    density: str = "standard",
+) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
@@ -2644,6 +2759,20 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
 
     now = datetime.now(UTC)
     admin_ids = set(settings.parsed_admin_user_ids())
+    dense_config = DenseListConfig(
+        queue_key="manage_users",
+        density=density,
+        table_id="manage-users-table",
+        quick_filter_placeholder="id / tg / username",
+    )
+
+    def _manage_users_path(*, page_value: int, q_value: str | None = None, density_value: str | None = None) -> str:
+        query = {
+            "page": str(page_value),
+            "q": q_value if q_value is not None else query_value,
+            "density": density_value or dense_config.density,
+        }
+        return f"/manage/users?{urlencode(query)}"
 
     stmt = select(User).order_by(User.created_at.desc())
     if query_value:
@@ -2714,7 +2843,7 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         risk_snapshot = risk_by_user_id.get(user.id, default_risk_snapshot)
 
         rows.append(
-            "<tr>"
+            f"<tr data-row='{escape(f"{user.id} {user.tg_user_id} {user.username or ''} {moderator_text} {banned_text} {verified_text}")}'>"
             f"<td>{user.id}</td>"
             f"<td>{user.tg_user_id}</td>"
             f"<td>{escape(user.username or '-')}</td>"
@@ -2728,14 +2857,21 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         )
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/manage/users?page={page-1}&q={query_value}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _manage_users_path(page_value=page-1)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/manage/users?page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _manage_users_path(page_value=page+1)))}'>Вперед →</a>"
         if has_next
         else ""
+    )
+    dense_toolbar = render_dense_list_toolbar(
+        dense_config,
+        density_query_builder=lambda value: _path_with_auth(
+            request,
+            _manage_users_path(page_value=0, density_value=value),
+        ),
     )
 
     moderator_grant_form = ""
@@ -2755,17 +2891,20 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         f"{_render_app_header('Пользователи', auth, 'Поиск, роли и риск-профили')}"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        f"{dense_toolbar}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/manage/users'))}'>"
+        f"<input type='hidden' name='density' value='{escape(dense_config.density)}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='tg id или username' style='width:240px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
         "</div>"
         f"{_kpi_grid([_kpi_card('Пользователей на странице', str(len(users))), _kpi_card('Страница', str(page + 1)), _kpi_card('Поисковый запрос', escape(query_value) if query_value else '-')] )}"
         f"{moderator_grant_form}"
-        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Verified</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Verified</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
         f"<tbody>{''.join(rows) if rows else '<tr><td colspan=9><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
+        f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Manage Users", body))
@@ -2780,6 +2919,7 @@ async def violators(
     by: str = "",
     created_from: str = "",
     created_to: str = "",
+    density: str = "standard",
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -2792,6 +2932,12 @@ async def violators(
     moderator_value = by.strip()
     created_from_value = created_from.strip()
     created_to_value = created_to.strip()
+    dense_config = DenseListConfig(
+        queue_key="violators",
+        density=density,
+        table_id="violators-table",
+        quick_filter_placeholder="tg / username / reason / moderator",
+    )
     status_value = status.strip().lower()
     if status_value not in {"active", "inactive", "all"}:
         raise HTTPException(status_code=400, detail="Invalid violators status filter")
@@ -2860,15 +3006,26 @@ async def violators(
     rows = rows[:page_size]
 
     base_query = {
-        "status": status_value,
         "q": query_value,
         "by": moderator_value,
         "created_from": created_from_value,
         "created_to": created_to_value,
+        "density": dense_config.density,
     }
 
-    def _violators_path(*, target_page: int) -> str:
-        return f"/violators?{urlencode({**base_query, 'page': str(target_page)})}"
+    def _violators_path(
+        *,
+        target_page: int,
+        status_filter: str | None = None,
+        density_value: str | None = None,
+    ) -> str:
+        query = {
+            **base_query,
+            "status": status_filter or status_value,
+            "page": str(target_page),
+            "density": density_value or dense_config.density,
+        }
+        return f"/violators?{urlencode(query)}"
 
     csrf_input = _csrf_hidden_input(request, auth)
     return_to = _violators_path(target_page=page)
@@ -2893,7 +3050,7 @@ async def violators(
             )
 
         table_rows += (
-            "<tr>"
+            f"<tr data-row='{escape(f"{entry.id} {target_user.tg_user_id} {target_user.username or ''} {entry.reason} {actor_label}")}'>"
             f"<td>{entry.id}</td>"
             f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{target_user.id}'))}'>{target_user.tg_user_id}</a></td>"
             f"<td>{escape(target_label)}</td>"
@@ -2919,18 +3076,27 @@ async def violators(
         if has_next
         else ""
     )
-    active_status_path = f"/violators?{urlencode({**base_query, 'status': 'active', 'page': '0'})}"
-    inactive_status_path = f"/violators?{urlencode({**base_query, 'status': 'inactive', 'page': '0'})}"
-    all_status_path = f"/violators?{urlencode({**base_query, 'status': 'all', 'page': '0'})}"
+    inactive_status_path = _violators_path(target_page=0, status_filter="inactive")
+    all_status_path = _violators_path(target_page=0, status_filter="all")
+    active_status_path = _violators_path(target_page=0, status_filter="active")
+    dense_toolbar = render_dense_list_toolbar(
+        dense_config,
+        density_query_builder=lambda value: _path_with_auth(
+            request,
+            _violators_path(target_page=0, density_value=value),
+        ),
+    )
 
     body = (
         f"{_render_app_header('Нарушители', auth, 'Бан-лист, статусы и модераторские действия')}"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
+        f"{dense_toolbar}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/violators'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
+        f"<input type='hidden' name='density' value='{escape(dense_config.density)}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='tg id / username / причина' style='width:280px'>"
         f"<input name='by' value='{escape(moderator_value)}' placeholder='модератор tg id / username' style='width:220px'>"
         f"<input name='created_from' value='{escape(created_from_value)}' placeholder='с YYYY-MM-DD' style='width:150px'>"
@@ -2943,9 +3109,10 @@ async def violators(
         f"<a class='chip' href='{escape(_path_with_auth(request, inactive_status_path))}'>Неактивные</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, all_status_path))}'>Все</a>"
         "</div>"
-        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Статус</th><th>Причина</th><th>Кем</th><th>Создано</th><th>Истекает</th><th>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Статус</th><th>Причина</th><th>Кем</th><th>Создано</th><th>Истекает</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
+        f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Нарушители", body))
@@ -2960,6 +3127,7 @@ async def appeals(
     escalated: str = "all",
     page: int = 0,
     q: str = "",
+    density: str = "standard",
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -2973,6 +3141,12 @@ async def appeals(
     source_value = source.strip().lower()
     overdue_value = _parse_appeal_overdue_filter(overdue)
     escalated_value = _parse_appeal_escalated_filter(escalated)
+    dense_config = DenseListConfig(
+        queue_key="appeals",
+        density=density,
+        table_id="appeals-table",
+        quick_filter_placeholder="id / ref / source / appellant / note",
+    )
     now = datetime.now(UTC)
 
     status_filter = _parse_appeal_status_filter(status_value)
@@ -3048,9 +3222,40 @@ async def appeals(
             now=now,
         )
 
-    return_to = (
-        f"/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&page={page}&q={query_value}"
-    )
+    base_query = {
+        "status": status_value,
+        "source": source_value,
+        "overdue": overdue_value,
+        "escalated": escalated_value,
+        "q": query_value,
+        "density": dense_config.density,
+    }
+
+    def _appeals_path(
+        *,
+        page_value: int,
+        status_filter: str | None = None,
+        source_filter_value: str | None = None,
+        overdue_filter: str | None = None,
+        escalated_filter: str | None = None,
+        query_filter: str | None = None,
+        density_value: str | None = None,
+    ) -> str:
+        query = dict(base_query)
+        query.update(
+            {
+                "status": status_filter or status_value,
+                "source": source_filter_value or source_value,
+                "overdue": overdue_filter or overdue_value,
+                "escalated": escalated_filter or escalated_value,
+                "q": query_value if query_filter is None else query_filter,
+                "page": str(page_value),
+                "density": density_value or dense_config.density,
+            }
+        )
+        return f"/appeals?{urlencode(query)}"
+
+    return_to = _appeals_path(page_value=page)
     csrf_input = _csrf_hidden_input(request, auth)
     table_rows = ""
     default_risk_snapshot = evaluate_user_risk_snapshot(
@@ -3111,7 +3316,7 @@ async def appeals(
             actions = "".join(action_forms)
 
         table_rows += (
-            "<tr>"
+            f"<tr data-row='{escape(f"{appeal.id} {appeal.appeal_ref} {source_label} {appellant_label} {appeal.status} {appeal.resolution_note or ''}")}'>"
             f"<td>{appeal.id}</td>"
             f"<td>{escape(appeal.appeal_ref)}</td>"
             f"<td>{escape(source_label)}</td>"
@@ -3133,14 +3338,21 @@ async def appeals(
         table_rows = "<tr><td colspan='14'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&page={page-1}&q={query_value}'))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _appeals_path(page_value=page-1)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&page={page+1}&q={query_value}'))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _appeals_path(page_value=page+1)))}'>Вперед →</a>"
         if has_next
         else ""
+    )
+    dense_toolbar = render_dense_list_toolbar(
+        dense_config,
+        density_query_builder=lambda value: _path_with_auth(
+            request,
+            _appeals_path(page_value=0, density_value=value),
+        ),
     )
 
     body = (
@@ -3148,40 +3360,43 @@ async def appeals(
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>К нарушителям</a></p>"
+        f"{dense_toolbar}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/appeals'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input type='hidden' name='source' value='{escape(source_value)}'>"
         f"<input type='hidden' name='overdue' value='{escape(overdue_value)}'>"
         f"<input type='hidden' name='escalated' value='{escape(escalated_value)}'>"
+        f"<input type='hidden' name='density' value='{escape(dense_config.density)}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='референс / tg id / username' style='width:300px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
         "</div>"
         "<div class='stack-rows'>"
         f"<div class='toolbar'><span>Статус:</span>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Открытые</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>На рассмотрении</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Удовлетворенные</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Отклоненные</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Все</a></div>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, status_filter='open')))}'>Открытые</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, status_filter='in_review')))}'>На рассмотрении</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, status_filter='resolved')))}'>Удовлетворенные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, status_filter='rejected')))}'>Отклоненные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, status_filter='all')))}'>Все</a></div>"
         f"<div class='toolbar'><span>Источник:</span>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Жалобы</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Фрод</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Ручные</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Все</a></div>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, source_filter_value='complaint')))}'>Жалобы</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, source_filter_value='risk')))}'>Фрод</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, source_filter_value='manual')))}'>Ручные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, source_filter_value='all')))}'>Все</a></div>"
         f"<div class='toolbar'><span>SLA:</span>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=all&escalated={escalated_value}&q={query_value}'))}'>Все</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=only&escalated={escalated_value}&q={query_value}'))}'>Просроченные</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=none&escalated={escalated_value}&q={query_value}'))}'>Непросроченные</a></div>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, overdue_filter='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, overdue_filter='only')))}'>Просроченные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, overdue_filter='none')))}'>Непросроченные</a></div>"
         f"<div class='toolbar'><span>Эскалация:</span>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=all&q={query_value}'))}'>Все</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=only&q={query_value}'))}'>Эскалированные</a>"
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=none&q={query_value}'))}'>Без эскалации</a></div>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='only')))}'>Эскалированные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='none')))}'>Без эскалации</a></div>"
         "</div>"
-        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Риск апеллянта</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA статус</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Риск апеллянта</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA статус</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
+        f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Апелляции", body))
