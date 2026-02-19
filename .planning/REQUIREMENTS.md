@@ -25,8 +25,8 @@ Requirements for this milestone. These map to roadmap phases.
 
 ### Table Layout
 
-- [ ] **LAYT-01**: Operator can show or hide columns in list views
-- [ ] **LAYT-02**: Operator can reorder and pin columns for stable scanning
+- [x] **LAYT-01**: Operator can show or hide columns in list views
+- [x] **LAYT-02**: Operator can reorder and pin columns for stable scanning
 - [x] **LAYT-03**: Column visibility, order, and pinning preferences persist across sessions
 
 ### Progressive Disclosure
@@ -78,8 +78,8 @@ Phase mapping finalized in roadmap creation.
 | PSET-03 | Phase 2 | Pending |
 | FILT-01 | Phase 1 | Complete |
 | FILT-02 | Phase 1 | Complete |
-| LAYT-01 | Phase 1 | Pending |
-| LAYT-02 | Phase 1 | Pending |
+| LAYT-01 | Phase 1 | Complete |
+| LAYT-02 | Phase 1 | Complete |
 | LAYT-03 | Phase 1 | Complete |
 | DISC-01 | Phase 3 | Pending |
 | DISC-02 | Phase 3 | Pending |

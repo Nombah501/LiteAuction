@@ -12,7 +12,7 @@ This roadmap delivers denser, faster admin moderation workflows without weakenin
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Dense List Foundations** - Operators can configure and persist high-signal queue views for daily triage.
+- [x] **Phase 1: Dense List Foundations** - Operators can configure and persist high-signal queue views for daily triage.
 - [ ] **Phase 2: Workflow Presets** - Operators and admins can save and apply reusable queue configurations.
 - [ ] **Phase 3: In-Place Triage Interactions** - Operators can investigate and act on queues quickly without context loss.
 - [ ] **Phase 4: Readability and Regression Hardening** - Compact readability and key interaction paths are validated by automated web tests.
@@ -31,8 +31,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 Plans:
 - [x] 01-01-PLAN.md - Build server-side preference persistence foundation for dense-list state.
-- [ ] 01-02-PLAN.md - Add density controls and two-layer filtering contract to queue routes.
-- [ ] 01-03-PLAN.md - Implement column layout controls and persistence wiring across sessions.
+- [x] 01-02-PLAN.md - Add density controls and two-layer filtering contract to queue routes.
+- [x] 01-03-PLAN.md - Implement column layout controls and persistence wiring across sessions.
 
 ### Phase 2: Workflow Presets
 **Goal**: Operators can store and reuse named queue configurations, while admins provide default queue presets by moderation context.
@@ -71,7 +71,7 @@ Phases execute in numeric order: 1 -> 1.1 -> 1.2 -> 2 -> 2.1 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Dense List Foundations | 1/3 | In Progress | 2026-02-19 |
+| 1. Dense List Foundations | 3/3 | Complete | 2026-02-19 |
 | 2. Workflow Presets | 0/TBD | Not started | - |
 | 3. In-Place Triage Interactions | 0/TBD | Not started | - |
 | 4. Readability and Regression Hardening | 0/TBD | Not started | - |

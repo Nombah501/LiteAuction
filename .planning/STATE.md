@@ -2,38 +2,38 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-19)
+See: `.planning/PROJECT.md` (updated 2026-02-19)
 
 **Core value:** Run trustworthy Telegram auctions end-to-end with fast operator intervention and clear auditability.
-**Current focus:** Phase 1 - Dense List Foundations
+**Current focus:** Phase 2 - Workflow Presets
 
 ## Current Position
 
-Phase: 1 of 4 (Dense List Foundations)
-Plan: 2 of 3 in current phase
+Phase: 2 of 4 (Workflow Presets)
+Plan: 0 of TBD in current phase
 Status: In progress
-Last activity: 2026-02-19 - Completed 01-02 dense list queue controls and dual-layer filtering
+Last activity: 2026-02-19 - Completed 01-03 queue layout controls and persistence wiring
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 8 min
+- Total plans completed: 3
+- Average duration: 6 min
 - Total execution time: 0.3 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Dense List Foundations | 2 | 15 min | 8 min |
+| 1. Dense List Foundations | 3 | 17 min | 6 min |
 | 2. Workflow Presets | 0 | 0 min | 0 min |
 | 3. In-Place Triage Interactions | 0 | 0 min | 0 min |
 | 4. Readability and Regression Hardening | 0 | 0 min | 0 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (5 min), 01-02 (10 min)
+- Last 5 plans: 01-01 (5 min), 01-02 (10 min), 01-03 (2 min)
 - Trend: Stable
 
 ## Accumulated Context
@@ -50,6 +50,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Enforce strict columns payload contract where order is full allow-list permutation and pinned is subset of visible.
 - [Phase 01]: Keep density as a validated query parameter so chips and pagers preserve current layout state.
 - [Phase 01]: Keep quick filter client-local on rendered rows while advanced qualifiers stay server-validated.
+- [Phase 01]: Load canonical queue layout state on GET and apply show/hide/order/pin through shared data-col hooks.
+- [Phase 01]: Persist density and column payloads through one CSRF-protected JSON endpoint with queue allow-lists.
 
 ### Pending Todos
 
@@ -61,6 +63,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-19 19:13 UTC
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-02-19 19:47 UTC
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
