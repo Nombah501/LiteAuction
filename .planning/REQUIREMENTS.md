@@ -9,7 +9,7 @@ Requirements for this milestone. These map to roadmap phases.
 
 ### Density Controls
 
-- [ ] **DENS-01**: Operator can switch admin list density between compact, standard, and comfortable modes
+- [x] **DENS-01**: Operator can switch admin list density between compact, standard, and comfortable modes
 - [x] **DENS-02**: Operator density preference persists across browser refresh and new sessions
 
 ### Presets and Views
@@ -20,8 +20,8 @@ Requirements for this milestone. These map to roadmap phases.
 
 ### Filtering and Search
 
-- [ ] **FILT-01**: Operator can use a quick filter input to narrow list results immediately
-- [ ] **FILT-02**: Operator can apply advanced filter qualifiers for queue triage use cases
+- [x] **FILT-01**: Operator can use a quick filter input to narrow list results immediately
+- [x] **FILT-02**: Operator can apply advanced filter qualifiers for queue triage use cases
 
 ### Table Layout
 
@@ -71,13 +71,13 @@ Phase mapping finalized in roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DENS-01 | Phase 1 | Pending |
+| DENS-01 | Phase 1 | Complete |
 | DENS-02 | Phase 1 | Complete |
 | PSET-01 | Phase 2 | Pending |
 | PSET-02 | Phase 2 | Pending |
 | PSET-03 | Phase 2 | Pending |
-| FILT-01 | Phase 1 | Pending |
-| FILT-02 | Phase 1 | Pending |
+| FILT-01 | Phase 1 | Complete |
+| FILT-02 | Phase 1 | Complete |
 | LAYT-01 | Phase 1 | Pending |
 | LAYT-02 | Phase 1 | Pending |
 | LAYT-03 | Phase 1 | Complete |
