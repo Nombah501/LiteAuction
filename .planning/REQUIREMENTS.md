@@ -10,7 +10,7 @@ Requirements for this milestone. These map to roadmap phases.
 ### Density Controls
 
 - [ ] **DENS-01**: Operator can switch admin list density between compact, standard, and comfortable modes
-- [ ] **DENS-02**: Operator density preference persists across browser refresh and new sessions
+- [x] **DENS-02**: Operator density preference persists across browser refresh and new sessions
 
 ### Presets and Views
 
@@ -27,7 +27,7 @@ Requirements for this milestone. These map to roadmap phases.
 
 - [ ] **LAYT-01**: Operator can show or hide columns in list views
 - [ ] **LAYT-02**: Operator can reorder and pin columns for stable scanning
-- [ ] **LAYT-03**: Column visibility, order, and pinning preferences persist across sessions
+- [x] **LAYT-03**: Column visibility, order, and pinning preferences persist across sessions
 
 ### Progressive Disclosure
 
@@ -72,7 +72,7 @@ Phase mapping finalized in roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DENS-01 | Phase 1 | Pending |
-| DENS-02 | Phase 1 | Pending |
+| DENS-02 | Phase 1 | Complete |
 | PSET-01 | Phase 2 | Pending |
 | PSET-02 | Phase 2 | Pending |
 | PSET-03 | Phase 2 | Pending |
@@ -80,7 +80,7 @@ Phase mapping finalized in roadmap creation.
 | FILT-02 | Phase 1 | Pending |
 | LAYT-01 | Phase 1 | Pending |
 | LAYT-02 | Phase 1 | Pending |
-| LAYT-03 | Phase 1 | Pending |
+| LAYT-03 | Phase 1 | Complete |
 | DISC-01 | Phase 3 | Pending |
 | DISC-02 | Phase 3 | Pending |
 | DISC-03 | Phase 3 | Pending |

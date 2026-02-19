@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Density and table layout preferences remain applied after refresh and new login sessions.
 **Plans**: 3 plans
 Plans:
-- [ ] 01-01-PLAN.md - Build server-side preference persistence foundation for dense-list state.
+- [x] 01-01-PLAN.md - Build server-side preference persistence foundation for dense-list state.
 - [ ] 01-02-PLAN.md - Add density controls and two-layer filtering contract to queue routes.
 - [ ] 01-03-PLAN.md - Implement column layout controls and persistence wiring across sessions.
 
@@ -71,7 +71,7 @@ Phases execute in numeric order: 1 -> 1.1 -> 1.2 -> 2 -> 2.1 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Dense List Foundations | 0/3 | Not started | - |
+| 1. Dense List Foundations | 1/3 | In Progress | 2026-02-19 |
 | 2. Workflow Presets | 0/TBD | Not started | - |
 | 3. In-Place Triage Interactions | 0/TBD | Not started | - |
 | 4. Readability and Regression Hardening | 0/TBD | Not started | - |
