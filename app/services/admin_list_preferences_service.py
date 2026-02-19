@@ -30,6 +30,8 @@ def _normalize_subject_key(*, auth: AdminAuthContext, admin_token: str | None = 
 
 
 def _normalize_queue_key(queue_key: str) -> str:
+    if not isinstance(queue_key, str):
+        raise ValueError("Queue key is required")
     normalized = queue_key.strip().lower()
     if not normalized:
         raise ValueError("Queue key is required")
@@ -37,6 +39,8 @@ def _normalize_queue_key(queue_key: str) -> str:
 
 
 def _normalize_density(density: str) -> str:
+    if not isinstance(density, str):
+        raise ValueError("Invalid density value")
     normalized = density.strip().lower()
     if normalized not in ALLOWED_DENSITY_VALUES:
         raise ValueError("Invalid density value")
@@ -47,6 +51,8 @@ def _normalize_allowed_columns(allowed_columns: Sequence[str]) -> tuple[str, ...
     normalized: list[str] = []
     seen: set[str] = set()
     for column in allowed_columns:
+        if not isinstance(column, str):
+            raise ValueError("Allowed columns must contain only strings")
         key = column.strip()
         if not key:
             raise ValueError("Allowed columns cannot include blank values")
