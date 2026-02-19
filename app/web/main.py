@@ -17,6 +17,7 @@ from aiogram.enums import ParseMode
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.config import settings
@@ -40,6 +41,11 @@ from app.services.appeal_service import (
     reject_appeal,
     resolve_appeal,
     resolve_appeal_auction_id,
+)
+from app.services.admin_list_preferences_service import (
+    DEFAULT_DENSITY,
+    load_admin_list_preference,
+    save_admin_list_preference,
 )
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import list_complaints
@@ -105,6 +111,55 @@ from app.web.auth import (
 
 app = FastAPI(title="LiteAuction Admin", version="0.2.0")
 logger = logging.getLogger(__name__)
+
+_DENSE_ALLOWED_DENSITIES = frozenset({"compact", "standard", "comfortable"})
+_QUEUE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "complaints": ("id", "auction", "reporter", "status", "reason", "created"),
+    "signals": ("id", "auction", "user", "risk", "score", "status", "created"),
+    "trade_feedback": (
+        "id",
+        "auction",
+        "author",
+        "target",
+        "rating",
+        "comment",
+        "status",
+        "moderator",
+        "note",
+        "created",
+        "moderated",
+        "actions",
+    ),
+    "auctions": ("id", "seller", "risk", "start", "buyout", "status", "ends_at", "actions"),
+    "manage_users": (
+        "id",
+        "tg_user_id",
+        "username",
+        "moderator",
+        "banned",
+        "verified",
+        "risk",
+        "created",
+        "manage",
+    ),
+    "violators": ("id", "tg_user_id", "username", "status", "reason", "actor", "created", "expires", "actions"),
+    "appeals": (
+        "id",
+        "reference",
+        "source",
+        "appellant",
+        "risk",
+        "status",
+        "resolution",
+        "moderator",
+        "created",
+        "sla",
+        "deadline",
+        "escalation",
+        "closed",
+        "actions",
+    ),
+}
 
 
 def _timezone() -> ZoneInfo:
@@ -581,6 +636,12 @@ def _render_page(title: str, body: str) -> str:
         "th{background:var(--soft);font-weight:600;color:var(--accent-ink);letter-spacing:0.2px;}"
         ".dense-list-shell[data-density='compact'] th,.dense-list-shell[data-density='compact'] td{padding:5px 7px;font-size:12px;}"
         ".dense-list-shell[data-density='comfortable'] th,.dense-list-shell[data-density='comfortable'] td{padding:12px 13px;font-size:15px;}"
+        ".dense-list-shell .is-pinned{position:sticky;left:var(--pin-left,0px);background:var(--card);box-shadow:1px 0 0 rgba(19,33,44,0.12);min-width:max-content;}"
+        ".dense-column-controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:100%;}"
+        ".dense-column-row{display:inline-flex;align-items:center;gap:6px;border:1px solid #c7d4de;background:#ffffff;border-radius:999px;padding:4px 8px;font-size:12px;}"
+        ".dense-column-row input{margin:0 2px 0 0;}"
+        ".dense-column-row button{padding:2px 7px;min-height:24px;border-radius:6px;font-size:11px;}"
+        ".dense-column-key{font-weight:700;color:var(--accent-ink);min-width:52px;}"
         ".dense-list-toolbar input[type='search']{min-width:250px;}"
         "tr:nth-child(even) td{background:#fbfdfe;}"
         "tr:last-child td{border-bottom:none;}"
@@ -799,6 +860,63 @@ def _parse_non_negative_int(raw: str | None) -> int | None:
     if raw is None or not raw.isdigit():
         return None
     return int(raw)
+
+
+def _normalize_requested_density(raw_density: str | None) -> str | None:
+    if raw_density is None:
+        return None
+    value = raw_density.strip().lower()
+    if not value:
+        return None
+    if value not in _DENSE_ALLOWED_DENSITIES:
+        raise HTTPException(status_code=400, detail="Invalid density value")
+    return value
+
+
+def _resolve_dense_density(*, requested: str | None, persisted: str) -> str:
+    requested_density = _normalize_requested_density(requested)
+    if requested_density is not None:
+        return requested_density
+    persisted_density = persisted.strip().lower()
+    if persisted_density in _DENSE_ALLOWED_DENSITIES:
+        return persisted_density
+    return DEFAULT_DENSITY
+
+
+async def _load_dense_list_config(
+    session: AsyncSession,
+    *,
+    request: Request,
+    auth: AdminAuthContext,
+    queue_key: str,
+    requested_density: str | None,
+    table_id: str,
+    quick_filter_placeholder: str,
+) -> DenseListConfig:
+    allowed_columns = _QUEUE_ALLOWED_COLUMNS.get(queue_key)
+    if not allowed_columns:
+        raise HTTPException(status_code=500, detail="Dense list queue is not configured")
+
+    preference = await load_admin_list_preference(
+        session,
+        auth=auth,
+        queue_key=queue_key,
+        allowed_columns=allowed_columns,
+        admin_token=_token_from_request(request),
+    )
+    columns = preference["columns"]
+
+    return DenseListConfig(
+        queue_key=queue_key,
+        density=_resolve_dense_density(requested=requested_density, persisted=preference["density"]),
+        table_id=table_id,
+        quick_filter_placeholder=quick_filter_placeholder,
+        columns_order=tuple(columns["order"]),
+        columns_visible=tuple(columns["visible"]),
+        columns_pinned=tuple(columns["pinned"]),
+        preferences_action_path=_path_with_auth(request, "/actions/dense-list/preferences"),
+        csrf_token=_build_csrf_token(request, auth),
+    )
 
 
 def _parse_signed_int(raw: str | None) -> int | None:
@@ -1378,7 +1496,7 @@ async def complaints(
     request: Request,
     status: str = "OPEN",
     page: int = 0,
-    density: str = "standard",
+    density: str | None = None,
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -1395,16 +1513,18 @@ async def complaints(
             limit=page_size + 1,
             offset=offset,
         )
+        dense_config = await _load_dense_list_config(
+            session,
+            request=request,
+            auth=auth,
+            queue_key="complaints",
+            requested_density=density,
+            table_id="complaints-table",
+            quick_filter_placeholder="id / auction / reporter / reason",
+        )
 
     has_next = len(rows) > page_size
     rows = rows[:page_size]
-
-    dense_config = DenseListConfig(
-        queue_key="complaints",
-        density=density,
-        table_id="complaints-table",
-        quick_filter_placeholder="id / auction / reporter / reason",
-    )
 
     def _complaints_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
         query = {
@@ -1416,12 +1536,12 @@ async def complaints(
 
     table_rows = "".join(
         f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.reporter_user_id} {item.status} {item.reason}')}'>"
-        f"<td>{item.id}</td>"
-        f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
-        f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{item.reporter_user_id}'))}'>{item.reporter_user_id}</a></td>"
-        f"<td>{escape(item.status)}</td>"
-        f"<td>{escape(item.reason[:120])}</td>"
-        f"<td>{escape(_fmt_ts(item.created_at))}</td>"
+        f"<td data-col='id'>{item.id}</td>"
+        f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
+        f"<td data-col='reporter'><a href='{escape(_path_with_auth(request, f'/manage/user/{item.reporter_user_id}'))}'>{item.reporter_user_id}</a></td>"
+        f"<td data-col='status'>{escape(item.status)}</td>"
+        f"<td data-col='reason'>{escape(item.reason[:120])}</td>"
+        f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
         "</tr>"
         for item in rows
     )
@@ -1457,7 +1577,7 @@ async def complaints(
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Auction</th><th>Reporter UID</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='reporter'>Reporter UID</th><th data-col='status'>Status</th><th data-col='reason'>Reason</th><th data-col='created'>Created</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -1471,7 +1591,7 @@ async def signals(
     request: Request,
     status: str = "OPEN",
     page: int = 0,
-    density: str = "standard",
+    density: str | None = None,
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -1494,19 +1614,21 @@ async def signals(
             session,
             user_ids=[item.user_id for item in rows],
         )
+        dense_config = await _load_dense_list_config(
+            session,
+            request=request,
+            auth=auth,
+            queue_key="signals",
+            requested_density=density,
+            table_id="signals-table",
+            quick_filter_placeholder="id / auction / user / status",
+        )
 
     default_risk_snapshot = evaluate_user_risk_snapshot(
         complaints_against=0,
         open_fraud_signals=0,
         has_active_blacklist=False,
         removed_bids=0,
-    )
-
-    dense_config = DenseListConfig(
-        queue_key="signals",
-        density=density,
-        table_id="signals-table",
-        quick_filter_placeholder="id / auction / user / status",
     )
 
     def _signals_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
@@ -1522,13 +1644,13 @@ async def signals(
         user_risk = risk_by_user_id.get(item.user_id, default_risk_snapshot)
         table_rows += (
             f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.user_id} {item.status} {item.score}')}'>"
-            f"<td>{item.id}</td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{item.user_id}'))}'>{item.user_id}</a></td>"
-            f"<td>{_risk_snapshot_inline_html(user_risk)}</td>"
-            f"<td>{item.score}</td>"
-            f"<td>{escape(item.status)}</td>"
-            f"<td>{escape(_fmt_ts(item.created_at))}</td>"
+            f"<td data-col='id'>{item.id}</td>"
+            f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
+            f"<td data-col='user'><a href='{escape(_path_with_auth(request, f'/manage/user/{item.user_id}'))}'>{item.user_id}</a></td>"
+            f"<td data-col='risk'>{_risk_snapshot_inline_html(user_risk)}</td>"
+            f"<td data-col='score'>{item.score}</td>"
+            f"<td data-col='status'>{escape(item.status)}</td>"
+            f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
             "</tr>"
         )
     if not table_rows:
@@ -1563,7 +1685,7 @@ async def signals(
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Auction</th><th>User ID</th><th>User Risk</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='user'>User ID</th><th data-col='risk'>User Risk</th><th data-col='score'>Score</th><th data-col='status'>Status</th><th data-col='created'>Created</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -1583,7 +1705,7 @@ async def trade_feedback(
     author_tg: str = "",
     target_tg: str = "",
     moderator_tg: str = "",
-    density: str = "standard",
+    density: str | None = None,
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -1668,16 +1790,18 @@ async def trade_feedback(
 
     async with SessionFactory() as session:
         rows = (await session.execute(stmt)).all()
+        dense_config = await _load_dense_list_config(
+            session,
+            request=request,
+            auth=auth,
+            queue_key="trade_feedback",
+            requested_density=density,
+            table_id="trade-feedback-table",
+            quick_filter_placeholder="id / auction / users / comment",
+        )
 
     has_next = len(rows) > page_size
     rows = rows[:page_size]
-
-    dense_config = DenseListConfig(
-        queue_key="trade_feedback",
-        density=density,
-        table_id="trade-feedback-table",
-        quick_filter_placeholder="id / auction / users / comment",
-    )
 
     base_query = {
         "status": status_value,
@@ -1743,18 +1867,18 @@ async def trade_feedback(
 
         table_rows += (
             f"<tr data-row='{escape(f"{item.id} {auction.id} {author_label} {target_label} {item.status} {item.rating} {item.comment or ''} {item.moderation_note or ''}")}'>"
-            f"<td>{item.id}</td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>{escape(str(auction.id))}</a></td>"
-            f"<td><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, author_tg=str(author.tg_user_id), target_tg='')))}'>{escape(author_label)}</a></td>"
-            f"<td><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, target_tg=str(target.tg_user_id), author_tg='')))}'>{escape(target_label)}</a></td>"
-            f"<td>{item.rating}/5</td>"
-            f"<td>{escape((item.comment or '-')[:180])}</td>"
-            f"<td>{status_label}</td>"
-            f"<td>{moderator_cell}</td>"
-            f"<td>{moderation_note}</td>"
-            f"<td>{escape(_fmt_ts(item.created_at))}</td>"
-            f"<td>{escape(_fmt_ts(item.moderated_at))}</td>"
-            f"<td>{action_form}</td>"
+            f"<td data-col='id'>{item.id}</td>"
+            f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>{escape(str(auction.id))}</a></td>"
+            f"<td data-col='author'><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, author_tg=str(author.tg_user_id), target_tg='')))}'>{escape(author_label)}</a></td>"
+            f"<td data-col='target'><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, target_tg=str(target.tg_user_id), author_tg='')))}'>{escape(target_label)}</a></td>"
+            f"<td data-col='rating'>{item.rating}/5</td>"
+            f"<td data-col='comment'>{escape((item.comment or '-')[:180])}</td>"
+            f"<td data-col='status'>{status_label}</td>"
+            f"<td data-col='moderator'>{moderator_cell}</td>"
+            f"<td data-col='note'>{moderation_note}</td>"
+            f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
+            f"<td data-col='moderated'>{escape(_fmt_ts(item.moderated_at))}</td>"
+            f"<td data-col='actions'>{action_form}</td>"
             "</tr>"
         )
 
@@ -1818,7 +1942,7 @@ async def trade_feedback(
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='none')))}'>без модерации</a>"
         "</div>"
         f"<p>Автор TG: {escape(author_filter_text)} | Получатель TG: {escape(target_filter_text)} | Модератор TG: {escape(moderator_filter_text)}</p>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Примечание</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='author'>Автор</th><th data-col='target'>Кому</th><th data-col='rating'>Оценка</th><th data-col='comment'>Комментарий</th><th data-col='status'>Статус</th><th data-col='moderator'>Модератор</th><th data-col='note'>Примечание</th><th data-col='created'>Создано</th><th data-col='moderated'>Модерация</th><th data-col='actions'>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -1832,7 +1956,7 @@ async def auctions(
     request: Request,
     status: str = "ACTIVE",
     page: int = 0,
-    density: str = "standard",
+    density: str | None = None,
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -1862,6 +1986,15 @@ async def auctions(
             session,
             user_ids=[item.seller_user_id for item in rows],
         )
+        dense_config = await _load_dense_list_config(
+            session,
+            request=request,
+            auth=auth,
+            queue_key="auctions",
+            requested_density=density,
+            table_id="auctions-table",
+            quick_filter_placeholder="auction id / seller / status",
+        )
 
     default_risk_snapshot = evaluate_user_risk_snapshot(
         complaints_against=0,
@@ -1869,13 +2002,6 @@ async def auctions(
         has_active_blacklist=False,
         removed_bids=0,
     )
-    dense_config = DenseListConfig(
-        queue_key="auctions",
-        density=density,
-        table_id="auctions-table",
-        quick_filter_placeholder="auction id / seller / status",
-    )
-
     def _auctions_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
         query = {
             "status": status_value,
@@ -1889,14 +2015,14 @@ async def auctions(
         seller_risk = seller_risk_map.get(item.seller_user_id, default_risk_snapshot)
         table_rows += (
             f"<tr data-row='{escape(f"{item.id} {item.seller_user_id} {item.status} {item.start_price} {item.buyout_price or ''}")}'>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.id}'))}'>{escape(str(item.id))}</a></td>"
-            f"<td>{item.seller_user_id}</td>"
-            f"<td>{_risk_snapshot_inline_html(seller_risk)}</td>"
-            f"<td>${item.start_price}</td>"
-            f"<td>${item.buyout_price if item.buyout_price is not None else '-'}</td>"
-            f"<td>{escape(str(item.status))}</td>"
-            f"<td>{escape(_fmt_ts(item.ends_at))}</td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/manage/auction/{item.id}'))}'>Управлять</a></td>"
+            f"<td data-col='id'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.id}'))}'>{escape(str(item.id))}</a></td>"
+            f"<td data-col='seller'>{item.seller_user_id}</td>"
+            f"<td data-col='risk'>{_risk_snapshot_inline_html(seller_risk)}</td>"
+            f"<td data-col='start'>${item.start_price}</td>"
+            f"<td data-col='buyout'>${item.buyout_price if item.buyout_price is not None else '-'}</td>"
+            f"<td data-col='status'>{escape(str(item.status))}</td>"
+            f"<td data-col='ends_at'>{escape(_fmt_ts(item.ends_at))}</td>"
+            f"<td data-col='actions'><a href='{escape(_path_with_auth(request, f'/manage/auction/{item.id}'))}'>Управлять</a></td>"
             "</tr>"
         )
     if not table_rows:
@@ -1932,7 +2058,7 @@ async def auctions(
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
         f"<div class='toolbar'><span>Фильтр:</span> {status_chips}</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Seller UID</th><th>Seller Risk</th><th>Start</th><th>Buyout</th><th>Status</th><th>Ends At</th><th>Actions</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='seller'>Seller UID</th><th data-col='risk'>Seller Risk</th><th data-col='start'>Start</th><th data-col='buyout'>Buyout</th><th data-col='status'>Status</th><th data-col='ends_at'>Ends At</th><th data-col='actions'>Actions</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -2746,7 +2872,7 @@ async def manage_users(
     request: Request,
     page: int = 0,
     q: str = "",
-    density: str = "standard",
+    density: str | None = None,
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -2759,12 +2885,6 @@ async def manage_users(
 
     now = datetime.now(UTC)
     admin_ids = set(settings.parsed_admin_user_ids())
-    dense_config = DenseListConfig(
-        queue_key="manage_users",
-        density=density,
-        table_id="manage-users-table",
-        quick_filter_placeholder="id / tg / username",
-    )
 
     def _manage_users_path(*, page_value: int, q_value: str | None = None, density_value: str | None = None) -> str:
         query = {
@@ -2787,6 +2907,15 @@ async def manage_users(
             stmt = stmt.where(User.username.ilike(f"%{query_value}%"))
 
     async with SessionFactory() as session:
+        dense_config = await _load_dense_list_config(
+            session,
+            request=request,
+            auth=auth,
+            queue_key="manage_users",
+            requested_density=density,
+            table_id="manage-users-table",
+            quick_filter_placeholder="id / tg / username",
+        )
         users = (
             await session.execute(
                 stmt.offset(offset).limit(page_size + 1),
@@ -2844,15 +2973,15 @@ async def manage_users(
 
         rows.append(
             f"<tr data-row='{escape(f"{user.id} {user.tg_user_id} {user.username or ''} {moderator_text} {banned_text} {verified_text}")}'>"
-            f"<td>{user.id}</td>"
-            f"<td>{user.tg_user_id}</td>"
-            f"<td>{escape(user.username or '-')}</td>"
-            f"<td>{moderator_text}</td>"
-            f"<td>{banned_text}</td>"
-            f"<td>{verified_text}</td>"
-            f"<td>{_risk_snapshot_inline_html(risk_snapshot)}</td>"
-            f"<td>{escape(_fmt_ts(user.created_at))}</td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{user.id}'))}'>open</a></td>"
+            f"<td data-col='id'>{user.id}</td>"
+            f"<td data-col='tg_user_id'>{user.tg_user_id}</td>"
+            f"<td data-col='username'>{escape(user.username or '-')}</td>"
+            f"<td data-col='moderator'>{moderator_text}</td>"
+            f"<td data-col='banned'>{banned_text}</td>"
+            f"<td data-col='verified'>{verified_text}</td>"
+            f"<td data-col='risk'>{_risk_snapshot_inline_html(risk_snapshot)}</td>"
+            f"<td data-col='created'>{escape(_fmt_ts(user.created_at))}</td>"
+            f"<td data-col='manage'><a href='{escape(_path_with_auth(request, f'/manage/user/{user.id}'))}'>open</a></td>"
             "</tr>"
         )
 
@@ -2901,7 +3030,7 @@ async def manage_users(
         "</div>"
         f"{_kpi_grid([_kpi_card('Пользователей на странице', str(len(users))), _kpi_card('Страница', str(page + 1)), _kpi_card('Поисковый запрос', escape(query_value) if query_value else '-')] )}"
         f"{moderator_grant_form}"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Verified</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='tg_user_id'>TG User ID</th><th data-col='username'>Username</th><th data-col='moderator'>Moderator</th><th data-col='banned'>Banned</th><th data-col='verified'>Verified</th><th data-col='risk'>Risk</th><th data-col='created'>Created</th><th data-col='manage'>Manage</th></tr></thead>"
         f"<tbody>{''.join(rows) if rows else '<tr><td colspan=9><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -2919,7 +3048,7 @@ async def violators(
     by: str = "",
     created_from: str = "",
     created_to: str = "",
-    density: str = "standard",
+    density: str | None = None,
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -2932,12 +3061,6 @@ async def violators(
     moderator_value = by.strip()
     created_from_value = created_from.strip()
     created_to_value = created_to.strip()
-    dense_config = DenseListConfig(
-        queue_key="violators",
-        density=density,
-        table_id="violators-table",
-        quick_filter_placeholder="tg / username / reason / moderator",
-    )
     status_value = status.strip().lower()
     if status_value not in {"active", "inactive", "all"}:
         raise HTTPException(status_code=400, detail="Invalid violators status filter")
@@ -3000,6 +3123,15 @@ async def violators(
     )
 
     async with SessionFactory() as session:
+        dense_config = await _load_dense_list_config(
+            session,
+            request=request,
+            auth=auth,
+            queue_key="violators",
+            requested_density=density,
+            table_id="violators-table",
+            quick_filter_placeholder="tg / username / reason / moderator",
+        )
         rows = (await session.execute(stmt)).all()
 
     has_next = len(rows) > page_size
@@ -3051,15 +3183,15 @@ async def violators(
 
         table_rows += (
             f"<tr data-row='{escape(f"{entry.id} {target_user.tg_user_id} {target_user.username or ''} {entry.reason} {actor_label}")}'>"
-            f"<td>{entry.id}</td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{target_user.id}'))}'>{target_user.tg_user_id}</a></td>"
-            f"<td>{escape(target_label)}</td>"
-            f"<td>{_violator_status_label('active' if entry.is_active else 'inactive')}</td>"
-            f"<td>{escape(entry.reason[:160])}</td>"
-            f"<td>{escape(actor_label)}</td>"
-            f"<td>{escape(_fmt_ts(entry.created_at))}</td>"
-            f"<td>{escape(_fmt_ts(entry.expires_at))}</td>"
-            f"<td>{actions}</td>"
+            f"<td data-col='id'>{entry.id}</td>"
+            f"<td data-col='tg_user_id'><a href='{escape(_path_with_auth(request, f'/manage/user/{target_user.id}'))}'>{target_user.tg_user_id}</a></td>"
+            f"<td data-col='username'>{escape(target_label)}</td>"
+            f"<td data-col='status'>{_violator_status_label('active' if entry.is_active else 'inactive')}</td>"
+            f"<td data-col='reason'>{escape(entry.reason[:160])}</td>"
+            f"<td data-col='actor'>{escape(actor_label)}</td>"
+            f"<td data-col='created'>{escape(_fmt_ts(entry.created_at))}</td>"
+            f"<td data-col='expires'>{escape(_fmt_ts(entry.expires_at))}</td>"
+            f"<td data-col='actions'>{actions}</td>"
             "</tr>"
         )
 
@@ -3109,7 +3241,7 @@ async def violators(
         f"<a class='chip' href='{escape(_path_with_auth(request, inactive_status_path))}'>Неактивные</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, all_status_path))}'>Все</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Статус</th><th>Причина</th><th>Кем</th><th>Создано</th><th>Истекает</th><th>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='tg_user_id'>TG User ID</th><th data-col='username'>Username</th><th data-col='status'>Статус</th><th data-col='reason'>Причина</th><th data-col='actor'>Кем</th><th data-col='created'>Создано</th><th data-col='expires'>Истекает</th><th data-col='actions'>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -3127,7 +3259,7 @@ async def appeals(
     escalated: str = "all",
     page: int = 0,
     q: str = "",
-    density: str = "standard",
+    density: str | None = None,
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -3141,12 +3273,6 @@ async def appeals(
     source_value = source.strip().lower()
     overdue_value = _parse_appeal_overdue_filter(overdue)
     escalated_value = _parse_appeal_escalated_filter(escalated)
-    dense_config = DenseListConfig(
-        queue_key="appeals",
-        density=density,
-        table_id="appeals-table",
-        quick_filter_placeholder="id / ref / source / appellant / note",
-    )
     now = datetime.now(UTC)
 
     status_filter = _parse_appeal_status_filter(status_value)
@@ -3213,6 +3339,15 @@ async def appeals(
     )
 
     async with SessionFactory() as session:
+        dense_config = await _load_dense_list_config(
+            session,
+            request=request,
+            auth=auth,
+            queue_key="appeals",
+            requested_density=density,
+            table_id="appeals-table",
+            quick_filter_placeholder="id / ref / source / appellant / note",
+        )
         rows = (await session.execute(stmt)).all()
         has_next = len(rows) > page_size
         rows = rows[:page_size]
@@ -3317,20 +3452,20 @@ async def appeals(
 
         table_rows += (
             f"<tr data-row='{escape(f"{appeal.id} {appeal.appeal_ref} {source_label} {appellant_label} {appeal.status} {appeal.resolution_note or ''}")}'>"
-            f"<td>{appeal.id}</td>"
-            f"<td>{escape(appeal.appeal_ref)}</td>"
-            f"<td>{escape(source_label)}</td>"
-            f"<td><a href='{escape(_path_with_auth(request, f'/manage/user/{appellant.id}'))}'>{escape(appellant_label)}</a></td>"
-            f"<td>{_risk_snapshot_inline_html(appellant_risk)}</td>"
-            f"<td>{escape(status_label)}</td>"
-            f"<td>{escape((appeal.resolution_note or '-')[:160])}</td>"
-            f"<td>{escape(resolver_label)}</td>"
-            f"<td>{escape(_fmt_ts(appeal.created_at))}</td>"
-            f"<td>{escape(sla_state_label)}</td>"
-            f"<td>{escape(_fmt_ts(appeal.sla_deadline_at))}</td>"
-            f"<td>{escape(escalation_marker)}</td>"
-            f"<td>{escape(_fmt_ts(appeal.resolved_at))}</td>"
-            f"<td>{actions}</td>"
+            f"<td data-col='id'>{appeal.id}</td>"
+            f"<td data-col='reference'>{escape(appeal.appeal_ref)}</td>"
+            f"<td data-col='source'>{escape(source_label)}</td>"
+            f"<td data-col='appellant'><a href='{escape(_path_with_auth(request, f'/manage/user/{appellant.id}'))}'>{escape(appellant_label)}</a></td>"
+            f"<td data-col='risk'>{_risk_snapshot_inline_html(appellant_risk)}</td>"
+            f"<td data-col='status'>{escape(status_label)}</td>"
+            f"<td data-col='resolution'>{escape((appeal.resolution_note or '-')[:160])}</td>"
+            f"<td data-col='moderator'>{escape(resolver_label)}</td>"
+            f"<td data-col='created'>{escape(_fmt_ts(appeal.created_at))}</td>"
+            f"<td data-col='sla'>{escape(sla_state_label)}</td>"
+            f"<td data-col='deadline'>{escape(_fmt_ts(appeal.sla_deadline_at))}</td>"
+            f"<td data-col='escalation'>{escape(escalation_marker)}</td>"
+            f"<td data-col='closed'>{escape(_fmt_ts(appeal.resolved_at))}</td>"
+            f"<td data-col='actions'>{actions}</td>"
             "</tr>"
         )
 
@@ -3393,13 +3528,59 @@ async def appeals(
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='only')))}'>Эскалированные</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='none')))}'>Без эскалации</a></div>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Риск апеллянта</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA статус</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='reference'>Референс</th><th data-col='source'>Источник</th><th data-col='appellant'>Апеллянт</th><th data-col='risk'>Риск апеллянта</th><th data-col='status'>Статус</th><th data-col='resolution'>Решение</th><th data-col='moderator'>Модератор</th><th data-col='created'>Создано</th><th data-col='sla'>SLA статус</th><th data-col='deadline'>SLA дедлайн</th><th data-col='escalation'>Эскалация</th><th data-col='closed'>Закрыто</th><th data-col='actions'>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
     return HTMLResponse(_render_page("Апелляции", body))
+
+
+@app.post("/actions/dense-list/preferences")
+async def action_save_dense_list_preferences(request: Request) -> dict[str, object]:
+    auth = get_admin_auth_context(request)
+    if not auth.authorized:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be an object")
+
+    queue_key = str(payload.get("queue_key") or "").strip().lower()
+    allowed_columns = _QUEUE_ALLOWED_COLUMNS.get(queue_key)
+    if allowed_columns is None:
+        raise HTTPException(status_code=400, detail="Unknown queue key")
+
+    csrf_token = str(payload.get("csrf_token") or "").strip()
+    if not _validate_csrf_token(request, auth, csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF check failed")
+
+    density = str(payload.get("density") or "")
+    columns_payload = payload.get("columns")
+    if not isinstance(columns_payload, dict):
+        raise HTTPException(status_code=400, detail="columns must be an object")
+
+    try:
+        async with SessionFactory() as session:
+            async with session.begin():
+                preference = await save_admin_list_preference(
+                    session,
+                    auth=auth,
+                    queue_key=queue_key,
+                    density=density,
+                    columns_payload=columns_payload,
+                    allowed_columns=allowed_columns,
+                    admin_token=_token_from_request(request),
+                )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"ok": True, "preference": preference}
 
 
 @app.post("/actions/trade-feedback/hide")
