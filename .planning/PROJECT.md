@@ -17,6 +17,7 @@ Run trustworthy Telegram auctions end-to-end with fast operator intervention and
 - ✓ Admin operators can perform scope-gated moderation actions through the web panel with CSRF-protected flows — existing
 - ✓ Role-based access control is enforced consistently across bot and web surfaces — existing
 - ✓ Background watchers finalize expired auctions and process outbox-driven integrations reliably — existing
+- ✓ Operators can tune queue density, filtering, and column layouts with per-operator persistence across sessions — Phase 1
 
 ### Active
 
@@ -49,6 +50,9 @@ The codebase is a modular monolith on Python 3.12 using aiogram (bot), FastAPI (
 | Keep Telegram-first product direction with web admin as operator control plane | Existing users and workflows center on in-chat auctions plus operator oversight | ✓ Good |
 | Prioritize trust/risk moderation and auditability over peripheral feature expansion | Product value depends on safe, reliable auction outcomes more than breadth | ✓ Good |
 | Focus current milestone on admin information density and progressive disclosure UX | Active issues indicate operator efficiency gains as the immediate leverage point | — Pending |
+| Persist dense-list preferences per authenticated subject and queue with strict payload validation | Cross-session UX had to be reliable while preventing malformed layout state from being stored | ✓ Good |
+| Keep quick filter client-local while advanced qualifiers remain server-validated | Needed fast row scanning without weakening trusted backend filter validation and auditability | ✓ Good |
+| Use shared `data-col` contract with measured sticky offsets for pinned columns | Reusable queue behavior reduces per-route drift and prevents pin overlap under dynamic layouts | ✓ Good |
 
 ---
-*Last updated: 2026-02-19 after initialization*
+*Last updated: 2026-02-19 after Phase 1 transition*
