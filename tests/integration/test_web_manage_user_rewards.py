@@ -261,6 +261,12 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     body = bytes(response.body).decode("utf-8")
     assert response.status_code == 200
     assert "Points utility" in body
+    assert "Режим экрана:" in body
+    assert "data-preset='incident'" in body
+    assert "data-preset='routine'" in body
+    assert "data-preset='rewards'" in body
+    assert "<details class='details'><summary>Развернуть воронку онбординга" in body
+    assert "la_dashboard_preset" in body
     assert "Активные points-пользователи (7д):</b> 1" in body
     assert "Пользователи с положительным балансом:</b> 2" in body
     assert "Редимеры points (7д):</b> 1 (50.0%)" in body
@@ -285,6 +291,24 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
     assert "Min account age for redemption:</b> 120s" in body
     assert "Min earned points for redemption:</b> 55 points" in body
     assert "Global redemption cooldown:</b> 77s" in body
+
+
+@pytest.mark.asyncio
+async def test_dashboard_rewards_preset_expands_rewards_details(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+
+    request = _make_request("/", query="preset=rewards")
+    response = await dashboard(request)
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "class='chip chip-active' data-preset='rewards'" in body
+    assert "<details class='details' open><summary>Развернуть weekly rewards метрики</summary>" in body
+    assert "<details class='details' open><summary>Развернуть rewards активность за 24ч</summary>" in body
+    assert "<details class='details' open><summary>Развернуть policy и лимиты rewards</summary>" in body
 
 
 @pytest.mark.asyncio

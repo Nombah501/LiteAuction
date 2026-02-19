@@ -540,39 +540,39 @@ def _render_page(title: str, body: str) -> str:
         "background:radial-gradient(1400px 600px at -10% -20%,#d5e3f7 0%,transparent 70%),"
         "radial-gradient(1200px 500px at 120% -30%,#dbe8de 0%,transparent 68%),"
         "linear-gradient(180deg,var(--bg-0),var(--bg-1));}"
-        ".page-shell{max-width:1320px;margin:20px auto;padding:20px 24px;border:1px solid var(--line);"
-        "border-radius:18px;background:rgba(255,255,255,0.88);backdrop-filter:blur(3px);"
-        "box-shadow:0 24px 38px rgba(16,35,48,0.11);overflow:auto;}"
-        ".app-header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin-bottom:16px;}"
+        ".page-shell{max-width:1280px;margin:16px auto;padding:16px 18px;border:1px solid var(--line);"
+        "border-radius:16px;background:rgba(255,255,255,0.9);backdrop-filter:blur(3px);"
+        "box-shadow:0 14px 26px rgba(16,35,48,0.08);overflow:auto;}"
+        ".app-header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;margin-bottom:12px;}"
         ".app-title{margin:0;font-size:31px;letter-spacing:0.2px;}"
         ".app-subtitle{margin:4px 0 0;color:var(--muted);font-size:14px;}"
-        ".access-pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;"
-        "background:#ebf2fa;border:1px solid #bfd2e5;color:var(--accent-ink);font-size:12px;font-weight:700;}"
+        ".access-pill{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;"
+        "background:#f2f6fb;border:1px solid #cfdeea;color:#567085;font-size:11px;font-weight:600;}"
         "h1{margin:0 0 12px;font-size:30px;letter-spacing:0.2px;}"
         "h2,h3{margin-top:4px;margin-bottom:10px;}"
         "p{margin:10px 0;}"
-        ".section-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;"
-        "box-shadow:0 4px 14px rgba(13,29,39,0.06);margin:14px 0;}"
-        ".section-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px;}"
-        ".section-eyebrow{margin:0;font-size:12px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);}"
+        ".section-card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px;"
+        "box-shadow:0 2px 8px rgba(13,29,39,0.05);margin:10px 0;}"
+        ".section-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px;}"
+        ".section-eyebrow{margin:0;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#6e8292;}"
         ".section-note{margin:0;color:var(--muted);font-size:13px;}"
-        ".kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;}"
+        ".kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;}"
         ".kpi{display:flex;flex-direction:column;gap:4px;margin:0;background:var(--card);border:1px solid var(--line);"
-        "padding:10px 12px;border-radius:11px;box-shadow:0 4px 12px rgba(15,26,31,0.06);min-height:68px;}"
-        ".kpi b{color:var(--accent-ink);font-size:13px;font-weight:700;}"
+        "padding:8px 10px;border-radius:10px;box-shadow:0 1px 5px rgba(15,26,31,0.05);min-height:58px;}"
+        ".kpi b{color:var(--accent-ink);font-size:12px;font-weight:700;}"
         ".kpi-critical{border-color:#e4b5b5;background:var(--critical-bg);}"
         ".kpi-warn{border-color:#edd8a3;background:var(--warn-bg);}"
         ".kpi-ok{border-color:#b9dfcf;background:var(--ok-bg);}"
-        ".toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--line);"
-        "background:var(--soft);border-radius:11px;margin:10px 0;}"
+        ".toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);"
+        "background:#f6f9fc;border-radius:10px;margin:8px 0;}"
         ".toolbar form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0;}"
         ".link-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}"
-        ".link-tile{display:block;padding:11px 12px;border:1px solid #bfd2e5;border-radius:12px;background:#f2f7fd;"
-        "font-weight:700;color:var(--accent-ink);text-decoration:none;box-shadow:0 2px 8px rgba(14,38,61,0.08);}"
-        ".link-tile:hover{text-decoration:none;background:#e9f2fb;}"
+        ".link-tile{display:block;padding:9px 10px;border:1px solid #ccd9e5;border-radius:10px;background:#f7fafd;"
+        "font-weight:600;color:var(--accent-ink);text-decoration:none;box-shadow:0 1px 4px rgba(14,38,61,0.06);}"
+        ".link-tile:hover{text-decoration:none;background:#eef5fb;}"
         ".stack-rows{display:grid;gap:10px;}"
-        ".details{border:1px solid var(--line);border-radius:11px;background:var(--soft);padding:8px 10px;}"
-        ".details summary{cursor:pointer;font-weight:700;color:var(--accent-ink);margin:2px 0 8px;}"
+        ".details{border:1px solid var(--line);border-radius:11px;background:var(--soft);padding:8px 10px;margin-top:10px;}"
+        ".details summary{cursor:pointer;font-weight:600;color:var(--accent-ink);margin:2px 0 8px;}"
         ".table-wrap{overflow:auto;border-radius:12px;}"
         "table{border-collapse:separate;border-spacing:0;width:100%;margin-top:12px;background:var(--card);"
         "border:1px solid var(--line);border-radius:12px;overflow:hidden;}"
@@ -640,19 +640,22 @@ def _auth_context_or_unauthorized(request: Request) -> tuple[Response | None, Ad
 def _role_badge(auth: AdminAuthContext) -> str:
     role = auth.role
     via = auth.via
-    scope_names = sorted(auth.scopes)
-    scope_label = ",".join(scope_names) if scope_names else "read-only"
-    return f"role={role}, via={via}, scopes={scope_label}"
+    scope_count = len(auth.scopes)
+    if scope_count == 0:
+        return f"role={role}, via={via}, read-only"
+    return f"role={role}, via={via}, scopes={scope_count}"
 
 
 def _render_app_header(title: str, auth: AdminAuthContext, subtitle: str = "") -> str:
     subtitle_html = ""
     if subtitle:
         subtitle_html = f"<p class='app-subtitle'>{escape(subtitle)}</p>"
+    scope_names = sorted(auth.scopes)
+    scope_hint = ",".join(scope_names) if scope_names else "read-only"
     return (
         "<header class='app-header'>"
         f"<div><h1 class='app-title'>{escape(title)}</h1>{subtitle_html}</div>"
-        f"<div class='access-pill'>Access: {escape(_role_badge(auth))}</div>"
+        f"<div class='access-pill' title='{escape(scope_hint)}'>Access: {escape(_role_badge(auth))}</div>"
         "</header>"
     )
 
@@ -692,6 +695,68 @@ def _pager_html(prev_link: str, next_link: str) -> str:
     if not parts:
         return ""
     return f"<div class='pager'>{' '.join(parts)}</div>"
+
+
+def _details_block(summary: str, content: str, *, open_by_default: bool = False) -> str:
+    open_attr = " open" if open_by_default else ""
+    return f"<details class='details'{open_attr}><summary>{escape(summary)}</summary>{content}</details>"
+
+
+def _normalize_dashboard_preset(raw: str | None) -> str:
+    if raw in {"incident", "routine", "rewards"}:
+        return raw
+    return "incident"
+
+
+def _dashboard_preset_toolbar(request: Request, active_preset: str) -> str:
+    options = [
+        ("incident", "Инцидент", "критичное"),
+        ("routine", "Рутина", "операционный обзор"),
+        ("rewards", "Rewards", "баллы и policy"),
+    ]
+    chips: list[str] = []
+    for preset_key, label, hint in options:
+        classes = "chip"
+        if preset_key == active_preset:
+            classes = "chip chip-active"
+        chips.append(
+            f"<a class='{classes}' data-preset='{preset_key}' "
+            f"href='{escape(_path_with_auth(request, f'/?preset={preset_key}'))}' "
+            f"title='{escape(hint)}'>{escape(label)}</a>"
+        )
+    return (
+        "<div class='toolbar'>"
+        "<b>Режим экрана:</b>"
+        f"{''.join(chips)}"
+        "</div>"
+    )
+
+
+def _dashboard_preset_script(default_preset: str = "incident") -> str:
+    return (
+        "<script>"
+        "(function(){"
+        "var key='la_dashboard_preset';"
+        "var valid={incident:1,routine:1,rewards:1};"
+        "var url=new URL(window.location.href);"
+        "var current=url.searchParams.get('preset');"
+        "if(current&&valid[current]){try{sessionStorage.setItem(key,current);}catch(_e){};}"
+        "else{"
+        "var stored=null;"
+        "try{stored=sessionStorage.getItem(key);}catch(_e){}"
+        "if(stored&&valid[stored]){url.searchParams.set('preset',stored);window.location.replace(url.toString());return;}"
+        f"try{{sessionStorage.setItem(key,'{default_preset}');}}catch(_e){{}}"
+        "}"
+        "var links=document.querySelectorAll('[data-preset]');"
+        "for(var i=0;i<links.length;i++){"
+        "links[i].addEventListener('click',function(){"
+        "var value=this.getAttribute('data-preset');"
+        "if(valid[value]){try{sessionStorage.setItem(key,value);}catch(_e){}}"
+        "});"
+        "}"
+        "})();"
+        "</script>"
+    )
 
 
 def _scope_title(scope: str) -> str:
@@ -885,9 +950,18 @@ async def login_page(request: Request) -> Response:
 
     bot_username = settings.bot_username.strip()
     auth_url = f"{str(request.base_url).rstrip('/')}/auth/telegram"
+    host = (request.url.hostname or "").strip().lower()
+    is_local_host = host in {"localhost", "127.0.0.1", "::1"}
 
     widget_html = ""
-    if bot_username:
+    if is_local_host:
+        widget_html = (
+            "<p><b>Telegram Login недоступен на localhost.</b><br>"
+            "Для входа через Telegram откройте админку через публичный HTTPS-домен "
+            "и задайте этот домен в BotFather (<code>/setdomain</code>)."
+            "</p>"
+        )
+    elif bot_username:
         widget_html = (
             "<script async src='https://telegram.org/js/telegram-widget.js?22' "
             f"data-telegram-login='{escape(bot_username)}' "
@@ -958,6 +1032,13 @@ async def dashboard(request: Request) -> Response:
 
     async with SessionFactory() as session:
         snapshot = await get_moderation_dashboard_snapshot(session)
+
+    dashboard_preset = _normalize_dashboard_preset(request.query_params.get("preset"))
+    show_onboarding = dashboard_preset == "routine"
+    show_activity = dashboard_preset == "routine"
+    show_rewards_weekly = dashboard_preset in {"routine", "rewards"}
+    show_rewards_24h = dashboard_preset == "rewards"
+    show_rewards_policy = dashboard_preset == "rewards"
 
     engaged_with_private = max(
         snapshot.users_with_engagement - snapshot.users_engaged_without_private_start,
@@ -1034,7 +1115,7 @@ async def dashboard(request: Request) -> Response:
             ),
         ]
     )
-    points_cards = _kpi_grid(
+    points_core_cards = _kpi_grid(
         [
             _kpi_card("Активные points-пользователи (7д)", str(snapshot.points_active_users_7d)),
             _kpi_card("Пользователи с положительным балансом", str(snapshot.points_users_with_positive_balance)),
@@ -1045,11 +1126,19 @@ async def dashboard(request: Request) -> Response:
             _kpi_card("Редимеры фидбек-буста (7д)", str(snapshot.points_feedback_boost_redeemers_7d)),
             _kpi_card("Редимеры буста гаранта (7д)", str(snapshot.points_guarantor_boost_redeemers_7d)),
             _kpi_card("Редимеры буста апелляции (7д)", str(snapshot.points_appeal_boost_redeemers_7d)),
+        ]
+    )
+    points_24h_cards = _kpi_grid(
+        [
             _kpi_card("Points начислено (24ч)", f"+{snapshot.points_earned_24h}"),
             _kpi_card("Points списано (24ч)", f"-{snapshot.points_spent_24h}"),
             _kpi_card("Бустов фидбека (24ч)", str(snapshot.feedback_boost_redeems_24h)),
             _kpi_card("Бустов гаранта (24ч)", str(snapshot.guarantor_boost_redeems_24h)),
             _kpi_card("Бустов апелляций (24ч)", str(snapshot.appeal_boost_redeems_24h)),
+        ]
+    )
+    points_policy_cards = _kpi_grid(
+        [
             _kpi_card(
                 "Policy feedback",
                 (
@@ -1095,6 +1184,38 @@ async def dashboard(request: Request) -> Response:
             _kpi_card("Global redemption cooldown", f"{max(settings.points_redemption_cooldown_seconds, 0)}s"),
         ]
     )
+    points_summary = (
+        f"active(7d): {snapshot.points_active_users_7d} | "
+        f"positive balance: {snapshot.points_users_with_positive_balance} | "
+        f"redeemers(7d): {snapshot.points_redeemers_7d}"
+    )
+    points_cards = (
+        f"<p class='section-note'><b>Кратко:</b> {escape(points_summary)}</p>"
+        f"{_details_block('Развернуть weekly rewards метрики', points_core_cards, open_by_default=show_rewards_weekly)}"
+        f"{_details_block('Развернуть rewards активность за 24ч', points_24h_cards, open_by_default=show_rewards_24h)}"
+        f"{_details_block('Развернуть policy и лимиты rewards', points_policy_cards, open_by_default=show_rewards_policy)}"
+    )
+    onboarding_summary = (
+        f"users: {snapshot.total_users} | "
+        f"private /start: {snapshot.users_private_started} ({_pct(snapshot.users_private_started, snapshot.total_users)}) | "
+        f"pending after hint: {snapshot.users_pending_after_hint}"
+    )
+    onboarding_collapsed = _details_block(
+        f"Развернуть воронку онбординга ({onboarding_summary})",
+        onboarding_cards,
+        open_by_default=show_onboarding,
+    )
+    activity_summary = (
+        f"engaged users: {snapshot.users_with_engagement} | "
+        f"with bids: {snapshot.users_with_bid_activity} | "
+        f"without private /start: {snapshot.users_engaged_without_private_start}"
+    )
+    activity_collapsed = _details_block(
+        f"Развернуть метрики активности ({activity_summary})",
+        activity_cards,
+        open_by_default=show_activity,
+    )
+    preset_toolbar = _dashboard_preset_toolbar(request, dashboard_preset)
 
     quick_actions = (
         "<div class='link-grid'>"
@@ -1113,11 +1234,13 @@ async def dashboard(request: Request) -> Response:
 
     body = (
         f"{_render_app_header('LiteAuction Admin', auth, 'Операционный центр модерации и риск-контроль')}"
+        f"{preset_toolbar}"
         f"{_panel('Пульс модерации', overview_cards, eyebrow='priority metrics', note='Критичные метрики всегда сверху')}"
-        f"{_panel('Воронка онбординга / soft-gate', onboarding_cards, eyebrow='growth')}"
-        f"{_panel('Активность пользователей', activity_cards, eyebrow='engagement')}"
+        f"{_panel('Быстрые действия', quick_actions, eyebrow='navigation', note='Основные сценарии оператора')}"
+        f"{_panel('Воронка онбординга / soft-gate', onboarding_collapsed, eyebrow='growth')}"
+        f"{_panel('Активность пользователей', activity_collapsed, eyebrow='engagement')}"
         f"{_panel('Points utility', points_cards, eyebrow='rewards') }"
-        f"{_panel('Быстрые действия', quick_actions, eyebrow='navigation') }"
+        f"{_dashboard_preset_script()}"
     )
     return HTMLResponse(_render_page("LiteAuction Admin", body))
 

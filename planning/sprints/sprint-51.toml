@@ -1,0 +1,69 @@
+sprint = "Sprint 51"
+milestone = "Sprint 51"
+milestone_description = "Admin UX phase 2: focus-mode declutter and operator scan speed"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S51-001"
+title = "Add focus-mode dashboard defaults for operators"
+description = "Make the admin dashboard prioritize incident triage by showing only critical pulse + quick actions expanded by default while secondary analytics stay collapsed until requested."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:admin", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Dashboard initial view exposes critical moderation pulse and quick actions without long vertical scrolling",
+  "Onboarding, activity, and rewards deep metrics are reachable via explicit progressive disclosure controls",
+  "Token-based and Telegram-auth flows keep behavior and permissions unchanged",
+]
+
+[[items]]
+id = "S51-002"
+title = "Introduce operator presets for dashboard information density"
+description = "Add explicit UI presets (incident, routine, rewards) that switch which dashboard blocks are expanded so moderators can adapt view density to task context quickly."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:moderation", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Dashboard offers at least three named presets with clear operator intent labels",
+  "Preset changes update expanded/collapsed dashboard blocks without changing backend routes",
+  "Preset choice survives page refresh for the same browser session",
+]
+
+[[items]]
+id = "S51-003"
+title = "Refine visual density and typography scale on admin surfaces"
+description = "Tune spacing, card sizing, and text hierarchy for desktop-first moderation screens to reduce cognitive load while preserving fast scan patterns and mobile compatibility."
+priority = "P2"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:design", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Dashboard and list pages use tighter but readable spacing with fewer simultaneous visual anchors",
+  "Access/meta chips and secondary copy are visually de-emphasized compared to critical KPIs",
+  "Mobile rendering remains usable without horizontal overflow regressions",
+]
+
+[[items]]
+id = "S51-004"
+title = "Strengthen admin web tests for progressive disclosure UX"
+description = "Add regression coverage that locks in collapsed-by-default sections and key navigation affordances so future styling updates do not reintroduce overloaded layouts."
+priority = "P1"
+estimate = "S"
+tech_debt = true
+labels = ["type:test", "area:web", "area:admin", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Tests verify focus-mode dashboard renders core blocks and disclosure controls",
+  "Tests assert secondary sections are present but not fully expanded by default",
+  "Existing security/permissions tests for admin web continue to pass",
+]

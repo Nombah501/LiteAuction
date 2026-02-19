@@ -13,6 +13,7 @@ from app.web.main import (
     _validate_csrf_token,
     action_ban_user,
     action_end_auction,
+    login_page,
 )
 from app.services.rbac_service import SCOPE_AUCTION_MANAGE, SCOPE_USER_BAN
 
@@ -24,6 +25,8 @@ def _make_request(
     query: str = "",
     cookie: str | None = None,
     referer: str | None = None,
+    server_host: str = "testserver",
+    server_port: int = 80,
 ) -> Request:
     headers: list[tuple[bytes, bytes]] = []
     if cookie is not None:
@@ -42,7 +45,7 @@ def _make_request(
         "query_string": query.encode("utf-8"),
         "headers": headers,
         "client": ("testclient", 50000),
-        "server": ("testserver", 80),
+        "server": (server_host, server_port),
     }
 
     async def receive() -> dict[str, object]:
@@ -231,3 +234,35 @@ async def test_ban_action_rejects_invalid_csrf(monkeypatch):
 
     assert response.status_code == 403
     assert "CSRF check failed" in bytes(response.body).decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_login_page_hides_telegram_widget_on_localhost(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "bot_username", "LiteAuctionBot")
+    monkeypatch.setattr(settings, "admin_panel_token", "dev-token")
+
+    request = _make_request(path="/login", server_host="localhost", server_port=8080)
+    response = await login_page(request)
+
+    assert response.status_code == 200
+    body = bytes(response.body).decode("utf-8")
+    assert "Telegram Login недоступен на localhost" in body
+    assert "telegram-widget.js" not in body
+    assert "token=..." in body
+
+
+@pytest.mark.asyncio
+async def test_login_page_renders_widget_on_non_local_domain(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "bot_username", "LiteAuctionBot")
+    monkeypatch.setattr(settings, "admin_panel_token", "")
+
+    request = _make_request(path="/login", server_host="admin.example.com", server_port=443)
+    response = await login_page(request)
+
+    assert response.status_code == 200
+    body = bytes(response.body).decode("utf-8")
+    assert "telegram-widget.js" in body
