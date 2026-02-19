@@ -2384,69 +2384,126 @@ async def manage_user(
             f"осталось {min_earned_points_remaining})"
         )
 
+    risk_tone = "ok"
+    if risk_snapshot.level == "MEDIUM":
+        risk_tone = "warn"
+    elif risk_snapshot.level == "HIGH":
+        risk_tone = "critical"
+
+    risk_cards = _kpi_grid(
+        [
+            _kpi_card("Ставок", str(bids_total)),
+            _kpi_card("Снято ставок", str(bids_removed), tone="warn" if bids_removed > 0 else ""),
+            _kpi_card("Жалоб создано", str(complaints_created)),
+            _kpi_card("Жалоб на пользователя", str(complaints_against), tone="warn" if complaints_against > 0 else ""),
+            _kpi_card("Фрод-сигналов", str(fraud_total)),
+            _kpi_card("Открытых сигналов", str(fraud_open), tone="critical" if fraud_open > 0 else ""),
+            _kpi_card("Риск-уровень", risk_snapshot.level, tone=risk_tone),
+            _kpi_card("Риск-скор", str(risk_snapshot.score)),
+        ]
+    )
+    points_cards = _kpi_grid(
+        [
+            _kpi_card("Points баланс", str(points_summary.balance)),
+            _kpi_card("Начислено всего", f"+{points_summary.total_earned}"),
+            _kpi_card("Списано всего", f"-{points_summary.total_spent}"),
+            _kpi_card("Points операций", str(points_summary.operations_count)),
+            _kpi_card("Бустов фидбека", str(boost_feedback_count)),
+            _kpi_card("Бустов гаранта", str(boost_guarantor_count)),
+            _kpi_card("Бустов апелляций", str(boost_appeal_count)),
+            _kpi_card("Списано на бусты", f"-{boost_points_spent_total}"),
+        ]
+    )
+    points_policy_cards = _kpi_grid(
+        [
+            _kpi_card(
+                "Политика фидбек-буста",
+                (
+                    f"{feedback_boost_policy_status} | cost {settings.feedback_priority_boost_cost_points} | "
+                    f"limit {settings.feedback_priority_boost_daily_limit}/day | "
+                    f"cooldown {max(settings.feedback_priority_boost_cooldown_seconds, 0)}s"
+                ),
+            ),
+            _kpi_card(
+                "Политика буста гаранта",
+                (
+                    f"{guarantor_boost_policy_status} | cost {settings.guarantor_priority_boost_cost_points} | "
+                    f"limit {settings.guarantor_priority_boost_daily_limit}/day | "
+                    f"cooldown {max(settings.guarantor_priority_boost_cooldown_seconds, 0)}s"
+                ),
+            ),
+            _kpi_card(
+                "Политика буста апелляций",
+                (
+                    f"{appeal_boost_policy_status} | cost {settings.appeal_priority_boost_cost_points} | "
+                    f"limit {settings.appeal_priority_boost_daily_limit}/day | "
+                    f"cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s"
+                ),
+            ),
+            _kpi_card("Глобальная политика редимпшенов", "on" if settings.points_redemption_enabled else "off"),
+            _kpi_card("Глобальный дневной лимит редимпшена", global_daily_limit_text),
+            _kpi_card("Глобальный недельный лимит редимпшена", global_weekly_limit_text),
+            _kpi_card("Глобальный лимит списания на бусты", global_daily_spend_text),
+            _kpi_card("Глобальный недельный лимит списания на бусты", global_weekly_spend_text),
+            _kpi_card("Глобальный месячный лимит списания на бусты", global_monthly_spend_text),
+            _kpi_card("Минимальный остаток после буста", f"{max(settings.points_redemption_min_balance, 0)} points"),
+            _kpi_card("Мин. возраст аккаунта для буста", min_account_age_text),
+            _kpi_card("Мин. начислено points для буста", min_earned_points_text),
+            _kpi_card("Глобальный кулдаун редимпшена", f"{max(settings.points_redemption_cooldown_seconds, 0)} сек"),
+        ]
+    )
+    trade_cards = _kpi_grid(
+        [
+            _kpi_card("Отзывов получено", str(trade_feedback_summary.total_received)),
+            _kpi_card("Видимых отзывов", str(trade_feedback_summary.visible_received)),
+            _kpi_card("Скрытых отзывов", str(trade_feedback_summary.hidden_received)),
+            _kpi_card("Средняя оценка (видимые)", average_trade_rating_text),
+        ]
+    )
+
     body = (
-        f"<h1>Управление пользователем {user.id}</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a> | "
+        f"{_render_app_header(f'Управление пользователем {user.id}', auth, 'Профиль модерации, риск и rewards')}"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a>"
         f"<a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"<p><b>TG User ID:</b> {user.tg_user_id} | <b>Username:</b> {escape(user.username or '-')}</p>"
         f"<p><b>Moderator:</b> {moderator_text} | <b>Roles:</b> {escape(roles_text)} | <b>Blacklisted:</b> {blacklist_status} | <b>Verified:</b> {verification_text}</p>"
         f"<p><b>Verification description:</b> {escape(verification_desc)}</p>"
-        f"<div class='kpi'><b>Ставок:</b> {bids_total}</div>"
-        f"<div class='kpi'><b>Снято ставок:</b> {bids_removed}</div>"
-        f"<div class='kpi'><b>Жалоб создано:</b> {complaints_created}</div>"
-        f"<div class='kpi'><b>Жалоб на пользователя:</b> {complaints_against}</div>"
-        f"<div class='kpi'><b>Фрод-сигналов:</b> {fraud_total}</div>"
-        f"<div class='kpi'><b>Открытых сигналов:</b> {fraud_open}</div>"
-        f"<div class='kpi'><b>Риск-уровень:</b> {risk_snapshot.level}</div>"
-        f"<div class='kpi'><b>Риск-скор:</b> {risk_snapshot.score}</div>"
+        f"{risk_cards}"
         f"<p><b>Риск-факторы:</b> {escape(risk_reasons_text)}</p>"
-        f"<div class='kpi'><b>Points баланс:</b> {points_summary.balance}</div>"
-        f"<div class='kpi'><b>Начислено всего:</b> +{points_summary.total_earned}</div>"
-        f"<div class='kpi'><b>Списано всего:</b> -{points_summary.total_spent}</div>"
-        f"<div class='kpi'><b>Points операций:</b> {points_summary.operations_count}</div>"
-        f"<div class='kpi'><b>Бустов фидбека:</b> {boost_feedback_count}</div>"
-        f"<div class='kpi'><b>Бустов гаранта:</b> {boost_guarantor_count}</div>"
-        f"<div class='kpi'><b>Бустов апелляций:</b> {boost_appeal_count}</div>"
-        f"<div class='kpi'><b>Списано на бусты:</b> -{boost_points_spent_total}</div>"
-        f"<div class='kpi'><b>Политика фидбек-буста:</b> {feedback_boost_policy_status} | cost {settings.feedback_priority_boost_cost_points} | limit {settings.feedback_priority_boost_daily_limit}/day | cooldown {max(settings.feedback_priority_boost_cooldown_seconds, 0)}s</div>"
-        f"<div class='kpi'><b>Политика буста гаранта:</b> {guarantor_boost_policy_status} | cost {settings.guarantor_priority_boost_cost_points} | limit {settings.guarantor_priority_boost_daily_limit}/day | cooldown {max(settings.guarantor_priority_boost_cooldown_seconds, 0)}s</div>"
-        f"<div class='kpi'><b>Политика буста апелляций:</b> {appeal_boost_policy_status} | cost {settings.appeal_priority_boost_cost_points} | limit {settings.appeal_priority_boost_daily_limit}/day | cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s</div>"
-        f"<div class='kpi'><b>Глобальная политика редимпшенов:</b> {'on' if settings.points_redemption_enabled else 'off'}</div>"
-        f"<div class='kpi'><b>Глобальный дневной лимит редимпшена:</b> {global_daily_limit_text}</div>"
-        f"<div class='kpi'><b>Глобальный недельный лимит редимпшена:</b> {global_weekly_limit_text}</div>"
-        f"<div class='kpi'><b>Глобальный лимит списания на бусты:</b> {global_daily_spend_text}</div>"
-        f"<div class='kpi'><b>Глобальный недельный лимит списания на бусты:</b> {global_weekly_spend_text}</div>"
-        f"<div class='kpi'><b>Глобальный месячный лимит списания на бусты:</b> {global_monthly_spend_text}</div>"
-        f"<div class='kpi'><b>Минимальный остаток после буста:</b> {max(settings.points_redemption_min_balance, 0)} points</div>"
-        f"<div class='kpi'><b>Мин. возраст аккаунта для буста:</b> {min_account_age_text}</div>"
-        f"<div class='kpi'><b>Мин. начислено points для буста:</b> {min_earned_points_text}</div>"
-        f"<div class='kpi'><b>Глобальный кулдаун редимпшена:</b> {max(settings.points_redemption_cooldown_seconds, 0)} сек</div>"
-        f"<div class='kpi'><b>Отзывов получено:</b> {trade_feedback_summary.total_received}</div>"
-        f"<div class='kpi'><b>Видимых отзывов:</b> {trade_feedback_summary.visible_received}</div>"
-        f"<div class='kpi'><b>Скрытых отзывов:</b> {trade_feedback_summary.hidden_received}</div>"
-        f"<div class='kpi'><b>Средняя оценка (видимые):</b> {average_trade_rating_text}</div>"
         f"<div class='card'>{controls}</div>"
+        "</div>"
+        "<div class='section-card'>"
         "<h2>Rewards / points</h2>"
+        f"{points_cards}"
+        "<details class='details'><summary>Показать policy и лимиты</summary>"
+        f"{points_policy_cards}"
+        "</details>"
         f"{points_adjust_form}"
         f"<p><b>Фильтр:</b> {escape(points_filter_query)} | <b>Страница:</b> {points_page}/{points_total_pages} | "
         f"<b>Записей:</b> {points_total_items}</p>"
         f"<p>{points_filter_links}</p>"
-        "<table><thead><tr><th>Created</th><th>Amount</th><th>Type</th><th>Reason</th></tr></thead>"
-        f"<tbody>{points_rows}</tbody></table>"
+        "<div class='table-wrap'><table><thead><tr><th>Created</th><th>Amount</th><th>Type</th><th>Reason</th></tr></thead>"
+        f"<tbody>{points_rows}</tbody></table></div>"
         f"{points_pager}"
+        "</div>"
+        "<div class='section-card'>"
         "<h2>Репутация по сделкам</h2>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Оценка</th><th>Статус</th><th>Комментарий</th><th>Создано</th></tr></thead>"
-        f"<tbody>{trade_feedback_rows}</tbody></table>"
-        f"<p><a href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&target_tg={user.tg_user_id}'))}'>Отзывы о пользователе (все)</a> | "
-        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status=hidden&target_tg={user.tg_user_id}'))}'>Отзывы о пользователе (скрытые)</a> | "
+        f"{trade_cards}"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Оценка</th><th>Статус</th><th>Комментарий</th><th>Создано</th></tr></thead>"
+        f"<tbody>{trade_feedback_rows}</tbody></table></div>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&target_tg={user.tg_user_id}'))}'>Отзывы о пользователе (все)</a>"
+        f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status=hidden&target_tg={user.tg_user_id}'))}'>Отзывы о пользователе (скрытые)</a>"
         f"<a href='{escape(_path_with_auth(request, f'/trade-feedback?status=all&author_tg={user.tg_user_id}'))}'>Отзывы, оставленные пользователем</a></p>"
+        "</div>"
+        "<div class='section-card'>"
         "<h2>Последние жалобы на пользователя</h2>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
-        f"<tbody>{complaints_rows}</tbody></table>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
+        f"<tbody>{complaints_rows}</tbody></table></div>"
         "<h2>Последние фрод-сигналы по пользователю</h2>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
-        f"<tbody>{signal_rows}</tbody></table>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
+        f"<tbody>{signal_rows}</tbody></table></div>"
+        "</div>"
     )
     return HTMLResponse(_render_page("Manage User", body))
 
@@ -2572,17 +2629,21 @@ async def manage_users(request: Request, page: int = 0, q: str = "") -> Response
         )
 
     body = (
-        "<h1>Пользователи</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        f"{_render_app_header('Пользователи', auth, 'Поиск, роли и риск-профили')}"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/manage/users'))}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='tg id или username' style='width:240px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
+        "</div>"
+        f"{_kpi_grid([_kpi_card('Пользователей на странице', str(len(users))), _kpi_card('Страница', str(page + 1)), _kpi_card('Поисковый запрос', escape(query_value) if query_value else '-')] )}"
         f"{moderator_grant_form}"
-        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Verified</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
-        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=9><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table>"
-        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Moderator</th><th>Banned</th><th>Verified</th><th>Risk</th><th>Created</th><th>Manage</th></tr></thead>"
+        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=9><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table></div>"
+        f"{_pager_html(prev_link, next_link)}"
+        "</div>"
     )
     return HTMLResponse(_render_page("Manage Users", body))
 
