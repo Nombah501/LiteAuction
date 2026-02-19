@@ -73,3 +73,17 @@ def test_dense_list_contract_normalizes_invalid_density() -> None:
     )
 
     assert config.density == "standard"
+
+
+def test_dense_list_filter_script_contract_contains_row_counter() -> None:
+    config = DenseListConfig(
+        queue_key="appeals",
+        density="comfortable",
+        table_id="appeals-table",
+        quick_filter_placeholder="id / ref",
+    )
+
+    script_html = render_dense_list_script(config)
+
+    assert "[data-quick-filter-count='${tableId}']" in script_html
+    assert "row.hidden=!match" in script_html
