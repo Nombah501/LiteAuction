@@ -1291,14 +1291,21 @@ async def complaints(request: Request, status: str = "OPEN", page: int = 0) -> R
         if has_next
         else ""
     )
+    status_open_path = "/complaints?status=OPEN&page=0"
+    status_resolved_path = "/complaints?status=RESOLVED&page=0"
 
     body = (
-        f"<h1>Жалобы ({escape(status)})</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>Reporter UID</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
-        f"<tbody>{table_rows}</tbody></table>"
-        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+        f"{_render_app_header('Жалобы', auth, f'Статус: {status}') }"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        "<div class='toolbar'>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
+        "</div>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>Reporter UID</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div>"
+        f"{_pager_html(prev_link, next_link)}"
+        "</div>"
     )
     return HTMLResponse(_render_page("Complaints", body))
 
@@ -1361,14 +1368,21 @@ async def signals(request: Request, status: str = "OPEN", page: int = 0) -> Resp
         if has_next
         else ""
     )
+    status_open_path = "/signals?status=OPEN&page=0"
+    status_resolved_path = "/signals?status=RESOLVED&page=0"
 
     body = (
-        f"<h1>Фрод-сигналы ({escape(status)})</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>User ID</th><th>User Risk</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
-        f"<tbody>{table_rows}</tbody></table>"
-        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+        f"{_render_app_header('Фрод-сигналы', auth, f'Статус: {status}') }"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        "<div class='toolbar'>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
+        "</div>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>User ID</th><th>User Risk</th><th>Score</th><th>Status</th><th>Created</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div>"
+        f"{_pager_html(prev_link, next_link)}"
+        "</div>"
     )
     return HTMLResponse(_render_page("Fraud Signals", body))
 
@@ -1570,10 +1584,11 @@ async def trade_feedback(
     moderator_filter_text = "all" if moderator_tg_value is None else str(moderator_tg_value)
 
     body = (
-        "<h1>Отзывы по сделкам</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
+        f"{_render_app_header('Отзывы по сделкам', auth, 'Модерация репутации и спорных отзывов')}"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
+        "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/trade-feedback'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input type='hidden' name='moderated' value='{escape(moderated_value)}'>"
@@ -1584,22 +1599,26 @@ async def trade_feedback(
         f"<input name='q' value='{escape(query_value)}' placeholder='id / auction_id / username / tg id' style='width:320px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
-        f"<p>Статус: "
+        "</div>"
+        "<div class='toolbar'>"
+        "<span>Статус:</span>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, status='visible')))}'>Видимые</a> "
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, status='hidden')))}'>Скрытые</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, status='all')))}'>Все</a></p>"
-        f"<p>Оценка: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, status='all')))}'>Все</a>"
+        "<span>Оценка:</span>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='')))}'>all</a> "
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='4')))}'>4+</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='5')))}'>5</a></p>"
-        f"<p>Модерация: "
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, min_rating='5')))}'>5</a>"
+        "<span>Модерация:</span>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='all')))}'>all</a> "
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='only')))}'>только модерированные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='none')))}'>без модерации</a></p>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='none')))}'>без модерации</a>"
+        "</div>"
         f"<p>Автор TG: {escape(author_filter_text)} | Получатель TG: {escape(target_filter_text)} | Модератор TG: {escape(moderator_filter_text)}</p>"
-        "<table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Примечание</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
-        f"<tbody>{table_rows}</tbody></table>"
-        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Auction</th><th>Автор</th><th>Кому</th><th>Оценка</th><th>Комментарий</th><th>Статус</th><th>Модератор</th><th>Примечание</th><th>Создано</th><th>Модерация</th><th>Действия</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div>"
+        f"{_pager_html(prev_link, next_link)}"
+        "</div>"
     )
     return HTMLResponse(_render_page("Trade Feedback", body))
 
@@ -1669,14 +1688,22 @@ async def auctions(request: Request, status: str = "ACTIVE", page: int = 0) -> R
         if has_next
         else ""
     )
+    status_chips = " ".join(
+        [
+            f"<a class='chip' href='{escape(_path_with_auth(request, f'/auctions?status={item.value}&page=0'))}'>{item.value}</a>"
+            for item in AuctionStatus
+        ]
+    )
 
     body = (
-        f"<h1>Аукционы ({escape(status)})</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
-        "<table><thead><tr><th>ID</th><th>Seller UID</th><th>Seller Risk</th><th>Start</th><th>Buyout</th><th>Status</th><th>Ends At</th><th>Actions</th></tr></thead>"
-        f"<tbody>{table_rows}</tbody></table>"
-        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+        f"{_render_app_header('Аукционы', auth, f'Статус: {status}') }"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
+        f"<div class='toolbar'><span>Фильтр:</span> {status_chips}</div>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Seller UID</th><th>Seller Risk</th><th>Start</th><th>Buyout</th><th>Status</th><th>Ends At</th><th>Actions</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div>"
+        f"{_pager_html(prev_link, next_link)}"
+        "</div>"
     )
     return HTMLResponse(_render_page("Auctions", body))
 
@@ -2713,10 +2740,11 @@ async def violators(
     all_status_path = f"/violators?{urlencode({**base_query, 'status': 'all', 'page': '0'})}"
 
     body = (
-        "<h1>Нарушители</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
+        f"{_render_app_header('Нарушители', auth, 'Бан-лист, статусы и модераторские действия')}"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
+        "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/violators'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='tg id / username / причина' style='width:280px'>"
@@ -2725,13 +2753,16 @@ async def violators(
         f"<input name='created_to' value='{escape(created_to_value)}' placeholder='по YYYY-MM-DD' style='width:150px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
-        f"<p>Фильтр: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, active_status_path))}'>Активные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, inactive_status_path))}'>Неактивные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, all_status_path))}'>Все</a></p>"
-        "<table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Статус</th><th>Причина</th><th>Кем</th><th>Создано</th><th>Истекает</th><th>Действия</th></tr></thead>"
-        f"<tbody>{table_rows}</tbody></table>"
-        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+        "</div>"
+        "<div class='toolbar'>"
+        f"<span>Фильтр:</span><a class='chip' href='{escape(_path_with_auth(request, active_status_path))}'>Активные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, inactive_status_path))}'>Неактивные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, all_status_path))}'>Все</a>"
+        "</div>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>TG User ID</th><th>Username</th><th>Статус</th><th>Причина</th><th>Кем</th><th>Создано</th><th>Истекает</th><th>Действия</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div>"
+        f"{_pager_html(prev_link, next_link)}"
+        "</div>"
     )
     return HTMLResponse(_render_page("Нарушители", body))
 
@@ -2929,10 +2960,11 @@ async def appeals(
     )
 
     body = (
-        "<h1>Апелляции</h1>"
-        f"<p><b>Access:</b> {escape(_role_badge(auth))}</p>"
-        f"<p><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a> | "
+        f"{_render_app_header('Апелляции', auth, 'SLA, эскалации и решения по спорным кейсам')}"
+        "<div class='section-card'>"
+        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>К нарушителям</a></p>"
+        "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/appeals'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
         f"<input type='hidden' name='source' value='{escape(source_value)}'>"
@@ -2941,28 +2973,32 @@ async def appeals(
         f"<input name='q' value='{escape(query_value)}' placeholder='референс / tg id / username' style='width:300px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
-        f"<p>Статус: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Открытые</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>На рассмотрении</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Удовлетворенные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Отклоненные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Все</a></p>"
-        f"<p>Источник: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Жалобы</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Фрод</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Ручные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Все</a></p>"
-        f"<p>SLA: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=all&escalated={escalated_value}&q={query_value}'))}'>Все</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=only&escalated={escalated_value}&q={query_value}'))}'>Просроченные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=none&escalated={escalated_value}&q={query_value}'))}'>Непросроченные</a></p>"
-        f"<p>Эскалация: "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=all&q={query_value}'))}'>Все</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=only&q={query_value}'))}'>Эскалированные</a> "
-        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=none&q={query_value}'))}'>Без эскалации</a></p>"
-        "<table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Риск апеллянта</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA статус</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
-        f"<tbody>{table_rows}</tbody></table>"
-        f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
+        "</div>"
+        "<div class='stack-rows'>"
+        f"<div class='toolbar'><span>Статус:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=open&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Открытые</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=in_review&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>На рассмотрении</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=resolved&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Удовлетворенные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=rejected&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Отклоненные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status=all&source={source_value}&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Все</a></div>"
+        f"<div class='toolbar'><span>Источник:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=complaint&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Жалобы</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=risk&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Фрод</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=manual&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Ручные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source=all&overdue={overdue_value}&escalated={escalated_value}&q={query_value}'))}'>Все</a></div>"
+        f"<div class='toolbar'><span>SLA:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=all&escalated={escalated_value}&q={query_value}'))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=only&escalated={escalated_value}&q={query_value}'))}'>Просроченные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue=none&escalated={escalated_value}&q={query_value}'))}'>Непросроченные</a></div>"
+        f"<div class='toolbar'><span>Эскалация:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=all&q={query_value}'))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=only&q={query_value}'))}'>Эскалированные</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, f'/appeals?status={status_value}&source={source_value}&overdue={overdue_value}&escalated=none&q={query_value}'))}'>Без эскалации</a></div>"
+        "</div>"
+        "<div class='table-wrap'><table><thead><tr><th>ID</th><th>Референс</th><th>Источник</th><th>Апеллянт</th><th>Риск апеллянта</th><th>Статус</th><th>Решение</th><th>Модератор</th><th>Создано</th><th>SLA статус</th><th>SLA дедлайн</th><th>Эскалация</th><th>Закрыто</th><th>Действия</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div>"
+        f"{_pager_html(prev_link, next_link)}"
+        "</div>"
     )
     return HTMLResponse(_render_page("Апелляции", body))
 
