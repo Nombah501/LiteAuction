@@ -136,6 +136,44 @@ async def test_save_rejects_unknown_column_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_save_rejects_order_missing_allowed_columns() -> None:
+    session = _DummySession()
+
+    with pytest.raises(ValueError, match="order must include each allowed column exactly once"):
+        await save_admin_list_preference(
+            session,
+            auth=_telegram_auth(),
+            queue_key="complaints",
+            density="standard",
+            columns_payload={
+                "visible": ["status"],
+                "order": ["status"],
+                "pinned": [],
+            },
+            allowed_columns=["status", "auction"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_save_rejects_pinned_columns_that_are_not_visible() -> None:
+    session = _DummySession()
+
+    with pytest.raises(ValueError, match="pinned columns must be visible"):
+        await save_admin_list_preference(
+            session,
+            auth=_telegram_auth(),
+            queue_key="complaints",
+            density="standard",
+            columns_payload={
+                "visible": ["status"],
+                "order": ["status", "auction"],
+                "pinned": ["auction"],
+            },
+            allowed_columns=["status", "auction"],
+        )
+
+
+@pytest.mark.asyncio
 async def test_save_requires_token_for_token_auth_context() -> None:
     session = _DummySession()
 
