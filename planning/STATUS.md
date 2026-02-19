@@ -1,16 +1,14 @@
 # Planning Status
 
-Last sync: 2026-02-19 07:32 UTC
-Active sprint: Sprint 50
+Last sync: 2026-02-19 09:24 UTC
+Active sprint: Sprint 51
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S50-001 | Add suppression-share percentages to /notifstats top sections | [#192](https://github.com/Nombah501/LiteAuction/issues/192) (closed) | - |
-| S50-002 | Add /notifstats window selector for focused triage output | [#193](https://github.com/Nombah501/LiteAuction/issues/193) (closed) | - |
-| S50-003 | Document suppression-share triage heuristics for operators | [#194](https://github.com/Nombah501/LiteAuction/issues/194) (closed) | - |
-| S50-004 | Redesign admin dashboard information hierarchy and visual language | [#198](https://github.com/Nombah501/LiteAuction/issues/198) (open) | - |
-| S50-005 | Unify admin list-page UX for moderation queues | [#199](https://github.com/Nombah501/LiteAuction/issues/199) (open) | - |
-| S50-006 | Refresh manage-user pages with structured operator workflows | [#200](https://github.com/Nombah501/LiteAuction/issues/200) (open) | - |
+| S51-001 | Add focus-mode dashboard defaults for operators | [#205](https://github.com/Nombah501/LiteAuction/issues/205) (open) | - |
+| S51-002 | Introduce operator presets for dashboard information density | [#206](https://github.com/Nombah501/LiteAuction/issues/206) (open) | - |
+| S51-003 | Refine visual density and typography scale on admin surfaces | [#207](https://github.com/Nombah501/LiteAuction/issues/207) (open) | - |
+| S51-004 | Strengthen admin web tests for progressive disclosure UX | [#208](https://github.com/Nombah501/LiteAuction/issues/208) (open) | - |
 
 ## Recovery Checklist
 
