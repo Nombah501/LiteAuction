@@ -723,11 +723,16 @@ async def test_workflow_presets_telemetry_endpoint_aggregates_persisted_db_event
     assert first.get("reopen_rate") == 0.5
     assert first.get("avg_time_to_action_ms") == 750.0
     assert first.get("avg_filter_churn_count") == 2.0
+    assert first.get("trend_low_sample_guardrail") is True
+    assert first.get("time_to_action_delta_ms") is None
+    assert first.get("reopen_rate_delta") is None
+    assert first.get("filter_churn_delta") is None
 
     assert second.get("queue_context") == "moderation"
     assert second.get("queue_key") == "complaints"
     assert second.get("preset_id") == preset_b_id
     assert second.get("events_total") == 1
+    assert second.get("trend_low_sample_guardrail") is True
 
 
 @pytest.mark.asyncio
@@ -748,3 +753,20 @@ async def test_workflow_presets_telemetry_endpoint_requires_scope(monkeypatch) -
         )
 
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_telemetry_endpoint_requires_authentication(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (SimpleNamespace(status_code=401), _unauthorized_auth()),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await action_workflow_presets_telemetry(
+            _make_request("/actions/workflow-presets/telemetry"),
+            queue_context="moderation",
+            lookback_hours=48,
+        )
+
+    assert exc.value.status_code == 401
