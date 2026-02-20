@@ -546,6 +546,58 @@ class AdminQueuePresetDefault(Base, TimestampMixin):
     )
 
 
+class AdminQueuePresetTelemetryEvent(Base):
+    __tablename__ = "admin_queue_preset_telemetry_events"
+    __table_args__ = (
+        CheckConstraint(
+            "queue_context IN ('moderation', 'appeals', 'risk', 'feedback')",
+            name="admin_queue_preset_telemetry_events_queue_context_values",
+        ),
+        CheckConstraint(
+            "queue_key IN ('complaints', 'appeals', 'signals', 'trade_feedback')",
+            name="admin_queue_preset_telemetry_events_queue_key_values",
+        ),
+        CheckConstraint(
+            "action IN ('save', 'update', 'select', 'delete', 'set_default')",
+            name="admin_queue_preset_telemetry_events_action_values",
+        ),
+        CheckConstraint(
+            "time_to_action_ms IS NULL OR (time_to_action_ms >= 0 AND time_to_action_ms <= 86400000)",
+            name="admin_queue_preset_telemetry_events_time_to_action_ms_bounds",
+        ),
+        CheckConstraint(
+            "filter_churn_count >= 0 AND filter_churn_count <= 1000",
+            name="admin_queue_preset_telemetry_events_filter_churn_count_bounds",
+        ),
+        Index("ix_admin_queue_preset_telemetry_events_queue_context", "queue_context"),
+        Index("ix_admin_queue_preset_telemetry_events_queue_key", "queue_key"),
+        Index("ix_admin_queue_preset_telemetry_events_preset_id", "preset_id"),
+        Index("ix_admin_queue_preset_telemetry_events_action", "action"),
+        Index("ix_admin_queue_preset_telemetry_events_created_at", "created_at"),
+        Index(
+            "ix_admin_queue_preset_telemetry_events_queue_preset_created",
+            "queue_key",
+            "preset_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    queue_context: Mapped[str] = mapped_column(String(32), nullable=False)
+    queue_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    preset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_subject_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    time_to_action_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reopen_signal: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    filter_churn_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("TIMEZONE('utc', NOW())"),
+        nullable=False,
+    )
+
+
 class ModerationChecklistItem(Base, TimestampMixin):
     __tablename__ = "moderation_checklist_items"
     __table_args__ = (

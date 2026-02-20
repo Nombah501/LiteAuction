@@ -8,7 +8,14 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.web.auth import AdminAuthContext
-from app.web.main import action_workflow_presets, appeals, complaints, signals, trade_feedback
+from app.web.main import (
+    action_workflow_presets,
+    action_workflow_presets_telemetry,
+    appeals,
+    complaints,
+    signals,
+    trade_feedback,
+)
 
 
 def _telegram_auth(*, tg_user_id: int, role: str = "owner") -> AdminAuthContext:
@@ -182,9 +189,14 @@ async def test_workflow_presets_action_returns_conflict_metadata(monkeypatch) ->
         )
     )
 
-    assert response["ok"] is True
-    assert response["result"]["conflict"] is True
-    assert response["result"]["preset"]["id"] == 3
+    assert isinstance(response, dict)
+    assert response.get("ok") is True
+    result = response.get("result")
+    assert isinstance(result, dict)
+    assert result.get("conflict") is True
+    preset = result.get("preset")
+    assert isinstance(preset, dict)
+    assert preset.get("id") == 3
 
 
 @pytest.mark.asyncio
@@ -212,3 +224,122 @@ async def test_workflow_presets_action_rejects_non_admin_default_update(monkeypa
         )
 
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_action_records_telemetry_for_successful_mutation(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=9))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+
+    async def _save(_session, **_kwargs):
+        return {"ok": True, "preset": {"id": 14, "name": "Escalations"}}
+
+    captured: dict[str, object] = {}
+
+    async def _capture(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("app.web.main.save_preset", _save)
+    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+
+    response = await action_workflow_presets(
+        _make_json_request(
+            "/actions/workflow-presets",
+            {
+                "action": "save",
+                "queue_context": "moderation",
+                "name": "Escalations",
+                "density": "compact",
+                "columns": {
+                    "visible": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "order": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "pinned": [],
+                },
+                "telemetry": {
+                    "time_to_action_ms": 1850,
+                    "reopen_signal": True,
+                    "filter_churn_count": 3,
+                },
+                "csrf_token": "ok",
+            },
+        )
+    )
+
+    assert isinstance(response, dict)
+    assert response.get("ok") is True
+    assert response.get("telemetry_recorded") is True
+    assert captured["queue_context"] == "moderation"
+    assert captured["action"] == "save"
+    assert captured["preset_id"] == 14
+    assert captured["telemetry_payload"] == {
+        "time_to_action_ms": 1850,
+        "reopen_signal": True,
+        "filter_churn_count": 3,
+    }
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_action_does_not_record_telemetry_on_invalid_action(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=10))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+
+    called = {"telemetry": False}
+
+    async def _capture(**_kwargs):
+        called["telemetry"] = True
+
+    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+
+    with pytest.raises(HTTPException) as exc:
+        await action_workflow_presets(
+            _make_json_request(
+                "/actions/workflow-presets",
+                {
+                    "action": "unknown",
+                    "queue_context": "moderation",
+                    "csrf_token": "ok",
+                },
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert called["telemetry"] is False
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_telemetry_endpoint_returns_segments(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=11)))
+
+    async def _segments(_session, **_kwargs):
+        return [
+            {
+                "queue_context": "moderation",
+                "queue_key": "complaints",
+                "preset_id": 5,
+                "events_total": 9,
+                "avg_time_to_action_ms": 730.0,
+                "avg_filter_churn_count": 2.0,
+                "reopen_total": 2,
+                "reopen_rate": 2 / 9,
+            }
+        ]
+
+    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
+    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+
+    payload = await action_workflow_presets_telemetry(
+        _make_request("/actions/workflow-presets/telemetry"),
+        queue_context="moderation",
+        lookback_hours=48,
+    )
+
+    assert isinstance(payload, dict)
+    assert payload.get("ok") is True
+    assert payload.get("queue_context") == "moderation"
+    assert payload.get("lookback_hours") == 48
+    assert payload.get("segment_count") == 1
+    segments = payload.get("segments")
+    assert isinstance(segments, list)
+    assert isinstance(segments[0], dict)
+    assert segments[0].get("queue_key") == "complaints"
