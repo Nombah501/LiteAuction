@@ -5,8 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
 
+from app.db.models import AdminQueuePresetTelemetryEvent
 from app.web.auth import AdminAuthContext
 from app.web.main import (
     action_workflow_presets,
@@ -493,6 +496,168 @@ async def test_workflow_presets_telemetry_endpoint_rejects_invalid_context(monke
         )
 
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_action_persists_telemetry_event_to_db(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=701))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+
+    response = await action_workflow_presets(
+        _make_json_request(
+            "/actions/workflow-presets",
+            {
+                "action": "save",
+                "queue_context": "moderation",
+                "name": "DB coverage preset",
+                "density": "compact",
+                "columns": {
+                    "visible": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "order": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "pinned": [],
+                },
+                "telemetry": {
+                    "time_to_action_ms": 1600,
+                    "reopen_signal": True,
+                    "filter_churn_count": 4,
+                },
+                "csrf_token": "ok",
+            },
+        )
+    )
+
+    assert isinstance(response, dict)
+    assert response.get("ok") is True
+    assert response.get("telemetry_recorded") is True
+
+    async with session_factory() as session:
+        rows = (await session.execute(select(AdminQueuePresetTelemetryEvent))).scalars().all()
+
+    assert len(rows) == 1
+    event = rows[0]
+    assert event.queue_context == "moderation"
+    assert event.queue_key == "complaints"
+    assert event.action == "save"
+    assert event.time_to_action_ms == 1600
+    assert event.reopen_signal is True
+    assert event.filter_churn_count == 4
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_telemetry_endpoint_aggregates_persisted_db_events(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=702))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+
+    save_a = await action_workflow_presets(
+        _make_json_request(
+            "/actions/workflow-presets",
+            {
+                "action": "save",
+                "queue_context": "moderation",
+                "name": "Preset A",
+                "density": "compact",
+                "columns": {
+                    "visible": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "order": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "pinned": [],
+                },
+                "telemetry": {
+                    "time_to_action_ms": 1000,
+                    "reopen_signal": False,
+                    "filter_churn_count": 1,
+                },
+                "csrf_token": "ok",
+            },
+        )
+    )
+    result_a = save_a.get("result") if isinstance(save_a, dict) else None
+    assert isinstance(result_a, dict)
+    preset_a = result_a.get("preset")
+    assert isinstance(preset_a, dict)
+    preset_a_id = preset_a.get("id")
+    assert isinstance(preset_a_id, int)
+
+    save_b = await action_workflow_presets(
+        _make_json_request(
+            "/actions/workflow-presets",
+            {
+                "action": "save",
+                "queue_context": "moderation",
+                "name": "Preset B",
+                "density": "standard",
+                "columns": {
+                    "visible": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "order": ["id", "auction", "reporter", "status", "reason", "created"],
+                    "pinned": [],
+                },
+                "telemetry": {
+                    "time_to_action_ms": 2000,
+                    "reopen_signal": False,
+                    "filter_churn_count": 0,
+                },
+                "csrf_token": "ok",
+            },
+        )
+    )
+    result_b = save_b.get("result") if isinstance(save_b, dict) else None
+    assert isinstance(result_b, dict)
+    preset_b = result_b.get("preset")
+    assert isinstance(preset_b, dict)
+    preset_b_id = preset_b.get("id")
+    assert isinstance(preset_b_id, int)
+
+    await action_workflow_presets(
+        _make_json_request(
+            "/actions/workflow-presets",
+            {
+                "action": "select",
+                "queue_context": "moderation",
+                "preset_id": preset_a_id,
+                "telemetry": {
+                    "time_to_action_ms": 500,
+                    "reopen_signal": True,
+                    "filter_churn_count": 3,
+                },
+                "csrf_token": "ok",
+            },
+        )
+    )
+
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=702)))
+
+    payload = await action_workflow_presets_telemetry(
+        _make_request("/actions/workflow-presets/telemetry"),
+        queue_context="moderation",
+        lookback_hours=24,
+    )
+
+    assert isinstance(payload, dict)
+    assert payload.get("ok") is True
+    segments = payload.get("segments")
+    assert isinstance(segments, list)
+    assert len(segments) == 2
+
+    first = segments[0]
+    second = segments[1]
+    assert first.get("queue_context") == "moderation"
+    assert first.get("queue_key") == "complaints"
+    assert first.get("preset_id") == preset_a_id
+    assert first.get("events_total") == 2
+    assert first.get("reopen_total") == 1
+    assert first.get("reopen_rate") == 0.5
+    assert first.get("avg_time_to_action_ms") == 750.0
+    assert first.get("avg_filter_churn_count") == 2.0
+
+    assert second.get("queue_context") == "moderation"
+    assert second.get("queue_key") == "complaints"
+    assert second.get("preset_id") == preset_b_id
+    assert second.get("events_total") == 1
 
 
 @pytest.mark.asyncio
