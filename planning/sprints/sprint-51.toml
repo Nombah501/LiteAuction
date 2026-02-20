@@ -67,3 +67,35 @@ acceptance = [
   "Tests assert secondary sections are present but not fully expanded by default",
   "Existing security/permissions tests for admin web continue to pass",
 ]
+
+[[items]]
+id = "S51-005"
+title = "Implement Phase 3 in-place triage interactions"
+description = "Deliver inline queue disclosure, progressive detail loading, keyboard-first triage controls, and safeguarded bulk actions for moderation queues without context loss."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:feature", "area:web", "area:moderation", "priority:p1", "sprint:sprint-51"]
+assignees = []
+create_draft_pr = false
+acceptance = [
+  "Operators can open row details inline and return to same list context with filters preserved",
+  "Detail sections load progressively with inline retry handling for partial failures",
+  "Keyboard triage shortcuts and bulk actions support fast queue workflows with destructive confirmations",
+]
+
+[[items]]
+id = "S51-006"
+title = "Close Phase 3 in-place triage verification gaps"
+description = "Address post-verification interaction gaps for focus/scroll restoration, keyboard row choreography, retry hydration, bulk outcome rendering, and bulk auth safety coverage."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:bug", "area:web", "area:moderation", "priority:p1", "sprint:sprint-51"]
+assignees = []
+create_draft_pr = false
+acceptance = [
+  "Closing details restores focus and preserves scroll position for continued triage",
+  "Keyboard shortcuts j/k/o/Enter execute row navigation and toggle behavior",
+  "Bulk results render per-row outcomes inline and integration tests cover 401/403/CSRF failures",
+]

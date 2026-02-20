@@ -189,3 +189,39 @@ def test_dense_list_contract_contains_keyboard_shortcuts_contract() -> None:
     assert "event.key==='j'" in script_html
     assert "event.key==='k'" in script_html
     assert "event.key==='o'||event.key==='Enter'" in script_html
+    assert "moveFocusedRow(1)" in script_html
+    assert "moveFocusedRow(-1)" in script_html
+    assert "toggleFocusedRowDetail()" in script_html
+    assert "setFocusedRow(" in script_html
+
+
+def test_dense_list_contract_wires_retry_hydration_contract() -> None:
+    config = DenseListConfig(
+        queue_key="complaints",
+        density="standard",
+        table_id="complaints-table",
+        quick_filter_placeholder="id / reason",
+    )
+
+    script_html = render_dense_list_script(config)
+
+    assert "const hydrateSection = async" in script_html
+    assert "void hydrateSection(rowId, section);" in script_html
+    assert "renderSectionRetry" in script_html
+    assert "Section unavailable." in script_html
+
+
+def test_dense_list_contract_wires_bulk_results_rendering_contract() -> None:
+    config = DenseListConfig(
+        queue_key="appeals",
+        density="compact",
+        table_id="appeals-table",
+        quick_filter_placeholder="id / ref",
+    )
+
+    script_html = render_dense_list_script(config)
+
+    assert "payload && Array.isArray(payload.results)" in script_html
+    assert "const statusCell = row.querySelector(\"[data-status-cell='1'], [data-col='status']\")" in script_html
+    assert "Needs attention:" in script_html
+    assert "Bulk done:" in script_html
