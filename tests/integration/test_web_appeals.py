@@ -271,6 +271,59 @@ async def test_action_review_appeal_requires_user_ban_scope(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_action_resolve_appeal_rejects_invalid_csrf(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+
+    response = await action_resolve_appeal(
+        _make_request("/actions/appeal/resolve", method="POST"),
+        appeal_id=7,
+        reason="checked",
+        return_to="/appeals?status=open&source=all",
+        csrf_token="bad",
+        confirmed="1",
+    )
+
+    assert response.status_code == 403
+    assert "CSRF check failed" in bytes(response.body).decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_action_review_appeal_rejects_invalid_csrf(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+
+    response = await action_review_appeal(
+        _make_request("/actions/appeal/review", method="POST"),
+        appeal_id=7,
+        reason="checked",
+        return_to="/appeals?status=open&source=all",
+        csrf_token="bad",
+    )
+
+    assert response.status_code == 403
+    assert "CSRF check failed" in bytes(response.body).decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_action_reject_appeal_rejects_invalid_csrf(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+
+    response = await action_reject_appeal(
+        _make_request("/actions/appeal/reject", method="POST"),
+        appeal_id=7,
+        reason="checked",
+        return_to="/appeals?status=open&source=all",
+        csrf_token="bad",
+        confirmed="1",
+    )
+
+    assert response.status_code == 403
+    assert "CSRF check failed" in bytes(response.body).decode("utf-8")
+
+
+@pytest.mark.asyncio
 async def test_action_review_appeal_updates_status(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 

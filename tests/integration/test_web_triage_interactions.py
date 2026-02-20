@@ -388,6 +388,42 @@ async def test_triage_detail_section_reports_fallback_for_invalid_tokens(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_triage_detail_section_requires_authenticated_context(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._auth_context_or_unauthorized",
+        lambda _req: (SimpleNamespace(status_code=401), _unauthorized_auth()),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await action_triage_detail_section(
+            _make_request("/actions/triage/detail-section"),
+            queue_key="appeals",
+            row_id=77,
+            section="primary",
+        )
+
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_triage_detail_section_enforces_scope_for_appeals(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._auth_context_or_unauthorized",
+        lambda _req: (None, _telegram_auth_forbidden()),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await action_triage_detail_section(
+            _make_request("/actions/triage/detail-section"),
+            queue_key="appeals",
+            row_id=77,
+            section="primary",
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_bulk_endpoint_requires_confirmation_for_destructive(monkeypatch) -> None:
     monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth())
     monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
