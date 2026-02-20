@@ -158,6 +158,62 @@ async def test_queue_routes_render_preset_controls_for_required_contexts(monkeyp
     assert "data-preset-controls='signals-table'" in signals_body
     assert "data-preset-controls='trade-feedback-table'" in feedback_body
     assert "data-preset-controls='appeals-table'" in appeals_body
+    assert "Preset telemetry insights (7d)" in complaints_body
+    assert "Telemetry is advisory only and does not automate moderation decisions." in complaints_body
+
+
+@pytest.mark.asyncio
+async def test_trade_feedback_telemetry_filter_preserves_queue_context(monkeypatch) -> None:
+    async def _resolve(_session, **_kwargs):
+        return {
+            "source": "none",
+            "state": {
+                "density": "compact",
+                "columns": {"visible": ["id"], "order": ["id"], "pinned": []},
+                "filters": {},
+                "sort": {},
+            },
+            "active_preset": None,
+            "presets": [],
+            "notice": None,
+        }
+
+    async def _segments(_session, **_kwargs):
+        return [
+            {
+                "queue_context": "feedback",
+                "queue_key": "trade_feedback",
+                "preset_id": 5,
+                "events_total": 12,
+                "avg_time_to_action_ms": 810.0,
+                "avg_filter_churn_count": 2.0,
+                "reopen_total": 3,
+                "reopen_rate": 0.25,
+            }
+        ]
+
+    monkeypatch.setattr("app.web.main.resolve_queue_preset_state", _resolve)
+    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=2)))
+    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+
+    body = bytes(
+        (
+            await trade_feedback(
+                _make_request("/trade-feedback"),
+                status="visible",
+                moderated="all",
+                page=1,
+                q="",
+                telemetry_preset_id=5,
+            )
+        ).body
+    ).decode("utf-8")
+
+    assert "name='telemetry_preset_id' value='5'" in body
+    assert "telemetry_preset_id=5" in body
+    assert "Preset filter:" in body
+    assert "preset #5" in body
 
 
 @pytest.mark.asyncio
