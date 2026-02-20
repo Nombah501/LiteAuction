@@ -40,6 +40,13 @@ class DenseListConfig:
     columns_pinned: tuple[str, ...] = ()
     preferences_action_path: str = "/actions/dense-list/preferences"
     csrf_token: str = ""
+    preset_enabled: bool = False
+    preset_context: str = ""
+    preset_items: tuple[tuple[str, str], ...] = ()
+    active_preset_id: int | None = None
+    active_preset_name: str = ""
+    preset_notice: str = ""
+    presets_action_path: str = "/actions/workflow-presets"
 
     def __post_init__(self) -> None:
         if self.queue_key not in _KNOWN_QUEUE_KEYS:
@@ -67,6 +74,8 @@ class DenseListConfig:
         object.__setattr__(self, "columns_order", normalized_order)
         object.__setattr__(self, "columns_visible", normalized_visible)
         object.__setattr__(self, "columns_pinned", normalized_pinned)
+        if self.preset_enabled and not self.preset_context.strip():
+            raise ValueError("Preset context is required when presets are enabled")
 
 
 def _normalize_column_sequence(value: tuple[str, ...]) -> tuple[str, ...]:
@@ -103,6 +112,36 @@ def render_dense_list_toolbar(
             f"href='{escape(density_query_builder(density_value))}'>{escape(label)}</a>"
         )
 
+    preset_controls = ""
+    if config.preset_enabled:
+        options = ["<option value=''>-- select preset --</option>"]
+        selected_value = str(config.active_preset_id) if config.active_preset_id is not None else ""
+        for preset_id, preset_name in config.preset_items:
+            selected = " selected" if preset_id == selected_value else ""
+            options.append(
+                f"<option value='{escape(preset_id)}'{selected}>{escape(preset_name)}</option>"
+            )
+        preset_controls = (
+            "<span style='margin-left:8px'>Preset:</span>"
+            f"<div class='dense-preset-controls' data-preset-controls='{escape(config.table_id)}' "
+            f"data-preset-context='{escape(config.preset_context)}' "
+            f"data-active-preset-id='{escape(selected_value)}' "
+            f"data-presets-url='{escape(config.presets_action_path)}' "
+            f"data-csrf-token='{escape(config.csrf_token)}' "
+            f"data-preset-notice='{escape(config.preset_notice)}'>"
+            f"<select data-preset-select='{escape(config.table_id)}'>{''.join(options)}</select>"
+            f"<input type='text' data-preset-name='{escape(config.table_id)}' maxlength='40' placeholder='Preset name' value='{escape(config.active_preset_name)}'>"
+            f"<button type='button' data-preset-save='{escape(config.table_id)}'>Save as new</button>"
+            f"<button type='button' data-preset-update='{escape(config.table_id)}'>Update current</button>"
+            f"<button type='button' data-preset-delete='{escape(config.table_id)}'>Delete</button>"
+            f"<button type='button' data-preset-default='{escape(config.table_id)}'>Set default</button>"
+            f"<button type='button' data-preset-reset='{escape(config.table_id)}'>Reset</button>"
+            f"<span class='empty-state' data-preset-modified='{escape(config.table_id)}'></span>"
+            f"<span class='empty-state' data-preset-notice-slot='{escape(config.table_id)}'>{escape(config.preset_notice)}</span>"
+            f"<span hidden data-preset-confirm='{escape(config.table_id)}'>switch</span>"
+            "</div>"
+        )
+
     return (
         "<div class='toolbar dense-list-toolbar' "
         f"data-queue-key='{escape(config.queue_key)}' data-density='{escape(config.density)}'>"
@@ -120,6 +159,7 @@ def render_dense_list_toolbar(
         f"placeholder='{escape(config.quick_filter_placeholder)}' "
         "autocomplete='off' spellcheck='false'>"
         f"<span class='empty-state' data-quick-filter-count='{escape(config.table_id)}'></span>"
+        f"{preset_controls}"
         "</div>"
     )
 
@@ -140,6 +180,9 @@ def render_dense_list_script(config: DenseListConfig) -> str:
         "const counter=document.querySelector(`[data-quick-filter-count='${tableId}']`);"
         "const shell=document.querySelector(`[data-dense-list='${tableId}']`);"
         "const controlsHost=document.querySelector(`[data-column-controls='${tableId}']`);"
+        "const presetHost=document.querySelector(`[data-preset-controls='${tableId}']`);"
+        "const presetModifiedNode=document.querySelector(`[data-preset-modified='${tableId}']`);"
+        "const presetNoticeNode=document.querySelector(`[data-preset-notice-slot='${tableId}']`);"
         "if(!shell){return;}"
         "const table=shell.querySelector('table');"
         "const headRow=table?table.querySelector('thead tr'):null;"
@@ -173,8 +216,28 @@ def render_dense_list_script(config: DenseListConfig) -> str:
         "const saveUrl=controlsHost?controlsHost.dataset.preferencesUrl:'';"
         "const csrfToken=controlsHost?controlsHost.dataset.csrfToken:'';"
         "const queueKey=(shell.closest('[data-queue-key]')||document.querySelector('[data-queue-key]'))?.dataset.queueKey||'';"
+        "const presetsUrl=presetHost?presetHost.dataset.presetsUrl:'';"
+        "const presetContext=presetHost?presetHost.dataset.presetContext:'';"
+        "let activePresetId=presetHost&&presetHost.dataset.activePresetId?Number(presetHost.dataset.activePresetId):null;"
+        "const baselineState={density:densityValue,columns:{visible:[...state.visible],order:[...state.order],pinned:[...state.pinned]}};"
+        "const baselineKey=()=>JSON.stringify({density:baselineState.density,columns:{visible:[...baselineState.columns.visible],order:[...baselineState.columns.order],pinned:[...baselineState.columns.pinned]}});"
+        "const currentKey=()=>JSON.stringify({density:densityValue,columns:{visible:[...state.visible],order:[...state.order],pinned:[...state.pinned]}});"
+        "const updateModified=function(){"
+        "if(!presetModifiedNode){return false;}"
+        "const changed=currentKey()!==baselineKey();"
+        "presetModifiedNode.textContent=changed?'modified':'';"
+        "return changed;"
+        "};"
+        "const postPreset=async function(payload){"
+        "if(!presetsUrl||!csrfToken||!presetContext){return null;}"
+        "const response=await fetch(presetsUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,queue_context:presetContext,queue_key:queueKey,csrf_token:csrfToken})});"
+        "if(!response.ok){throw new Error('preset request failed');}"
+        "return await response.json();"
+        "};"
+        "const setNotice=function(message){if(presetNoticeNode){presetNoticeNode.textContent=message||'';}};"
         "let saveTimer=null;"
         "const queueSave=function(){"
+        "if(presetHost){updateModified();return;}"
         "if(!saveUrl||!csrfToken||!queueKey){return;}"
         "if(saveTimer){clearTimeout(saveTimer);}"
         "saveTimer=setTimeout(function(){"
@@ -281,7 +344,50 @@ def render_dense_list_script(config: DenseListConfig) -> str:
         "};"
         "applyLayout();"
         "renderColumnControls();"
+        "updateModified();"
         "if(input){input.addEventListener('input',updateFilter);updateFilter();}"
+        "if(presetHost){"
+        "const nameInput=document.querySelector(`[data-preset-name='${tableId}']`);"
+        "const selectNode=document.querySelector(`[data-preset-select='${tableId}']`);"
+        "const saveNode=document.querySelector(`[data-preset-save='${tableId}']`);"
+        "const updateNode=document.querySelector(`[data-preset-update='${tableId}']`);"
+        "const deleteNode=document.querySelector(`[data-preset-delete='${tableId}']`);"
+        "const defaultNode=document.querySelector(`[data-preset-default='${tableId}']`);"
+        "const resetNode=document.querySelector(`[data-preset-reset='${tableId}']`);"
+        "if(saveNode){saveNode.addEventListener('click',async function(){"
+        "const name=nameInput?nameInput.value.trim():'';"
+        "if(!name){setNotice('Preset name is required');return;}"
+        "try{"
+        "let result=await postPreset({action:'save',name:name,density:densityValue,columns:{visible:state.visible,order:state.order,pinned:state.pinned},filters:{},sort:{},overwrite:false});"
+        "if(result&&result.result&&result.result.conflict){if(confirm('Preset with this name exists. Overwrite?')){result=await postPreset({action:'save',name:name,density:densityValue,columns:{visible:state.visible,order:state.order,pinned:state.pinned},filters:{},sort:{},overwrite:true});}else{return;}}"
+        "window.location.reload();"
+        "}catch(_e){setNotice('Failed to save preset');}"
+        "});}"
+        "if(updateNode){updateNode.addEventListener('click',async function(){"
+        "if(!activePresetId){setNotice('No active preset to update');return;}"
+        "try{await postPreset({action:'update',preset_id:activePresetId,density:densityValue,columns:{visible:state.visible,order:state.order,pinned:state.pinned},filters:{},sort:{}});window.location.reload();}catch(_e){setNotice('Failed to update preset');}"
+        "});}"
+        "if(selectNode){selectNode.addEventListener('change',async function(){"
+        "const next=this.value?Number(this.value):null;"
+        "if(updateModified()&&next!==activePresetId){if(!confirm('You have unsaved changes. Switch preset?')){this.value=activePresetId?String(activePresetId):'';return;}}"
+        "try{await postPreset({action:'select',preset_id:next});window.location.reload();}catch(_e){setNotice('Failed to switch preset');}"
+        "});}"
+        "if(deleteNode){deleteNode.addEventListener('click',async function(){"
+        "if(!activePresetId){setNotice('No active preset to delete');return;}"
+        "if(!confirm('Delete active preset?')){return;}"
+        "const keepCurrent=confirm('Keep current on-screen state after delete?');"
+        "try{await postPreset({action:'delete',preset_id:activePresetId,keep_current:keepCurrent});window.location.reload();}catch(_e){setNotice('Failed to delete preset');}"
+        "});}"
+        "if(defaultNode){defaultNode.addEventListener('click',async function(){"
+        "if(!activePresetId){setNotice('No active preset selected');return;}"
+        "try{await postPreset({action:'set_default',preset_id:activePresetId});setNotice('Default preset updated');}catch(_e){setNotice('Failed to set default preset');}"
+        "});}"
+        "if(resetNode){resetNode.addEventListener('click',async function(){"
+        "try{await postPreset({action:'select',preset_id:null});window.location.reload();}catch(_e){setNotice('Failed to reset preset');}"
+        "});}"
+        "setNotice(presetHost.dataset.presetNotice||'');"
+        "updateModified();"
+        "}"
         "window.addEventListener('resize',applyLayout);"
         "})();"
         "</script>"

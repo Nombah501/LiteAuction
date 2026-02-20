@@ -127,3 +127,29 @@ def test_dense_list_filter_script_contract_contains_row_counter() -> None:
 
     assert "[data-quick-filter-count='${tableId}']" in script_html
     assert "row.hidden=!match" in script_html
+
+
+def test_dense_list_contract_renders_preset_controls_when_enabled() -> None:
+    config = DenseListConfig(
+        queue_key="complaints",
+        density="standard",
+        table_id="complaints-table",
+        quick_filter_placeholder="id / reason",
+        preset_enabled=True,
+        preset_context="moderation",
+        preset_items=(("10", "Incident"), ("11", "Routine")),
+        active_preset_id=10,
+        active_preset_name="Incident",
+        preset_notice="stale filter skipped",
+    )
+
+    toolbar_html = render_dense_list_toolbar(config, density_query_builder=_density_path)
+    script_html = render_dense_list_script(config)
+
+    assert "data-preset-controls='complaints-table'" in toolbar_html
+    assert "data-preset-select='complaints-table'" in toolbar_html
+    assert "data-preset-modified='complaints-table'" in toolbar_html
+    assert "data-preset-confirm='complaints-table'" in toolbar_html
+    assert "action:'save'" in script_html
+    assert "action:'delete'" in script_html
+    assert "You have unsaved changes. Switch preset?" in script_html

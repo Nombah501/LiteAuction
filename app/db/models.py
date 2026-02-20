@@ -466,6 +466,86 @@ class AdminListPreference(Base, TimestampMixin):
     columns_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
 
+class AdminQueuePreset(Base, TimestampMixin):
+    __tablename__ = "admin_queue_presets"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_subject_key",
+            "queue_context",
+            "name",
+            name="uq_admin_queue_presets_owner_context_name",
+        ),
+        CheckConstraint(
+            "queue_context IN ('moderation', 'appeals', 'risk', 'feedback')",
+            name="admin_queue_presets_queue_context_values",
+        ),
+        CheckConstraint(
+            "char_length(name) >= 1 AND char_length(name) <= 40",
+            name="admin_queue_presets_name_length",
+        ),
+        CheckConstraint(
+            "density IN ('compact', 'standard', 'comfortable')",
+            name="admin_queue_presets_density_values",
+        ),
+        Index("ix_admin_queue_presets_owner_subject_key", "owner_subject_key"),
+        Index("ix_admin_queue_presets_queue_context", "queue_context"),
+        Index("ix_admin_queue_presets_updated_at", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    owner_subject_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    queue_context: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(40), nullable=False)
+    density: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'standard'"))
+    columns_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    filters_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    sort_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
+class AdminQueuePresetSelection(Base, TimestampMixin):
+    __tablename__ = "admin_queue_preset_selections"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_key",
+            "queue_context",
+            name="uq_admin_queue_preset_selections_subject_context",
+        ),
+        CheckConstraint(
+            "queue_context IN ('moderation', 'appeals', 'risk', 'feedback')",
+            name="admin_queue_preset_selections_queue_context_values",
+        ),
+        Index("ix_admin_queue_preset_selections_subject_key", "subject_key"),
+        Index("ix_admin_queue_preset_selections_queue_context", "queue_context"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    subject_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    queue_context: Mapped[str] = mapped_column(String(32), nullable=False)
+    preset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("admin_queue_presets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
+class AdminQueuePresetDefault(Base, TimestampMixin):
+    __tablename__ = "admin_queue_preset_defaults"
+    __table_args__ = (
+        UniqueConstraint("queue_context", name="uq_admin_queue_preset_defaults_queue_context"),
+        CheckConstraint(
+            "queue_context IN ('moderation', 'appeals', 'risk', 'feedback')",
+            name="admin_queue_preset_defaults_queue_context_values",
+        ),
+        Index("ix_admin_queue_preset_defaults_queue_context", "queue_context"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    queue_context: Mapped[str] = mapped_column(String(32), nullable=False)
+    preset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("admin_queue_presets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
 class ModerationChecklistItem(Base, TimestampMixin):
     __tablename__ = "moderation_checklist_items"
     __table_args__ = (
