@@ -32,6 +32,7 @@ from app.db.models import (
     FeedbackItem,
     FraudSignal,
     GuarantorRequest,
+    ModerationLog,
     TradeFeedback,
     User,
     UserRoleAssignment,
@@ -356,6 +357,275 @@ def _appeal_escalation_marker(appeal: Appeal) -> str:
     if appeal.escalated_at is None:
         return f"L{normalized_level}"
     return f"L{normalized_level} ({_fmt_ts(appeal.escalated_at)})"
+
+
+def _build_rationale_artifact(
+    *,
+    summary: str,
+    actor_user_id: int,
+    actor_tg_user_id: int | None,
+    source: str,
+    happened_at: datetime,
+) -> dict[str, object]:
+    normalized_summary = summary.strip()
+    if len(normalized_summary) > 280:
+        normalized_summary = f"{normalized_summary[:277]}..."
+    return {
+        "summary": normalized_summary,
+        "actor_user_id": actor_user_id,
+        "actor_tg_user_id": actor_tg_user_id,
+        "source": source,
+        "recorded_at": happened_at.isoformat(),
+        "immutable": True,
+    }
+
+
+def _user_label(user: User | None, user_id: int | None = None) -> str:
+    if user is not None:
+        if user.username:
+            return f"@{user.username}"
+        return str(user.tg_user_id)
+    if user_id is not None:
+        return f"uid:{user_id}"
+    return "-"
+
+
+def _append_timeline_event(
+    events: list[tuple[datetime, str, str]],
+    *,
+    happened_at: datetime | None,
+    title: str,
+    details: str,
+) -> None:
+    if happened_at is None:
+        return
+    events.append((happened_at, title, details))
+
+
+def _render_inline_timeline_html(events: list[tuple[datetime, str, str]]) -> str:
+    if not events:
+        return "<div data-detail-state='empty'>Timeline not available yet.</div>"
+    items = "".join(
+        (
+            "<li>"
+            f"<b>{escape(_fmt_ts(happened_at))}</b> - {escape(title)}"
+            f"<div class='section-note'>{escape(details)}</div>"
+            "</li>"
+        )
+        for happened_at, title, details in events
+    )
+    return f"<ol>{items}</ol>"
+
+
+async def _render_appeal_detail_section(
+    session: AsyncSession,
+    *,
+    row_id: int,
+    section: str,
+    request: Request,
+) -> dict[str, object]:
+    appeal = await session.scalar(select(Appeal).where(Appeal.id == row_id))
+    if appeal is None:
+        return {"ok": False, "message": "Appeal not found"}
+
+    appellant = await session.scalar(select(User).where(User.id == appeal.appellant_user_id))
+    resolver = None
+    if appeal.resolver_user_id is not None:
+        resolver = await session.scalar(select(User).where(User.id == appeal.resolver_user_id))
+
+    source_type = AppealSourceType(appeal.source_type)
+    source_label = _appeal_source_label(source_type, appeal.source_id)
+
+    related_auction_id = await resolve_appeal_auction_id(session, appeal)
+    complaint: Complaint | None = None
+    signal: FraudSignal | None = None
+    if source_type == AppealSourceType.COMPLAINT and appeal.source_id is not None:
+        complaint = await session.scalar(select(Complaint).where(Complaint.id == appeal.source_id))
+    elif source_type == AppealSourceType.RISK and appeal.source_id is not None:
+        signal = await session.scalar(select(FraudSignal).where(FraudSignal.id == appeal.source_id))
+
+    moderation_logs = (
+        await session.execute(
+            select(ModerationLog)
+            .where(
+                ModerationLog.action.in_(
+                    (ModerationAction.RESOLVE_APPEAL, ModerationAction.REJECT_APPEAL)
+                ),
+                ModerationLog.target_user_id == appeal.appellant_user_id,
+                ModerationLog.created_at >= appeal.created_at,
+            )
+            .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
+        )
+    ).scalars().all()
+
+    filtered_logs: list[ModerationLog] = []
+    for log_row in moderation_logs:
+        payload = log_row.payload or {}
+        payload_appeal_id = payload.get("appeal_id")
+        if payload_appeal_id is None:
+            continue
+        try:
+            if int(payload_appeal_id) != int(appeal.id):
+                continue
+        except (TypeError, ValueError):
+            continue
+        filtered_logs.append(log_row)
+
+    actor_ids = {item.actor_user_id for item in filtered_logs}
+    actors_by_id: dict[int, User] = {}
+    if actor_ids:
+        actors = (
+            await session.execute(select(User).where(User.id.in_(actor_ids)))
+        ).scalars().all()
+        actors_by_id = {item.id: item for item in actors}
+
+    if section == "primary":
+        timeline_events: list[tuple[datetime, str, str]] = []
+        _append_timeline_event(
+            timeline_events,
+            happened_at=appeal.created_at,
+            title="Appeal created",
+            details=f"{source_label}, appellant={_user_label(appellant, appeal.appellant_user_id)}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=appeal.in_review_started_at,
+            title="Moved to in-review",
+            details=f"resolver={_user_label(resolver, appeal.resolver_user_id)}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=appeal.priority_boosted_at,
+            title="Priority boosted",
+            details=f"points={int(appeal.priority_boost_points_spent or 0)}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=appeal.escalated_at,
+            title="Escalated",
+            details=f"level=L{max(int(appeal.escalation_level or 0), 1)}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=appeal.resolved_at,
+            title=f"Appeal finalized: {AppealStatus(appeal.status).value}",
+            details=f"resolver={_user_label(resolver, appeal.resolver_user_id)}",
+        )
+        for log_row in filtered_logs:
+            _append_timeline_event(
+                timeline_events,
+                happened_at=log_row.created_at,
+                title=f"Moderation action: {str(log_row.action)}",
+                details=(
+                    "actor="
+                    f"{_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)}"
+                ),
+            )
+
+        timeline_events.sort(key=lambda item: item[0])
+        timeline_html = _render_inline_timeline_html(timeline_events)
+        source_line = (
+            f"<p><b>Evidence timeline:</b> appeal #{appeal.id} ({escape(source_label)})</p>"
+        )
+        auction_link = ""
+        if related_auction_id is not None:
+            auction_path = _path_with_auth(request, f"/timeline/auction/{related_auction_id}")
+            auction_link = (
+                f"<p class='section-note'><a href='{escape(auction_path)}'>Open full auction timeline</a></p>"
+            )
+        return {
+            "ok": True,
+            "html": (
+                "<div data-detail-state='loaded'>"
+                f"{source_line}{timeline_html}{auction_link}"
+                "</div>"
+            ),
+        }
+
+    if section == "secondary":
+        source_bits: list[str] = [
+            f"<p><b>Source evidence:</b> {escape(source_label)}</p>",
+        ]
+        if complaint is not None:
+            source_bits.append(
+                (
+                    "<p class='section-note'>"
+                    f"complaint #{complaint.id}, status={escape(str(complaint.status))}, created={escape(_fmt_ts(complaint.created_at))}"
+                    "</p>"
+                )
+            )
+            if complaint.resolved_at is not None:
+                source_bits.append(
+                    f"<p class='section-note'>complaint resolved={escape(_fmt_ts(complaint.resolved_at))}</p>"
+                )
+        if signal is not None:
+            source_bits.append(
+                (
+                    "<p class='section-note'>"
+                    f"signal #{signal.id}, status={escape(str(signal.status))}, "
+                    f"score={signal.score}, created={escape(_fmt_ts(signal.created_at))}"
+                    "</p>"
+                )
+            )
+            if signal.resolved_at is not None:
+                source_bits.append(
+                    f"<p class='section-note'>signal resolved={escape(_fmt_ts(signal.resolved_at))}</p>"
+                )
+
+        artifact_items: list[str] = []
+        for log_row in filtered_logs:
+            payload = log_row.payload or {}
+            artifact = payload.get("rationale_artifact") if isinstance(payload, dict) else None
+            if not isinstance(artifact, dict):
+                continue
+            actor_label = _user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)
+            summary = str(artifact.get("summary") or "-")
+            recorded_at = str(artifact.get("recorded_at") or _fmt_ts(log_row.created_at))
+            source_value = str(artifact.get("source") or "web")
+            artifact_items.append(
+                (
+                    "<li>"
+                    f"<b>{escape(str(log_row.action))}</b> - {escape(summary)}"
+                    "<div class='section-note'>"
+                    f"actor={escape(actor_label)}, "
+                    f"recorded_at={escape(recorded_at)}, "
+                    f"source={escape(source_value)}"
+                    "</div>"
+                    "</li>"
+                )
+            )
+        if artifact_items:
+            source_bits.append(
+                f"<p><b>Rationale artifacts:</b></p><ul>{''.join(artifact_items)}</ul>"
+            )
+        else:
+            source_bits.append("<p class='section-note'>No rationale artifacts yet.</p>")
+
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{''.join(source_bits)}</div>",
+        }
+
+    audit_items = [
+        f"<li>appeal_id={appeal.id}</li>",
+        f"<li>created_at={escape(_fmt_ts(appeal.created_at))}</li>",
+        f"<li>resolver={escape(_user_label(resolver, appeal.resolver_user_id))}</li>",
+        f"<li>status={escape(str(appeal.status))}</li>",
+        "<li>record_policy=append_only</li>",
+    ]
+    for log_row in filtered_logs:
+        audit_items.append(
+            (
+                f"<li>log#{log_row.id} {escape(str(log_row.action))} "
+                f"at {escape(_fmt_ts(log_row.created_at))} by "
+                f"{escape(_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id))}</li>"
+            )
+        )
+    html = (
+        "<div data-detail-state='loaded'><p><b>Audit trail (immutable)</b></p>"
+        f"<ul>{''.join(audit_items)}</ul></div>"
+    )
+    return {"ok": True, "html": html}
 
 
 async def _load_user_risk_snapshot_map(
@@ -4335,6 +4605,16 @@ async def action_triage_detail_section(
         )
         return {"ok": True, "html": collapsed_html, **metadata}
 
+    if queue_value == "appeals":
+        async with SessionFactory() as session:
+            detail_payload = await _render_appeal_detail_section(
+                session,
+                row_id=row_id,
+                section=section_value,
+                request=request,
+            )
+        return {**detail_payload, **metadata}
+
     if section_value == "audit" and row_id % 5 == 0:
         return {"ok": False, "message": "Section temporarily unavailable", **metadata}
 
@@ -4843,6 +5123,13 @@ async def action_resolve_appeal(
             )
             if result.ok and result.appeal is not None:
                 related_auction_id = await resolve_appeal_auction_id(session, result.appeal)
+                rationale_artifact = _build_rationale_artifact(
+                    summary=reason,
+                    actor_user_id=actor_user_id,
+                    actor_tg_user_id=auth.tg_user_id,
+                    source="web.appeals.resolve",
+                    happened_at=datetime.now(UTC),
+                )
                 await log_moderation_action(
                     session,
                     actor_user_id=actor_user_id,
@@ -4855,6 +5142,7 @@ async def action_resolve_appeal(
                         "appeal_ref": result.appeal.appeal_ref,
                         "source_type": result.appeal.source_type,
                         "source_id": result.appeal.source_id,
+                        "rationale_artifact": rationale_artifact,
                     },
                 )
 
@@ -4945,6 +5233,13 @@ async def action_reject_appeal(
             )
             if result.ok and result.appeal is not None:
                 related_auction_id = await resolve_appeal_auction_id(session, result.appeal)
+                rationale_artifact = _build_rationale_artifact(
+                    summary=reason,
+                    actor_user_id=actor_user_id,
+                    actor_tg_user_id=auth.tg_user_id,
+                    source="web.appeals.reject",
+                    happened_at=datetime.now(UTC),
+                )
                 await log_moderation_action(
                     session,
                     actor_user_id=actor_user_id,
@@ -4957,6 +5252,7 @@ async def action_reject_appeal(
                         "appeal_ref": result.appeal.appeal_ref,
                         "source_type": result.appeal.source_type,
                         "source_id": result.appeal.source_id,
+                        "rationale_artifact": rationale_artifact,
                     },
                 )
 
