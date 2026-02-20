@@ -29,9 +29,10 @@ Run trustworthy Telegram auctions end-to-end with fast operator intervention and
 
 ### Active
 
-- [ ] Define and scope milestone v1.2 requirements.
-- [ ] Identify next operator-trust outcomes to improve without regressing queue speed.
-- [ ] Build Sprint 54 manifest and sync issue scaffolds for v1.2 kickoff.
+- [x] Define and scope milestone v1.2 requirements.
+- [ ] Deliver queue SLA awareness surfaces with deterministic aging buckets (`SLA-01..02`).
+- [ ] Deliver inline evidence timeline and moderation rationale trail (`EVID-01..02`).
+- [ ] Deliver trend guardrails and safety verification for trust signals (`TRND-01..02`, `SAFE-11..12`, `TEST-21..22`).
 
 ### Out of Scope
 
@@ -45,9 +46,9 @@ The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (adm
 
 ## Next Milestone Goals
 
-- Define focused v1.2 scope from post-v1.1 operational feedback.
-- Prioritize measurable operator outcomes that improve triage speed and decision confidence.
-- Keep deterministic behavior, auditability, and security posture as non-negotiable constraints.
+- Improve operator awareness of queue urgency using clear SLA health signals and aging visibility.
+- Increase moderation decision confidence with lightweight evidence timeline and rationale artifacts.
+- Keep telemetry advisory by adding trend guardrails and preserving strict safety enforcement.
 
 ## Constraints
 
@@ -68,4 +69,4 @@ The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (adm
 | Require DB-backed telemetry integration assertions before milestone closeout | Ensures aggregation confidence beyond monkeypatched route checks | ✓ Good |
 
 ---
-*Last updated: 2026-02-20 after v1.1 milestone closeout*
+*Last updated: 2026-02-20 for v1.2 milestone kickoff*
