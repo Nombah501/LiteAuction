@@ -1175,6 +1175,29 @@ def _format_preset_telemetry_time(avg_ms: float | None) -> str:
     return f"{avg_ms:.0f}ms"
 
 
+def _format_preset_telemetry_time_delta(delta_ms: float | None) -> str:
+    if delta_ms is None:
+        return "-"
+    sign = "+" if delta_ms > 0 else ""
+    if abs(delta_ms) >= 1000:
+        return f"{sign}{delta_ms / 1000:.1f}s"
+    return f"{sign}{delta_ms:.0f}ms"
+
+
+def _format_preset_telemetry_rate_delta(delta: float | None) -> str:
+    if delta is None:
+        return "-"
+    sign = "+" if delta > 0 else ""
+    return f"{sign}{delta * 100:.1f}pp"
+
+
+def _format_preset_telemetry_churn_delta(delta: float | None) -> str:
+    if delta is None:
+        return "-"
+    sign = "+" if delta > 0 else ""
+    return f"{sign}{delta:.2f}"
+
+
 def _render_workflow_preset_telemetry_panel(
     request: Request,
     *,
@@ -1218,7 +1241,7 @@ def _render_workflow_preset_telemetry_panel(
     ]
 
     if not filtered:
-        rows_html = "<tr><td colspan='5'><span class='empty-state'>No telemetry events for this filter yet.</span></td></tr>"
+        rows_html = "<tr><td colspan='8'><span class='empty-state'>No telemetry events for this filter yet.</span></td></tr>"
     else:
         rows_html = ""
         for item in filtered[:10]:
@@ -1237,6 +1260,26 @@ def _render_workflow_preset_telemetry_panel(
             reopen_rate = float(reopen_rate_raw) if isinstance(reopen_rate_raw, (int, float)) else 0.0
             avg_churn_raw = item.get("avg_filter_churn_count")
             avg_churn = float(avg_churn_raw) if isinstance(avg_churn_raw, (int, float)) else 0.0
+            trend_guardrail = bool(item.get("trend_low_sample_guardrail"))
+            trend_min_sample_raw = item.get("trend_min_sample_size")
+            trend_min_sample = int(trend_min_sample_raw) if isinstance(trend_min_sample_raw, int) else 0
+            prev_events_raw = item.get("trend_previous_events_total")
+            prev_events = int(prev_events_raw) if isinstance(prev_events_raw, int) else 0
+            time_delta_raw = item.get("time_to_action_delta_ms")
+            time_delta = float(time_delta_raw) if isinstance(time_delta_raw, (int, float)) else None
+            reopen_delta_raw = item.get("reopen_rate_delta")
+            reopen_delta = float(reopen_delta_raw) if isinstance(reopen_delta_raw, (int, float)) else None
+            churn_delta_raw = item.get("filter_churn_delta")
+            churn_delta = float(churn_delta_raw) if isinstance(churn_delta_raw, (int, float)) else None
+
+            trend_time = _format_preset_telemetry_time_delta(time_delta)
+            trend_reopen = _format_preset_telemetry_rate_delta(reopen_delta)
+            trend_churn = _format_preset_telemetry_churn_delta(churn_delta)
+            if trend_guardrail:
+                guardrail_note = f"guardrail ({events_total}/{prev_events} < {trend_min_sample})"
+                trend_time = guardrail_note
+                trend_reopen = guardrail_note
+                trend_churn = guardrail_note
 
             rows_html += (
                 "<tr>"
@@ -1245,6 +1288,9 @@ def _render_workflow_preset_telemetry_panel(
                 f"<td>{escape(_format_preset_telemetry_time(avg_time_value))}</td>"
                 f"<td>{reopen_rate * 100:.1f}%</td>"
                 f"<td>{avg_churn:.2f}</td>"
+                f"<td>{escape(trend_time)}</td>"
+                f"<td>{escape(trend_reopen)}</td>"
+                f"<td>{escape(trend_churn)}</td>"
                 "</tr>"
             )
 
@@ -1260,8 +1306,9 @@ def _render_workflow_preset_telemetry_panel(
         "<p class='section-eyebrow'>Preset telemetry insights (7d)</p>"
         f"<p><b>{escape(queue_label)}</b></p>"
         "<p class='section-note'>Telemetry is advisory only and does not automate moderation decisions.</p>"
+        "<p class='section-note'>Trend deltas compare the current lookback window with the previous one.</p>"
         f"<div class='toolbar'><span>Preset filter:</span>{chip_html}</div>"
-        "<div class='table-wrap'><table><thead><tr><th>Preset</th><th>Events</th><th>Avg time-to-action</th><th>Reopen rate</th><th>Avg filter churn</th></tr></thead>"
+        "<div class='table-wrap'><table><thead><tr><th>Preset</th><th>Events</th><th>Avg time-to-action</th><th>Reopen rate</th><th>Avg filter churn</th><th>Δ time-to-action</th><th>Δ reopen rate</th><th>Δ filter churn</th></tr></thead>"
         f"<tbody>{rows_html}</tbody></table></div>"
         "</div>"
     )

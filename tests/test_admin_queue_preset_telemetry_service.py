@@ -65,16 +65,21 @@ class _SegmentsResult:
 
 
 class _SegmentsSession:
-    def __init__(self, rows: list[object]) -> None:
-        self._rows = rows
+    def __init__(self, rows_by_call: list[list[object]]) -> None:
+        self._rows_by_call = rows_by_call
+        self._call_idx = 0
 
     async def execute(self, _stmt):
-        return _SegmentsResult(self._rows)
+        if not self._rows_by_call:
+            return _SegmentsResult([])
+        idx = min(self._call_idx, len(self._rows_by_call) - 1)
+        self._call_idx += 1
+        return _SegmentsResult(self._rows_by_call[idx])
 
 
 @pytest.mark.asyncio
 async def test_load_workflow_preset_telemetry_segments_computes_rates() -> None:
-    rows = [
+    current_rows = [
         SimpleNamespace(
             queue_context="moderation",
             queue_key="complaints",
@@ -94,9 +99,29 @@ async def test_load_workflow_preset_telemetry_segments_computes_rates() -> None:
             reopen_total=0,
         ),
     ]
+    previous_rows = [
+        SimpleNamespace(
+            queue_context="moderation",
+            queue_key="complaints",
+            preset_id=11,
+            events_total=9,
+            avg_time_to_action_ms=920.0,
+            avg_filter_churn_count=2.0,
+            reopen_total=3,
+        ),
+        SimpleNamespace(
+            queue_context="appeals",
+            queue_key="appeals",
+            preset_id=None,
+            events_total=2,
+            avg_time_to_action_ms=None,
+            avg_filter_churn_count=0.0,
+            reopen_total=0,
+        ),
+    ]
 
     segments = await load_workflow_preset_telemetry_segments(
-        _SegmentsSession(rows),  # type: ignore[arg-type]
+        _SegmentsSession([current_rows, previous_rows]),  # type: ignore[arg-type]
         lookback_hours=24,
     )
 
@@ -106,15 +131,21 @@ async def test_load_workflow_preset_telemetry_segments_computes_rates() -> None:
     assert segments[0]["events_total"] == 10
     assert segments[0]["avg_time_to_action_ms"] == 820.0
     assert segments[0]["reopen_rate"] == 0.4
+    assert segments[0]["trend_low_sample_guardrail"] is False
+    assert segments[0]["time_to_action_delta_ms"] == -100.0
+    assert segments[0]["reopen_rate_delta"] == pytest.approx(0.0666666667)
+    assert segments[0]["filter_churn_delta"] == pytest.approx(0.5)
     assert segments[1]["preset_id"] is None
     assert segments[1]["avg_time_to_action_ms"] is None
+    assert segments[1]["trend_low_sample_guardrail"] is True
+    assert segments[1]["time_to_action_delta_ms"] is None
 
 
 @pytest.mark.asyncio
 async def test_load_workflow_preset_telemetry_segments_rejects_invalid_context() -> None:
     with pytest.raises(ValueError):
         await load_workflow_preset_telemetry_segments(
-            _SegmentsSession([]),  # type: ignore[arg-type]
+            _SegmentsSession([[], []]),  # type: ignore[arg-type]
             queue_context="unknown",
             lookback_hours=24,
         )
