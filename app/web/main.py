@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from html import escape
 import logging
+from typing import Callable
 from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -881,6 +882,106 @@ def _parse_non_negative_int(raw: str | None) -> int | None:
     return int(raw)
 
 
+def _format_preset_telemetry_time(avg_ms: float | None) -> str:
+    if avg_ms is None:
+        return "-"
+    if avg_ms >= 1000:
+        return f"{avg_ms / 1000:.1f}s"
+    return f"{avg_ms:.0f}ms"
+
+
+def _render_workflow_preset_telemetry_panel(
+    request: Request,
+    *,
+    queue_context: str,
+    segments: list[dict[str, object]],
+    selected_preset_id: int | None,
+    preset_filter_path_builder: Callable[[int | None], str],
+) -> str:
+    preset_ids: list[int] = []
+    for item in segments:
+        preset_value = item.get("preset_id")
+        if isinstance(preset_value, int):
+            preset_ids.append(preset_value)
+    preset_ids = sorted(set(preset_ids))
+
+    chips = [
+        (
+            "all",
+            selected_preset_id is None,
+            _path_with_auth(request, preset_filter_path_builder(None)),
+        )
+    ]
+    for preset_id in preset_ids:
+        chips.append(
+            (
+                f"preset #{preset_id}",
+                selected_preset_id == preset_id,
+                _path_with_auth(request, preset_filter_path_builder(preset_id)),
+            )
+        )
+
+    chip_html = "".join(
+        f"<a class='{'chip chip-active' if is_active else 'chip'}' href='{escape(path)}'>{escape(label)}</a>"
+        for label, is_active, path in chips
+    )
+
+    filtered = [
+        item
+        for item in segments
+        if selected_preset_id is None or item.get("preset_id") == selected_preset_id
+    ]
+
+    if not filtered:
+        rows_html = "<tr><td colspan='5'><span class='empty-state'>No telemetry events for this filter yet.</span></td></tr>"
+    else:
+        rows_html = ""
+        for item in filtered[:10]:
+            preset_id = item.get("preset_id")
+            preset_label = f"#{preset_id}" if isinstance(preset_id, int) else "none"
+            events_total_raw = item.get("events_total")
+            if isinstance(events_total_raw, int):
+                events_total = events_total_raw
+            elif isinstance(events_total_raw, float):
+                events_total = int(events_total_raw)
+            else:
+                events_total = 0
+            avg_time = item.get("avg_time_to_action_ms")
+            avg_time_value = float(avg_time) if isinstance(avg_time, (int, float)) else None
+            reopen_rate_raw = item.get("reopen_rate")
+            reopen_rate = float(reopen_rate_raw) if isinstance(reopen_rate_raw, (int, float)) else 0.0
+            avg_churn_raw = item.get("avg_filter_churn_count")
+            avg_churn = float(avg_churn_raw) if isinstance(avg_churn_raw, (int, float)) else 0.0
+
+            rows_html += (
+                "<tr>"
+                f"<td>{escape(preset_label)}</td>"
+                f"<td>{events_total}</td>"
+                f"<td>{escape(_format_preset_telemetry_time(avg_time_value))}</td>"
+                f"<td>{reopen_rate * 100:.1f}%</td>"
+                f"<td>{avg_churn:.2f}</td>"
+                "</tr>"
+            )
+
+    queue_label = {
+        "moderation": "Moderation queue",
+        "risk": "Risk queue",
+        "feedback": "Feedback queue",
+        "appeals": "Appeals queue",
+    }.get(queue_context, queue_context)
+
+    return (
+        "<div class='section-card'>"
+        "<p class='section-eyebrow'>Preset telemetry insights (7d)</p>"
+        f"<p><b>{escape(queue_label)}</b></p>"
+        "<p class='section-note'>Telemetry is advisory only and does not automate moderation decisions.</p>"
+        f"<div class='toolbar'><span>Preset filter:</span>{chip_html}</div>"
+        "<div class='table-wrap'><table><thead><tr><th>Preset</th><th>Events</th><th>Avg time-to-action</th><th>Reopen rate</th><th>Avg filter churn</th></tr></thead>"
+        f"<tbody>{rows_html}</tbody></table></div>"
+        "</div>"
+    )
+
+
 def _normalize_requested_density(raw_density: str | None) -> str | None:
     if raw_density is None:
         return None
@@ -1662,6 +1763,7 @@ async def complaints(
     status: str = "OPEN",
     page: int = 0,
     density: str | None = None,
+    telemetry_preset_id: int | None = None,
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -1687,16 +1789,29 @@ async def complaints(
             table_id="complaints-table",
             quick_filter_placeholder="id / auction / reporter / reason",
         )
+        telemetry_segments = await load_workflow_preset_telemetry_segments(
+            session,
+            queue_context="moderation",
+            lookback_hours=24 * 7,
+        )
 
     has_next = len(rows) > page_size
     rows = rows[:page_size]
 
-    def _complaints_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
+    def _complaints_path(
+        *,
+        page_value: int,
+        status_value: str,
+        density_value: str | None = None,
+        telemetry_preset_id_value: int | None = telemetry_preset_id,
+    ) -> str:
         query = {
             "status": status_value,
             "page": str(page_value),
             "density": density_value or dense_config.density,
         }
+        if telemetry_preset_id_value is not None and telemetry_preset_id_value > 0:
+            query["telemetry_preset_id"] = str(telemetry_preset_id_value)
         return f"/complaints?{urlencode(query)}"
 
     table_rows = ""
@@ -1743,12 +1858,24 @@ async def complaints(
             _complaints_path(page_value=0, status_value=status, density_value=value),
         ),
     )
+    telemetry_panel = _render_workflow_preset_telemetry_panel(
+        request,
+        queue_context="moderation",
+        segments=telemetry_segments,
+        selected_preset_id=telemetry_preset_id,
+        preset_filter_path_builder=lambda preset_id: _complaints_path(
+            page_value=page,
+            status_value=status,
+            telemetry_preset_id_value=preset_id,
+        ),
+    )
 
     body = (
         f"{_render_app_header('Жалобы', auth, f'Статус: {status}') }"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
+        f"{telemetry_panel}"
         f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
@@ -1769,6 +1896,7 @@ async def signals(
     status: str = "OPEN",
     page: int = 0,
     density: str | None = None,
+    telemetry_preset_id: int | None = None,
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -1800,6 +1928,11 @@ async def signals(
             table_id="signals-table",
             quick_filter_placeholder="id / auction / user / status",
         )
+        telemetry_segments = await load_workflow_preset_telemetry_segments(
+            session,
+            queue_context="risk",
+            lookback_hours=24 * 7,
+        )
 
     default_risk_snapshot = evaluate_user_risk_snapshot(
         complaints_against=0,
@@ -1808,12 +1941,20 @@ async def signals(
         removed_bids=0,
     )
 
-    def _signals_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
+    def _signals_path(
+        *,
+        page_value: int,
+        status_value: str,
+        density_value: str | None = None,
+        telemetry_preset_id_value: int | None = telemetry_preset_id,
+    ) -> str:
         query = {
             "status": status_value,
             "page": str(page_value),
             "density": density_value or dense_config.density,
         }
+        if telemetry_preset_id_value is not None and telemetry_preset_id_value > 0:
+            query["telemetry_preset_id"] = str(telemetry_preset_id_value)
         return f"/signals?{urlencode(query)}"
 
     table_rows = ""
@@ -1870,12 +2011,24 @@ async def signals(
             _signals_path(page_value=0, status_value=status, density_value=value),
         ),
     )
+    telemetry_panel = _render_workflow_preset_telemetry_panel(
+        request,
+        queue_context="risk",
+        segments=telemetry_segments,
+        selected_preset_id=telemetry_preset_id,
+        preset_filter_path_builder=lambda preset_id: _signals_path(
+            page_value=page,
+            status_value=status,
+            telemetry_preset_id_value=preset_id,
+        ),
+    )
 
     body = (
         f"{_render_app_header('Фрод-сигналы', auth, f'Статус: {status}') }"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
+        f"{telemetry_panel}"
         f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
@@ -1902,6 +2055,7 @@ async def trade_feedback(
     target_tg: str = "",
     moderator_tg: str = "",
     density: str | None = None,
+    telemetry_preset_id: int | None = None,
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -1995,6 +2149,11 @@ async def trade_feedback(
             table_id="trade-feedback-table",
             quick_filter_placeholder="id / auction / users / comment",
         )
+        telemetry_segments = await load_workflow_preset_telemetry_segments(
+            session,
+            queue_context="feedback",
+            lookback_hours=24 * 7,
+        )
 
     has_next = len(rows) > page_size
     rows = rows[:page_size]
@@ -2005,6 +2164,8 @@ async def trade_feedback(
         "q": query_value,
         "density": dense_config.density,
     }
+    if telemetry_preset_id is not None and telemetry_preset_id > 0:
+        base_query["telemetry_preset_id"] = str(telemetry_preset_id)
     if min_rating_value is not None:
         base_query["min_rating"] = str(min_rating_value)
     if author_tg_value is not None:
@@ -2129,6 +2290,16 @@ async def trade_feedback(
             _trade_feedback_path(page_value=0, density=value),
         ),
     )
+    telemetry_panel = _render_workflow_preset_telemetry_panel(
+        request,
+        queue_context="feedback",
+        segments=telemetry_segments,
+        selected_preset_id=telemetry_preset_id,
+        preset_filter_path_builder=lambda preset_id: _trade_feedback_path(
+            page_value=page,
+            telemetry_preset_id="" if preset_id is None else str(preset_id),
+        ),
+    )
 
     body = (
         f"{_render_app_header('Отзывы по сделкам', auth, 'Модерация репутации и спорных отзывов')}"
@@ -2136,6 +2307,7 @@ async def trade_feedback(
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
         f"{dense_toolbar}"
+        f"{telemetry_panel}"
         f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/trade-feedback'))}'>"
@@ -2146,6 +2318,7 @@ async def trade_feedback(
         f"<input type='hidden' name='author_tg' value='{escape(author_filter_text if author_filter_text != 'all' else '')}'>"
         f"<input type='hidden' name='target_tg' value='{escape(target_filter_text if target_filter_text != 'all' else '')}'>"
         f"<input type='hidden' name='moderator_tg' value='{escape(moderator_filter_text if moderator_filter_text != 'all' else '')}'>"
+        f"<input type='hidden' name='telemetry_preset_id' value='{escape(str(telemetry_preset_id) if telemetry_preset_id else '')}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='id / auction_id / username / tg id' style='width:320px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
@@ -3483,6 +3656,7 @@ async def appeals(
     page: int = 0,
     q: str = "",
     density: str | None = None,
+    telemetry_preset_id: int | None = None,
 ) -> Response:
     response, auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
@@ -3571,6 +3745,11 @@ async def appeals(
             table_id="appeals-table",
             quick_filter_placeholder="id / ref / source / appellant / note",
         )
+        telemetry_segments = await load_workflow_preset_telemetry_segments(
+            session,
+            queue_context="appeals",
+            lookback_hours=24 * 7,
+        )
         rows = (await session.execute(stmt)).all()
         has_next = len(rows) > page_size
         rows = rows[:page_size]
@@ -3588,6 +3767,8 @@ async def appeals(
         "q": query_value,
         "density": dense_config.density,
     }
+    if telemetry_preset_id is not None and telemetry_preset_id > 0:
+        base_query["telemetry_preset_id"] = str(telemetry_preset_id)
 
     def _appeals_path(
         *,
@@ -3598,6 +3779,7 @@ async def appeals(
         escalated_filter: str | None = None,
         query_filter: str | None = None,
         density_value: str | None = None,
+        telemetry_preset_id_value: int | None = telemetry_preset_id,
     ) -> str:
         query = dict(base_query)
         query.update(
@@ -3611,6 +3793,10 @@ async def appeals(
                 "density": density_value or dense_config.density,
             }
         )
+        if telemetry_preset_id_value is None:
+            query.pop("telemetry_preset_id", None)
+        elif telemetry_preset_id_value > 0:
+            query["telemetry_preset_id"] = str(telemetry_preset_id_value)
         return f"/appeals?{urlencode(query)}"
 
     return_to = _appeals_path(page_value=page)
@@ -3731,6 +3917,16 @@ async def appeals(
             _appeals_path(page_value=0, density_value=value),
         ),
     )
+    telemetry_panel = _render_workflow_preset_telemetry_panel(
+        request,
+        queue_context="appeals",
+        segments=telemetry_segments,
+        selected_preset_id=telemetry_preset_id,
+        preset_filter_path_builder=lambda preset_id: _appeals_path(
+            page_value=page,
+            telemetry_preset_id_value=preset_id,
+        ),
+    )
 
     body = (
         f"{_render_app_header('Апелляции', auth, 'SLA, эскалации и решения по спорным кейсам')}"
@@ -3738,6 +3934,7 @@ async def appeals(
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>К нарушителям</a></p>"
         f"{dense_toolbar}"
+        f"{telemetry_panel}"
         f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/appeals'))}'>"
@@ -3746,6 +3943,7 @@ async def appeals(
         f"<input type='hidden' name='overdue' value='{escape(overdue_value)}'>"
         f"<input type='hidden' name='escalated' value='{escape(escalated_value)}'>"
         f"<input type='hidden' name='density' value='{escape(dense_config.density)}'>"
+        f"<input type='hidden' name='telemetry_preset_id' value='{escape(str(telemetry_preset_id) if telemetry_preset_id else '')}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='референс / tg id / username' style='width:300px'>"
         "<button type='submit'>Поиск</button>"
         "</form>"
