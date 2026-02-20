@@ -1,20 +1,20 @@
 # Milestones
 
-## v1.1 Adaptive Triage Intelligence (Planned: 2026-02-20)
+## v1.1 Adaptive Triage Intelligence (Shipped: 2026-02-20)
 
-**Phases planned:** 3 phases
-**Timeline:** 2026-02-20 -> TBD
-**Git range:** `TBD`
-**Code delta:** `TBD`
+**Phases completed:** 3 phases, 7 plans
+**Timeline:** 2026-02-20 -> 2026-02-20
+**Git range:** `28553d5..a1a05c3`
 
-**Milestone scope:**
-- Deliver adaptive detail depth rules that preserve predictable triage navigation.
-- Add preset telemetry capture and segmented quality reporting for operator workflows.
-- Keep moderation safety posture intact with RBAC/CSRF guardrails and focused regression coverage.
+**Key accomplishments:**
+- Delivered adaptive detail depth rules with deterministic reason codes, fallback behavior, and per-row operator override controls.
+- Added workflow preset telemetry capture and segmented aggregation for time-to-action, reopen rate, and filter churn.
+- Hardened workflow telemetry semantics to exclude unauthorized, invalid, and failed business outcomes from sampling.
+- Added DB-backed integration coverage for telemetry ingestion and scoped aggregation outputs.
+- Kept RBAC/CSRF guardrails intact across adaptive and telemetry endpoints with regression assertions.
 
-**Entry criteria:**
-- `.planning/REQUIREMENTS.md` reflects approved v1.1 requirement IDs and traceability plan.
-- Sprint 52 manifest is synced to GitHub milestone/issues.
+**Known gaps:**
+- No blocking gaps at milestone close (10/10 requirements verified as met).
 
 ---
 
