@@ -13,7 +13,13 @@ from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, Moderati
 from app.db.models import Appeal, Auction, Complaint, FraudSignal, ModerationLog, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import action_reject_appeal, action_resolve_appeal, action_review_appeal, appeals
+from app.web.main import (
+    action_reject_appeal,
+    action_resolve_appeal,
+    action_review_appeal,
+    action_triage_detail_section,
+    appeals,
+)
 
 
 def _make_request(path: str, *, method: str = "GET") -> Request:
@@ -600,6 +606,120 @@ async def test_action_resolve_appeal_updates_status(monkeypatch, integration_eng
     assert len(audit_logs) == 1
     assert audit_logs[0].payload is not None
     assert audit_logs[0].payload.get("appeal_id") == appeal_id
+    artifact = audit_logs[0].payload.get("rationale_artifact")
+    assert isinstance(artifact, dict)
+    assert artifact.get("summary") == "checked"
+    assert artifact.get("actor_user_id") == actor_user_id
+    assert artifact.get("immutable") is True
+    assert isinstance(artifact.get("recorded_at"), str)
+
+
+@pytest.mark.asyncio
+async def test_triage_detail_section_renders_appeal_evidence_and_audit(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            seller = User(tg_user_id=99310, username="timeline_seller")
+            appellant = User(tg_user_id=99311, username="timeline_appellant")
+            actor = User(tg_user_id=99312, username="timeline_actor")
+            session.add_all([seller, appellant, actor])
+            await session.flush()
+
+            auction = Auction(
+                seller_user_id=seller.id,
+                description="timeline lot",
+                photo_file_id="photo",
+                start_price=25,
+                buyout_price=None,
+                min_step=1,
+                duration_hours=24,
+                status=AuctionStatus.ACTIVE,
+            )
+            session.add(auction)
+            await session.flush()
+
+            signal = FraudSignal(
+                auction_id=auction.id,
+                user_id=appellant.id,
+                bid_id=None,
+                score=73,
+                reasons={"rules": [{"code": "TIMELINE", "detail": "risk", "score": 73}]},
+                status="OPEN",
+            )
+            session.add(signal)
+            await session.flush()
+
+            appeal = Appeal(
+                appeal_ref=f"risk_{signal.id}",
+                source_type=AppealSourceType.RISK,
+                source_id=signal.id,
+                appellant_user_id=appellant.id,
+                status=AppealStatus.OPEN,
+            )
+            session.add(appeal)
+            await session.flush()
+            appeal_id = appeal.id
+            actor_user_id = actor.id
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+
+    async def _resolve_actor(_auth):
+        return actor_user_id
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+
+    request = _make_request("/actions/appeal/resolve", method="POST")
+    resolve_response = await action_resolve_appeal(
+        request,
+        appeal_id=appeal_id,
+        reason="timeline-check",
+        return_to="/appeals?status=open&source=all",
+        csrf_token="ok",
+        confirmed="1",
+    )
+    assert resolve_response.status_code == 303
+
+    payload_primary = await action_triage_detail_section(
+        _make_request("/actions/triage/detail-section"),
+        queue_key="appeals",
+        row_id=appeal_id,
+        section="primary",
+        risk_level="high",
+        priority_level="high",
+    )
+    assert payload_primary["ok"] is True
+    assert "Evidence timeline:" in str(payload_primary["html"])
+    assert "Appeal created" in str(payload_primary["html"])
+
+    payload_secondary = await action_triage_detail_section(
+        _make_request("/actions/triage/detail-section"),
+        queue_key="appeals",
+        row_id=appeal_id,
+        section="secondary",
+        risk_level="high",
+        priority_level="high",
+        depth_override="inline_full",
+    )
+    assert payload_secondary["ok"] is True
+    assert "Rationale artifacts:" in str(payload_secondary["html"])
+    assert "web.appeals.resolve" in str(payload_secondary["html"])
+
+    payload_audit = await action_triage_detail_section(
+        _make_request("/actions/triage/detail-section"),
+        queue_key="appeals",
+        row_id=appeal_id,
+        section="audit",
+        risk_level="high",
+        priority_level="high",
+        depth_override="inline_full",
+    )
+    assert payload_audit["ok"] is True
+    assert "Audit trail (immutable)" in str(payload_audit["html"])
+    assert "record_policy=append_only" in str(payload_audit["html"])
 
 
 @pytest.mark.asyncio
