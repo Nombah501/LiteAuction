@@ -1,0 +1,53 @@
+sprint = "Sprint 53"
+milestone = "Sprint 53"
+milestone_description = "v1.1 follow-up: telemetry failure semantics and DB-backed verification closure"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S53-001"
+title = "Exclude failed business outcomes from preset telemetry sampling"
+description = "Tighten telemetry capture so only successful workflow actions are sampled; keep unauthorized, invalid, and failed business outcomes excluded from quality metrics."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:hardening", "area:backend", "area:moderation", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Telemetry recorder writes events only when action result is successful",
+  "Unauthorized, invalid, and failed business outcomes are excluded from sampling",
+  "Regression tests cover success versus failure sampling behavior",
+]
+
+[[items]]
+id = "S53-002"
+title = "Add DB-backed telemetry ingestion and aggregation integration coverage"
+description = "Add integration coverage that persists telemetry records and validates queue/preset segmented aggregation against the test database without monkeypatch-only shortcuts."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:test", "area:tests", "area:db", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Integration test persists telemetry events to test DB through real write path",
+  "Aggregation endpoint returns expected queue and preset segments from persisted data",
+  "Coverage avoids monkeypatching core telemetry persistence and aggregation services",
+]
+
+[[items]]
+id = "S53-003"
+title = "Re-verify v1.1 requirements and close milestone"
+description = "Re-run goal-backward verification after follow-up delivery, update planning artifacts, then complete v1.1 archival/tag closeout if all requirements are met."
+priority = "P2"
+estimate = "S"
+tech_debt = false
+labels = ["type:docs", "area:process", "priority:p2"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Verification report shows TELE-02 and TEST-12 as met",
+  "Requirements and state docs reflect full v1.1 completion",
+  "Milestone closeout artifacts and tag are created per workflow when ready",
+]

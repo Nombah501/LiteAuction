@@ -1,17 +1,13 @@
 # Planning Status
 
-Last sync: 2026-02-20 12:18 UTC
-Active sprint: Sprint 52
+Last sync: 2026-02-20 12:23 UTC
+Active sprint: Sprint 53
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S52-001 | Define adaptive detail depth policy contract | [#220](https://github.com/Nombah501/LiteAuction/issues/220) (closed) | - |
-| S52-002 | Implement adaptive detail depth in moderation queue UI | [#221](https://github.com/Nombah501/LiteAuction/issues/221) (closed) | - |
-| S52-003 | Add preset telemetry event capture and aggregation | [#222](https://github.com/Nombah501/LiteAuction/issues/222) (closed) | - |
-| S52-004 | Expose preset telemetry insights in admin workflow surfaces | [#223](https://github.com/Nombah501/LiteAuction/issues/223) (closed) | - |
-| S52-005 | Harden v1.1 safety and regression coverage | [#224](https://github.com/Nombah501/LiteAuction/issues/224) (closed) | - |
-| S52-006 | Sync planning status after Sprint 52 completion | [#229](https://github.com/Nombah501/LiteAuction/issues/229) (closed) | - |
-| S52-007 | Verify v1.1 requirements coverage and milestone readiness | [#231](https://github.com/Nombah501/LiteAuction/issues/231) (open) | - |
+| S53-001 | Exclude failed business outcomes from preset telemetry sampling | [#233](https://github.com/Nombah501/LiteAuction/issues/233) (open) | - |
+| S53-002 | Add DB-backed telemetry ingestion and aggregation integration coverage | [#234](https://github.com/Nombah501/LiteAuction/issues/234) (open) | - |
+| S53-003 | Re-verify v1.1 requirements and close milestone | [#235](https://github.com/Nombah501/LiteAuction/issues/235) (open) | - |
 
 ## Recovery Checklist
 

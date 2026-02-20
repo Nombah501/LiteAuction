@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Operator UX** - shipped 2026-02-20 (Phases 1-3, 10 plans) -> `.planning/milestones/v1.0-ROADMAP.md`
-- 🚧 **v1.1 Adaptive Triage Intelligence** - verification in progress (8/10 requirements met, 2 follow-up items)
+- 🚧 **v1.1 Adaptive Triage Intelligence** - follow-up execution (Sprint 53, 8/10 met, issues #233-#235 open)
 
 ## Next
 
