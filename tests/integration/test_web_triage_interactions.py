@@ -231,11 +231,14 @@ async def test_triage_markup_renders_for_primary_queues(monkeypatch) -> None:
     assert "data-triage-row='1'" in complaints_body
     assert "data-triage-detail='11'" in complaints_body
     assert "data-bulk-controls='complaints-table'" in complaints_body
+    assert "data-risk-level='low'" in complaints_body
+    assert "data-priority-level='high'" in complaints_body
     assert "data-shortcut='row-next'" in complaints_body
 
     assert "data-triage-row='1'" in signals_body
     assert "data-triage-detail='12'" in signals_body
     assert "data-bulk-controls='signals-table'" in signals_body
+    assert "data-priority-level='normal'" in signals_body
 
 
 @pytest.mark.asyncio
@@ -257,8 +260,10 @@ async def test_triage_markup_renders_for_trade_feedback_and_appeals(monkeypatch)
 
     assert "data-triage-row='1'" in feedback_body
     assert "data-bulk-controls='trade-feedback-table'" in feedback_body
+    assert "data-priority-level='high'" in feedback_body
     assert "data-triage-row='1'" in appeals_body
     assert "data-bulk-controls='appeals-table'" in appeals_body
+    assert "data-priority-level='high'" in appeals_body
 
 
 @pytest.mark.asyncio
@@ -308,7 +313,9 @@ async def test_triage_detail_section_contract(monkeypatch) -> None:
         section="primary",
     )
     assert payload["ok"] is True
-    assert "complaints #20" in payload["html"]
+    assert "complaints #20" in str(payload["html"])
+    assert str(payload["depth"]) == "inline_summary"
+    assert str(payload["reason_code"]) == "default_collapsed"
 
     with pytest.raises(HTTPException):
         await action_triage_detail_section(
@@ -317,6 +324,26 @@ async def test_triage_detail_section_contract(monkeypatch) -> None:
             row_id=20,
             section="primary",
         )
+
+
+@pytest.mark.asyncio
+async def test_triage_detail_section_honors_operator_override(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+
+    payload = await action_triage_detail_section(
+        _make_request("/actions/triage/detail-section"),
+        queue_key="signals",
+        row_id=55,
+        section="primary",
+        risk_level="high",
+        priority_level="urgent",
+        depth_override="inline_summary",
+    )
+
+    assert payload["ok"] is True
+    assert str(payload["depth"]) == "inline_summary"
+    assert str(payload["reason_code"]) == "operator_override"
+    assert payload["fallback_applied"] is False
 
 
 @pytest.mark.asyncio
@@ -385,8 +412,12 @@ async def test_bulk_endpoint_returns_mixed_results(monkeypatch) -> None:
     )
 
     assert payload["ok"] is True
-    assert payload["results"][0]["ok"] is True
-    assert payload["results"][1]["ok"] is False
+    results = payload.get("results")
+    assert isinstance(results, list)
+    assert isinstance(results[0], dict)
+    assert isinstance(results[1], dict)
+    assert results[0].get("ok") is True
+    assert results[1].get("ok") is False
 
 
 @pytest.mark.asyncio

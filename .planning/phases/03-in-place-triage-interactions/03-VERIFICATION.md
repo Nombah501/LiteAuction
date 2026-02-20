@@ -68,13 +68,11 @@ human_verification:
 
 | Requirement | Source Plan | Description | Status | Evidence |
 | --- | --- | --- | --- | --- |
-| `DISC-01` | `03-01-PLAN.md` | Not resolvable (`.planning/REQUIREMENTS.md` missing) | ? NEEDS HUMAN | Inline disclosure and two-level row/detail structure are implemented (`app/web/main.py:1626`, `app/web/main.py:1069`). |
-| `DISC-02` | `03-02-PLAN.md`, `03-04-PLAN.md` | Not resolvable (`.planning/REQUIREMENTS.md` missing) | ? NEEDS HUMAN | Progressive hydration and section retry flow are wired (`app/web/dense_list.py:348`, `app/web/dense_list.py:418`, `app/web/dense_list.py:544`). |
-| `DISC-03` | `03-01-PLAN.md`, `03-04-PLAN.md` | Not resolvable (`.planning/REQUIREMENTS.md` missing) | ? NEEDS HUMAN | Close-path focus/scroll restoration is implemented (`app/web/dense_list.py:404`, `app/web/dense_list.py:405`). |
-| `KEYB-01` | `03-02-PLAN.md`, `03-04-PLAN.md` | Not resolvable (`.planning/REQUIREMENTS.md` missing) | ? NEEDS HUMAN | Keyboard-first triage handlers and suppression logic are wired (`app/web/dense_list.py:584`, `app/web/dense_list.py:590`). |
-| `BULK-01` | `03-03-PLAN.md`, `03-04-PLAN.md` | Not resolvable (`.planning/REQUIREMENTS.md` missing) | ? NEEDS HUMAN | Bulk confirmation + row-level result handling + safety checks are implemented (`app/web/main.py:3895`, `app/web/dense_list.py:517`, `tests/integration/test_web_triage_interactions.py:423`). |
-
-Orphaned requirement scan could not be completed because `.planning/REQUIREMENTS.md` does not exist.
+| `DISC-01` | `03-01-PLAN.md` | Operator can open row-level details without losing list position or active filters | ✓ VERIFIED | Inline disclosure and two-level row/detail structure are implemented (`app/web/main.py:1626`, `app/web/main.py:1069`). |
+| `DISC-02` | `03-02-PLAN.md`, `03-04-PLAN.md` | Detailed sections load progressively while list interactions remain responsive | ✓ VERIFIED | Progressive hydration and section retry flow are wired (`app/web/dense_list.py:348`, `app/web/dense_list.py:418`, `app/web/dense_list.py:544`). |
+| `DISC-03` | `03-01-PLAN.md`, `03-04-PLAN.md` | Disclosure depth is limited to two levels with context-safe close behavior | ✓ VERIFIED | Close-path focus/scroll restoration is implemented (`app/web/dense_list.py:404`, `app/web/dense_list.py:405`). |
+| `KEYB-01` | `03-02-PLAN.md`, `03-04-PLAN.md` | Keyboard shortcuts support search focus, row navigation, and detail toggling | ✓ VERIFIED | Keyboard-first triage handlers and suppression logic are wired (`app/web/dense_list.py:584`, `app/web/dense_list.py:590`). |
+| `BULK-01` | `03-03-PLAN.md`, `03-04-PLAN.md` | Operators can execute safe multi-row bulk actions with destructive confirmation | ✓ VERIFIED | Bulk confirmation + row-level result handling + safety checks are implemented (`app/web/main.py:3895`, `app/web/dense_list.py:517`, `tests/integration/test_web_triage_interactions.py:423`). |
 
 ### Anti-Patterns Found
 

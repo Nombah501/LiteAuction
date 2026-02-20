@@ -56,6 +56,7 @@ from app.services.admin_queue_presets_service import (
     set_admin_default,
     update_preset,
 )
+from app.services.adaptive_triage_policy_service import decide_adaptive_detail_depth
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import list_complaints
 from app.services.fraud_service import list_fraud_signals
@@ -1063,6 +1064,12 @@ def _triage_controls_cell(row_id: int) -> str:
     )
 
 
+def _triage_row_context_attrs(*, risk_level: str, priority_level: str) -> str:
+    risk_value = risk_level.strip().lower() or "low"
+    priority_value = priority_level.strip().lower() or "normal"
+    return f" data-risk-level='{escape(risk_value)}' data-priority-level='{escape(priority_value)}'"
+
+
 def _triage_detail_row(row_id: int, *, col_count: int, title: str, subtitle: str = "") -> str:
     subtitle_html = f"<p class='section-note'>{escape(subtitle)}</p>" if subtitle else ""
     return (
@@ -1621,9 +1628,11 @@ async def complaints(
 
     table_rows = ""
     for item in rows:
+        complaint_priority = "high" if str(item.status).upper() == "OPEN" else "normal"
+        row_context_attrs = _triage_row_context_attrs(risk_level="low", priority_level=complaint_priority)
         table_rows += (
             f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.reporter_user_id} {item.status} {item.reason}')}' "
-            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'>"
+            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'{row_context_attrs}>"
             f"<td>{_triage_controls_cell(item.id)}</td>"
             f"<td data-col='id'>{item.id}</td>"
             f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
@@ -1737,9 +1746,19 @@ async def signals(
     table_rows = ""
     for item in rows:
         user_risk = risk_by_user_id.get(item.user_id, default_risk_snapshot)
+        signal_risk_level = str(user_risk.level).strip().lower() or "low"
+        signal_priority = "normal"
+        if int(item.score) >= 80:
+            signal_priority = "urgent"
+        elif int(item.score) >= 50:
+            signal_priority = "high"
+        row_context_attrs = _triage_row_context_attrs(
+            risk_level=signal_risk_level,
+            priority_level=signal_priority,
+        )
         table_rows += (
             f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.user_id} {item.status} {item.score}')}' "
-            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'>"
+            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'{row_context_attrs}>"
             f"<td>{_triage_controls_cell(item.id)}</td>"
             f"<td data-col='id'>{item.id}</td>"
             f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
@@ -1948,6 +1967,24 @@ async def trade_feedback(
 
         moderation_note = escape((item.moderation_note or "-")[:160])
 
+        feedback_risk = "low"
+        if int(item.rating) <= 1:
+            feedback_risk = "critical"
+        elif int(item.rating) <= 2:
+            feedback_risk = "high"
+        elif int(item.rating) == 3:
+            feedback_risk = "medium"
+
+        feedback_priority = "normal"
+        if item.moderated_at is None and int(item.rating) <= 2:
+            feedback_priority = "urgent"
+        elif item.moderated_at is None:
+            feedback_priority = "high"
+        row_context_attrs = _triage_row_context_attrs(
+            risk_level=feedback_risk,
+            priority_level=feedback_priority,
+        )
+
         status_label = "Виден" if item.status == "VISIBLE" else "Скрыт"
         action_form = "-"
         if item.status == "VISIBLE":
@@ -1971,7 +2008,7 @@ async def trade_feedback(
 
         table_rows += (
             f"<tr data-row='{escape(f"{item.id} {auction.id} {author_label} {target_label} {item.status} {item.rating} {item.comment or ''} {item.moderation_note or ''}")}' "
-            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'>"
+            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'{row_context_attrs}>"
             f"<td>{_triage_controls_cell(item.id)}</td>"
             f"<td data-col='id'>{item.id}</td>"
             f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>{escape(str(auction.id))}</a></td>"
@@ -3533,6 +3570,17 @@ async def appeals(
             status_label += " ⚡"
         sla_state_label = _appeal_sla_state_label(appeal, now=now)
         escalation_marker = _appeal_escalation_marker(appeal)
+        appeal_priority = "normal"
+        if appeal.priority_boosted_at is not None:
+            appeal_priority = "urgent"
+        elif int(appeal.escalation_level or 0) > 0 or is_overdue:
+            appeal_priority = "high"
+        elif appeal_status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
+            appeal_priority = "high"
+        row_context_attrs = _triage_row_context_attrs(
+            risk_level=str(appellant_risk.level),
+            priority_level=appeal_priority,
+        )
         if appeal_status in {AppealStatus.OPEN, AppealStatus.IN_REVIEW}:
             action_forms: list[str] = []
             if appeal_status == AppealStatus.OPEN:
@@ -3565,7 +3613,7 @@ async def appeals(
 
         table_rows += (
             f"<tr data-row='{escape(f"{appeal.id} {appeal.appeal_ref} {source_label} {appellant_label} {appeal.status} {appeal.resolution_note or ''}")}' "
-            f"data-triage-row='1' data-row-id='{appeal.id}' tabindex='0'>"
+            f"data-triage-row='1' data-row-id='{appeal.id}' tabindex='0'{row_context_attrs}>"
             f"<td>{_triage_controls_cell(appeal.id)}</td>"
             f"<td data-col='id'>{appeal.id}</td>"
             f"<td data-col='reference'>{escape(appeal.appeal_ref)}</td>"
@@ -3828,6 +3876,9 @@ async def action_triage_detail_section(
     queue_key: str,
     row_id: int,
     section: str,
+    risk_level: str | None = None,
+    priority_level: str | None = None,
+    depth_override: str | None = None,
 ) -> dict[str, object]:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
@@ -3843,17 +3894,42 @@ async def action_triage_detail_section(
     if queue_value in {"trade_feedback", "appeals"} and not auth.can(SCOPE_USER_BAN):
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    decision = decide_adaptive_detail_depth(
+        queue_key=queue_value,
+        risk_level=risk_level,
+        priority_level=priority_level,
+        operator_override=depth_override,
+    )
+
+    metadata: dict[str, object] = {
+        "depth": decision.depth.value,
+        "reason_code": decision.reason_code.value,
+        "fallback_applied": decision.fallback_applied,
+        "fallback_notes": list(decision.fallback_notes),
+    }
+
+    if decision.depth.value == "inline_summary" and section_value in {"secondary", "audit"}:
+        collapsed_html = (
+            "<div data-detail-state='summary-only'>"
+            "Summary mode active. Use row override 'Full' to load this section."
+            "</div>"
+        )
+        return {"ok": True, "html": collapsed_html, **metadata}
+
     if section_value == "audit" and row_id % 5 == 0:
-        return {"ok": False, "message": "Section temporarily unavailable"}
+        return {"ok": False, "message": "Section temporarily unavailable", **metadata}
 
     content = f"<div data-detail-state='loaded'><b>{escape(queue_value)} #{row_id}</b> | section: {escape(section_value)}</div>"
     if section_value == "primary":
-        content += "<p>Priority context loaded first.</p>"
+        content += (
+            "<p>Priority context loaded first.</p>"
+            f"<p class='section-note'>adaptive: {escape(decision.depth.value)} via {escape(decision.reason_code.value)}</p>"
+        )
     elif section_value == "secondary":
         content += "<p>Related details loaded progressively.</p>"
     else:
         content += "<p>Audit trace and recent moderation notes.</p>"
-    return {"ok": True, "html": content}
+    return {"ok": True, "html": content, **metadata}
 
 
 @app.post("/actions/triage/bulk")

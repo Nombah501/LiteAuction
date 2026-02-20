@@ -268,6 +268,8 @@ def render_dense_list_script(config: DenseListConfig) -> str:
   const rowById = new Map(rows.map((row) => [row.dataset.rowId || '', row]));
   const expandedRows = new Set();
   const closeContextByRow = new Map();
+  const overrideByRow = new Map();
+  const adaptiveStateByRow = new Map();
   let focusedRowId = '';
 
   const escapeHtml = (value) => String(value || '')
@@ -345,11 +347,25 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     if (!detailRow) return;
     const panel = detailRow.querySelector('[data-detail-panel]');
     if (!panel) return;
-    panel.innerHTML = `<div data-detail-state='loading skeleton'>loading skeleton</div><div data-detail-section='primary'></div><div data-detail-section='secondary'></div><div data-detail-section='audit'></div>`;
+    const override = overrideByRow.get(rowId) || 'auto';
+    panel.innerHTML = `<div data-detail-state='loading skeleton'>loading skeleton</div><div class='toolbar' data-adaptive-controls='${{rowId}}'><span data-adaptive-reason='${{rowId}}'>Adaptive depth: loading...</span><button type='button' data-adaptive-override='auto' data-row-id='${{rowId}}' aria-pressed='${{override === 'auto' ? 'true' : 'false'}}'>Auto</button><button type='button' data-adaptive-override='inline_summary' data-row-id='${{rowId}}' aria-pressed='${{override === 'inline_summary' ? 'true' : 'false'}}'>Summary</button><button type='button' data-adaptive-override='inline_full' data-row-id='${{rowId}}' aria-pressed='${{override === 'inline_full' ? 'true' : 'false'}}'>Full</button></div><div data-detail-section='primary'></div><div data-detail-section='secondary'></div><div data-detail-section='audit'></div>`;
   }};
 
+  const rowContext = (rowId) => {{
+    const row = rowById.get(rowId);
+    return {{
+      risk: row && row.dataset.riskLevel ? row.dataset.riskLevel : '',
+      priority: row && row.dataset.priorityLevel ? row.dataset.priorityLevel : '',
+    }};
+  }};
+
+  const activeOverride = (rowId) => overrideByRow.get(rowId) || 'auto';
+
   const fetchSection = async (rowId, section) => {{
-    const query = new URLSearchParams({{ queue_key: (bulkHost?.dataset.queueKey || ''), row_id: rowId, section: section }});
+    const context = rowContext(rowId);
+    const query = new URLSearchParams({{ queue_key: (bulkHost?.dataset.queueKey || ''), row_id: rowId, section: section, risk_level: context.risk, priority_level: context.priority }});
+    const override = activeOverride(rowId);
+    if (override !== 'auto') query.set('depth_override', override);
     const response = await fetch(`${{detailSectionsUrl}}?${{query.toString()}}`, {{ credentials: 'same-origin' }});
     let payload = null;
     try {{
@@ -374,6 +390,19 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     if (!detail) return;
     const target = detail.querySelector(`[data-detail-section='${{section}}']`);
     if (!target) return;
+    if (payload && typeof payload.depth === 'string') {{
+      adaptiveStateByRow.set(rowId, {{
+        depth: payload.depth,
+        reasonCode: payload.reason_code || 'unknown',
+        fallbackApplied: Boolean(payload.fallback_applied),
+      }});
+      const reasonNode = detail.querySelector(`[data-adaptive-reason='${{rowId}}']`);
+      if (reasonNode) {{
+        const reason = payload.reason_code || 'unknown';
+        const fallback = payload.fallback_applied ? ' (fallback)' : '';
+        reasonNode.textContent = `Adaptive depth: ${{payload.depth}} via ${{reason}}${{fallback}}`;
+      }}
+    }}
     if (payload && payload.ok) {{
       target.innerHTML = payload.html || '';
       return;
@@ -386,10 +415,21 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     try {{
       const payload = await fetchSection(rowId, section);
       applySectionPayload(rowId, section, payload, 'Section unavailable.');
+      return payload;
     }} catch (error) {{
       const message = error instanceof Error ? error.message : 'Retry failed.';
       applySectionPayload(rowId, section, null, message || 'Retry failed.');
+      return null;
     }}
+  }};
+
+  const collapseOptionalSections = (rowId) => {{
+    const detail = detailById.get(rowId);
+    if (!detail) return;
+    const secondary = detail.querySelector("[data-detail-section='secondary']");
+    const audit = detail.querySelector("[data-detail-section='audit']");
+    if (secondary) secondary.innerHTML = "<div data-detail-state='summary-only'>Summary mode: switch to Full to load secondary context.</div>";
+    if (audit) audit.innerHTML = "<div data-detail-state='summary-only'>Summary mode: audit section stays collapsed.</div>";
   }};
 
   const toggleDetail = async (rowId, options) => {{
@@ -415,8 +455,15 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     detail.hidden = false;
     setFocusedRow(rowId, {{ focusDom: false }});
     renderSkeleton(rowId);
-    for (const section of ['primary', 'secondary', 'audit']) {{
-      await hydrateSection(rowId, section);
+    const primaryPayload = await hydrateSection(rowId, 'primary');
+    const state = adaptiveStateByRow.get(rowId);
+    const depth = state && typeof state.depth === 'string' ? state.depth : (primaryPayload && primaryPayload.depth ? String(primaryPayload.depth) : 'inline_summary');
+    if (depth === 'inline_full') {{
+      for (const section of ['secondary', 'audit']) {{
+        await hydrateSection(rowId, section);
+      }}
+    }} else {{
+      collapseOptionalSections(rowId);
     }}
     updateRowClasses();
   }};
@@ -537,11 +584,35 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const retry = target.closest('[data-detail-retry]');
-    if (!retry) return;
-    const rowId = retry.getAttribute('data-row-id') || '';
-    const section = retry.getAttribute('data-detail-retry') || '';
-    if (!rowId || !section) return;
-    void hydrateSection(rowId, section);
+    if (retry) {{
+      const rowId = retry.getAttribute('data-row-id') || '';
+      const section = retry.getAttribute('data-detail-retry') || '';
+      if (!rowId || !section) return;
+      void hydrateSection(rowId, section);
+      return;
+    }}
+    const overrideButton = target.closest('[data-adaptive-override]');
+    if (!overrideButton) return;
+    const rowId = overrideButton.getAttribute('data-row-id') || '';
+    const override = overrideButton.getAttribute('data-adaptive-override') || 'auto';
+    if (!rowId || !rowById.has(rowId)) return;
+    if (override === 'auto') overrideByRow.delete(rowId);
+    else overrideByRow.set(rowId, override);
+    const detail = detailById.get(rowId);
+    if (!detail || detail.hidden || !expandedRows.has(rowId)) return;
+    renderSkeleton(rowId);
+    void (async () => {{
+      const primaryPayload = await hydrateSection(rowId, 'primary');
+      const state = adaptiveStateByRow.get(rowId);
+      const depth = state && typeof state.depth === 'string' ? state.depth : (primaryPayload && primaryPayload.depth ? String(primaryPayload.depth) : 'inline_summary');
+      if (depth === 'inline_full') {{
+        await hydrateSection(rowId, 'secondary');
+        await hydrateSection(rowId, 'audit');
+      }} else {{
+        collapseOptionalSections(rowId);
+      }}
+      updateRowClasses();
+    }})();
   }});
 
   const moveFocusedRow = (delta) => {{
