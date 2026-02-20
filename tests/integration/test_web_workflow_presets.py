@@ -233,10 +233,16 @@ async def test_workflow_presets_action_returns_conflict_metadata(monkeypatch) ->
     monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
     monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
 
+    called = {"telemetry": False}
+
     async def _save(_session, **_kwargs):
         return {"ok": False, "conflict": True, "preset": {"id": 3, "name": "Incident"}}
 
+    async def _capture(**_kwargs):
+        called["telemetry"] = True
+
     monkeypatch.setattr("app.web.main.save_preset", _save)
+    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
 
     response = await action_workflow_presets(
         _make_json_request(
@@ -258,12 +264,14 @@ async def test_workflow_presets_action_returns_conflict_metadata(monkeypatch) ->
 
     assert isinstance(response, dict)
     assert response.get("ok") is True
+    assert response.get("telemetry_recorded") is False
     result = response.get("result")
     assert isinstance(result, dict)
     assert result.get("conflict") is True
     preset = result.get("preset")
     assert isinstance(preset, dict)
     assert preset.get("id") == 3
+    assert called["telemetry"] is False
 
 
 @pytest.mark.asyncio
