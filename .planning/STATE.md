@@ -5,14 +5,14 @@
 See: `.planning/PROJECT.md` (updated 2026-02-20)
 
 **Core value:** Run trustworthy Telegram auctions end-to-end with fast operator intervention and clear auditability.
-**Current focus:** Milestone closeout after Phase 3 verification sign-off
+**Current focus:** Plan next milestone scope after v1.0 archive
 
 ## Current Position
 
-Phase: 3 of 3 (In-Place Triage Interactions)
-Plan: 4 of 4 in current phase
-Status: Phase complete; milestone ready to complete
-Last activity: 2026-02-20 - Planning bookkeeping recovered and Sprint 51 status resynced
+Phase: Milestone closeout complete (no active phase)
+Plan: n/a
+Status: v1.0 shipped and archived
+Last activity: 2026-02-20 - v1.0 archived, roadmap collapsed, requirements archived for next-milestone reset
 
 Progress: [██████████] 100%
 
@@ -49,14 +49,14 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None.
+- Define v1.1 milestone with fresh requirements and roadmap.
 
 ### Blockers/Concerns
 
-None; planning state and summaries were recovered to match merged implementation.
+- No dedicated GitHub milestone named `v1.0`; delivery traceability currently references Sprint 51 issue lineage.
 
 ## Session Continuity
 
 Last session: 2026-02-20 09:09 UTC
-Stopped at: Restored missing planning artifacts and phase summary traceability
+Stopped at: Completed v1.0 archival and prepared planning state for `/gsd-new-milestone`
 Resume file: None

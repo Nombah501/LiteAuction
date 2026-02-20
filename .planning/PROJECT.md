@@ -8,6 +8,12 @@ LiteAuction is a Telegram-first auction platform with a FastAPI admin panel for 
 
 Run trustworthy Telegram auctions end-to-end with fast operator intervention and clear auditability.
 
+## Current State
+
+- Milestone **v1.0 Operator UX** is shipped and archived.
+- Moderation queues support persisted dense-list ergonomics, deterministic workflow presets, and in-place triage interactions.
+- Planning focus has shifted from delivery to defining the next milestone scope.
+
 ## Requirements
 
 ### Validated
@@ -20,7 +26,9 @@ Run trustworthy Telegram auctions end-to-end with fast operator intervention and
 
 ### Active
 
-- [ ] Define and plan the next milestone after v1.0 completion handoff.
+- [ ] Define and plan milestone v1.1 scope and acceptance criteria.
+- [ ] Deliver adaptive detail depth controls with predictable navigation (`ADPT-01`).
+- [ ] Add operator preset telemetry for quality analysis (`TELE-01`).
 
 ### Out of Scope
 
@@ -30,7 +38,13 @@ Run trustworthy Telegram auctions end-to-end with fast operator intervention and
 
 ## Context
 
-The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (admin web), SQLAlchemy/Alembic (data), PostgreSQL, and Redis with Docker Compose services (`bot`, `admin`, `db`, `redis`). Sprint 51 milestone work completed three execution phases and delivered operator UX improvements for focus, presets, and in-place triage while preserving existing moderation and security guarantees.
+The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (admin web), SQLAlchemy/Alembic (data), PostgreSQL, and Redis with Docker Compose services (`bot`, `admin`, `db`, `redis`). Milestone v1.0 (Sprint 51 delivery line) completed three phases and delivered operator UX improvements for focus, presets, and in-place triage while preserving moderation and security guarantees.
+
+## Next Milestone Goals
+
+- Define a focused v1.1 milestone that extends v1.0 operator workflows without regressing queue speed.
+- Prioritize measurable operator outcomes (time-to-action, reopen risk, filter churn) to guide preset tuning.
+- Preserve strict safety posture (RBAC, CSRF, explicit confirmations, deterministic state transitions).
 
 ## Constraints
 
@@ -49,4 +63,4 @@ The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (adm
 | Gate destructive bulk actions with explicit confirmation + server-side validation | Reduces accidental moderation mutations and improves safety posture | ✓ Good |
 
 ---
-*Last updated: 2026-02-20 after planning recovery and Sprint 51 closeout sync*
+*Last updated: 2026-02-20 after v1.0 milestone completion*
