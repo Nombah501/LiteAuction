@@ -5,16 +5,16 @@
 See: `.planning/PROJECT.md` (updated 2026-02-20)
 
 **Core value:** Run trustworthy Telegram auctions end-to-end with fast operator intervention and clear auditability.
-**Current focus:** Initialize next milestone planning after v1.1 closeout
+**Current focus:** Kick off milestone v1.2 planning and sprint issue scaffolds
 
 ## Current Position
 
-Phase: Milestone closeout complete (v1.1)
-Plan: Begin v1.2 scope definition and sprint kickoff
-Status: v1.1 archived and verified complete (10 met, 0 partial)
-Last activity: 2026-02-20 - archived v1.1 roadmap/requirements and prepared release tagging
+Phase: Milestone planning (v1.2)
+Plan: Sprint 54 manifest kickoff
+Status: v1.2 scoped and ready for issue execution
+Last activity: 2026-02-20 - created fresh v1.2 requirements and sprint planning manifest
 
-Progress: [██████████] 100%
+Progress: [███░░░░░░░] 30%
 
 ## Performance Metrics
 
@@ -49,9 +49,9 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Create fresh v1.2 requirements and roadmap scaffold.
-- Sync Sprint 54 manifest to GitHub issues/PR stubs.
-- Start implementation from the highest-priority v1.2 item.
+- Execute Sprint 54 items and keep issue/PR traceability current.
+- Run sprint sync after manifest changes to refresh `planning/STATUS.md`.
+- Re-verify v1.2 requirements before milestone closeout.
 
 ### Blockers/Concerns
 
@@ -59,6 +59,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-20 13:10 UTC
-Stopped at: Completed v1.1 archival closeout and queued next milestone planning
-Resume file: `planning/sprints/sprint-53.toml`
+Last session: 2026-02-20 13:18 UTC
+Stopped at: Initialized v1.2 scope and prepared Sprint 54 sync
+Resume file: `planning/sprints/sprint-54.toml`

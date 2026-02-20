@@ -1,5 +1,22 @@
 # Milestones
 
+## v1.2 Queue Trust Signals (Planned: 2026-02-20)
+
+**Phases planned:** 3 phases
+**Timeline:** 2026-02-20 -> TBD
+**Git range:** `TBD`
+
+**Milestone scope:**
+- Deliver deterministic queue SLA health signals and aging visibility for moderation operators.
+- Add inline evidence timeline and rationale artifacts to improve decision confidence and auditability.
+- Introduce telemetry trend guardrails while preserving RBAC/CSRF and trust-first moderation posture.
+
+**Entry criteria:**
+- `.planning/REQUIREMENTS.md` reflects approved v1.2 requirement IDs and traceability plan.
+- Sprint 54 manifest is synced to GitHub issue scaffolds.
+
+---
+
 ## v1.1 Adaptive Triage Intelligence (Shipped: 2026-02-20)
 
 **Phases completed:** 3 phases, 7 plans

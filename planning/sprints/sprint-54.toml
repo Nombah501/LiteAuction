@@ -1,0 +1,85 @@
+sprint = "Sprint 54"
+milestone = "Sprint 54"
+milestone_description = "v1.2 kickoff: queue trust signals and evidence-aware triage"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S54-001"
+title = "Define queue SLA health model and aging thresholds"
+description = "Design deterministic SLA health states and aging-bucket thresholds for moderation queues with clear operator-facing semantics."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:feature", "area:moderation", "area:backend", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "SLA health states and countdown windows are documented with deterministic derivation rules",
+  "Aging bucket thresholds are bounded and testable across queue contexts",
+  "Contract notes include fallback behavior for missing or stale timing inputs",
+]
+
+[[items]]
+id = "S54-002"
+title = "Implement SLA indicators and aging filters in queue UI"
+description = "Expose per-row SLA health indicators and queue-level aging filter controls while preserving current dense-list context behavior."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:feature", "area:web", "area:admin", "area:moderation", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Rows render SLA health and countdown metadata with stable visual ordering",
+  "Aging filter chips update list scope without losing existing sort/filter/focus context",
+  "Keyboard triage flow remains functional after SLA and aging controls are enabled",
+]
+
+[[items]]
+id = "S54-003"
+title = "Add inline evidence timeline and moderation rationale artifact"
+description = "Provide row-level evidence timeline context and capture concise moderation rationale artifacts for downstream audit review."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:moderation", "area:trust", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Operators can open an inline evidence timeline without leaving queue context",
+  "Moderation actions can include rationale artifacts with actor and timestamp metadata",
+  "Evidence and rationale records are immutable after write",
+]
+
+[[items]]
+id = "S54-004"
+title = "Add telemetry trend deltas with low-sample guardrails"
+description = "Extend workflow preset telemetry to report week-over-week trend deltas and suppress misleading signals when sample sizes are below configured thresholds."
+priority = "P2"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:metrics", "area:backend", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Telemetry surfaces include trend deltas for time-to-action, reopen rate, and filter churn",
+  "Low-sample segments are flagged or suppressed according to guardrail policy",
+  "Trend logic preserves queue and preset segmentation semantics",
+]
+
+[[items]]
+id = "S54-005"
+title = "Harden v1.2 safety and regression coverage"
+description = "Expand automated coverage for SLA, evidence, and trend surfaces with explicit RBAC/CSRF checks and integration assertions on persisted data paths."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:test", "area:tests", "area:security", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Automated tests cover SLA derivation and aging bucket behavior",
+  "Integration coverage validates evidence timeline and rationale persistence outputs",
+  "RBAC/CSRF assertions protect all new mutating and sensitive read endpoints",
+]
