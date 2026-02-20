@@ -47,6 +47,15 @@ from app.services.admin_list_preferences_service import (
     load_admin_list_preference,
     save_admin_list_preference,
 )
+from app.services.admin_queue_presets_service import (
+    QUEUE_KEY_TO_QUEUE_CONTEXT,
+    delete_preset,
+    resolve_queue_preset_state,
+    save_preset,
+    select_preset,
+    set_admin_default,
+    update_preset,
+)
 from app.services.auction_service import refresh_auction_posts
 from app.services.complaint_service import list_complaints
 from app.services.fraud_service import list_fraud_signals
@@ -897,13 +906,45 @@ async def _load_dense_list_config(
     if not allowed_columns:
         raise HTTPException(status_code=500, detail="Dense list queue is not configured")
 
-    preference = await load_admin_list_preference(
-        session,
-        auth=auth,
-        queue_key=queue_key,
-        allowed_columns=allowed_columns,
-        admin_token=_token_from_request(request),
-    )
+    admin_token = _token_from_request(request)
+    queue_context = QUEUE_KEY_TO_QUEUE_CONTEXT.get(queue_key)
+    preset_notice = ""
+    preset_items: tuple[tuple[str, str], ...] = ()
+    active_preset_id: int | None = None
+    active_preset_name = ""
+
+    if queue_context is not None:
+        preset_state = await resolve_queue_preset_state(
+            session,
+            auth=auth,
+            queue_context=queue_context,
+            allowed_columns=allowed_columns,
+            admin_token=admin_token,
+        )
+        preference = preset_state["state"]
+        if preset_state.get("active_preset") is None and preset_state.get("source") == "none":
+            preference = await load_admin_list_preference(
+                session,
+                auth=auth,
+                queue_key=queue_key,
+                allowed_columns=allowed_columns,
+                admin_token=admin_token,
+            )
+        active = preset_state["active_preset"]
+        if active is not None:
+            active_preset_id = int(active["id"])
+            active_preset_name = str(active["name"])
+        preset_notice = str(preset_state.get("notice") or "")
+        preset_items = tuple((str(item["id"]), str(item["name"])) for item in preset_state["presets"])
+    else:
+        preference = await load_admin_list_preference(
+            session,
+            auth=auth,
+            queue_key=queue_key,
+            allowed_columns=allowed_columns,
+            admin_token=admin_token,
+        )
+
     columns = preference["columns"]
 
     return DenseListConfig(
@@ -916,6 +957,13 @@ async def _load_dense_list_config(
         columns_pinned=tuple(columns["pinned"]),
         preferences_action_path=_path_with_auth(request, "/actions/dense-list/preferences"),
         csrf_token=_build_csrf_token(request, auth),
+        preset_enabled=queue_context is not None,
+        preset_context=queue_context or "",
+        preset_items=preset_items,
+        active_preset_id=active_preset_id,
+        active_preset_name=active_preset_name,
+        preset_notice=preset_notice,
+        presets_action_path=_path_with_auth(request, "/actions/workflow-presets"),
     )
 
 
@@ -3581,6 +3629,123 @@ async def action_save_dense_list_preferences(request: Request) -> dict[str, obje
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {"ok": True, "preference": preference}
+
+
+@app.post("/actions/workflow-presets")
+async def action_workflow_presets(request: Request) -> dict[str, object]:
+    auth = get_admin_auth_context(request)
+    if not auth.authorized:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be an object")
+
+    csrf_token = str(payload.get("csrf_token") or "").strip()
+    if not _validate_csrf_token(request, auth, csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF check failed")
+
+    queue_context = str(payload.get("queue_context") or "").strip().lower()
+    queue_key = str(payload.get("queue_key") or "").strip().lower()
+    if not queue_context:
+        queue_context = QUEUE_KEY_TO_QUEUE_CONTEXT.get(queue_key, "")
+    if not queue_context:
+        raise HTTPException(status_code=400, detail="Unknown queue context")
+
+    context_queue_key = {
+        "moderation": "complaints",
+        "appeals": "appeals",
+        "risk": "signals",
+        "feedback": "trade_feedback",
+    }.get(queue_context)
+    if context_queue_key is None:
+        raise HTTPException(status_code=400, detail="Unknown queue context")
+
+    allowed_columns = _QUEUE_ALLOWED_COLUMNS.get(context_queue_key)
+    if allowed_columns is None:
+        raise HTTPException(status_code=400, detail="Unknown queue context")
+
+    action = str(payload.get("action") or "").strip().lower()
+    token = _token_from_request(request)
+
+    try:
+        async with SessionFactory() as session:
+            async with session.begin():
+                if action == "save":
+                    result = await save_preset(
+                        session,
+                        auth=auth,
+                        queue_context=queue_context,
+                        name=str(payload.get("name") or ""),
+                        density=str(payload.get("density") or ""),
+                        columns_payload=payload.get("columns") or {},
+                        allowed_columns=allowed_columns,
+                        filters_payload=payload.get("filters") if isinstance(payload.get("filters"), dict) else {},
+                        sort_payload=payload.get("sort") if isinstance(payload.get("sort"), dict) else {},
+                        admin_token=token,
+                        overwrite=bool(payload.get("overwrite")),
+                    )
+                elif action == "update":
+                    raw_preset_id = payload.get("preset_id")
+                    if raw_preset_id is None:
+                        raise HTTPException(status_code=400, detail="preset_id is required")
+                    result = await update_preset(
+                        session,
+                        auth=auth,
+                        queue_context=queue_context,
+                        preset_id=int(raw_preset_id),
+                        density=str(payload.get("density") or ""),
+                        columns_payload=payload.get("columns") or {},
+                        allowed_columns=allowed_columns,
+                        filters_payload=payload.get("filters") if isinstance(payload.get("filters"), dict) else {},
+                        sort_payload=payload.get("sort") if isinstance(payload.get("sort"), dict) else {},
+                        admin_token=token,
+                    )
+                elif action == "select":
+                    raw_preset_id = payload.get("preset_id")
+                    preset_id = int(raw_preset_id) if raw_preset_id not in (None, "") else None
+                    result = await select_preset(
+                        session,
+                        auth=auth,
+                        queue_context=queue_context,
+                        preset_id=preset_id,
+                        allowed_columns=allowed_columns,
+                        admin_token=token,
+                    )
+                elif action == "delete":
+                    raw_preset_id = payload.get("preset_id")
+                    if raw_preset_id is None:
+                        raise HTTPException(status_code=400, detail="preset_id is required")
+                    result = await delete_preset(
+                        session,
+                        auth=auth,
+                        queue_context=queue_context,
+                        preset_id=int(raw_preset_id),
+                        allowed_columns=allowed_columns,
+                        keep_current=bool(payload.get("keep_current", True)),
+                        admin_token=token,
+                    )
+                elif action == "set_default":
+                    raw_preset_id = payload.get("preset_id")
+                    preset_id = int(raw_preset_id) if raw_preset_id not in (None, "") else None
+                    result = await set_admin_default(
+                        session,
+                        auth=auth,
+                        queue_context=queue_context,
+                        preset_id=preset_id,
+                    )
+                else:
+                    raise HTTPException(status_code=400, detail="Unknown workflow preset action")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"ok": True, "result": result}
 
 
 @app.post("/actions/trade-feedback/hide")
