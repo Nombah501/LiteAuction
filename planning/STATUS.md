@@ -1,6 +1,6 @@
 # Planning Status
 
-Last sync: 2026-02-20 08:16 UTC
+Last sync: 2026-02-20 08:19 UTC
 Active sprint: Sprint 51
 
 | Item | Title | Issue | PR |
@@ -10,7 +10,7 @@ Active sprint: Sprint 51
 | S51-003 | Refine visual density and typography scale on admin surfaces | [#207](https://github.com/Nombah501/LiteAuction/issues/207) (closed) | - |
 | S51-004 | Strengthen admin web tests for progressive disclosure UX | [#208](https://github.com/Nombah501/LiteAuction/issues/208) (closed) | - |
 | S51-005 | Implement Phase 3 in-place triage interactions | [#212](https://github.com/Nombah501/LiteAuction/issues/212) (closed) | - |
-| S51-006 | Close Phase 3 in-place triage verification gaps | [#215](https://github.com/Nombah501/LiteAuction/issues/215) (open) | - |
+| S51-006 | Close Phase 3 in-place triage verification gaps | [#215](https://github.com/Nombah501/LiteAuction/issues/215) (closed) | - |
 
 ## Recovery Checklist
 
