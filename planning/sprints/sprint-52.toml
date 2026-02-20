@@ -83,3 +83,35 @@ acceptance = [
   "Telemetry ingestion and aggregation paths are validated against RBAC/CSRF constraints",
   "Manual verification checklist records keyboard-flow and deep-scroll continuity after v1.1 changes",
 ]
+
+[[items]]
+id = "S52-006"
+title = "Sync planning status after Sprint 52 completion"
+description = "Refresh planning status to reflect post-merge Sprint 52 issue closure and maintain recovery continuity."
+priority = "P3"
+estimate = "S"
+tech_debt = false
+labels = ["type:docs", "area:process", "priority:p3"]
+assignees = []
+create_draft_pr = false
+acceptance = [
+  "planning/STATUS.md last sync timestamp is current",
+  "Sprint 52 rows reflect closed issue state",
+  "Sync is merged with sprint label traceability",
+]
+
+[[items]]
+id = "S52-007"
+title = "Verify v1.1 requirements coverage and milestone readiness"
+description = "Run goal-backward verification for v1.1 requirements and update planning artifacts with outcome status and follow-up scope."
+priority = "P2"
+estimate = "M"
+tech_debt = true
+labels = ["type:docs", "area:process", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = false
+acceptance = [
+  "Verification report maps each v1.1 requirement to concrete repo evidence",
+  "Requirements and state docs reflect met versus follow-up outcomes",
+  "Closeout recommendation is explicit: close milestone now or continue with follow-up scope",
+]
