@@ -3,10 +3,10 @@
 ## Milestones
 
 - ✅ **v1.0 Operator UX** - shipped 2026-02-20 (Phases 1-3, 10 plans) -> `.planning/milestones/v1.0-ROADMAP.md`
-- 🚧 **v1.1 Adaptive Triage Intelligence** - in planning (Phases 1-3, kickoff Sprint 52)
+- 🚧 **v1.1 Adaptive Triage Intelligence** - verification in progress (8/10 requirements met, 2 follow-up items)
 
 ## Next
 
-- Start Phase 1 for adaptive detail depth policy and deterministic fallback behavior.
-- Start Phase 2 for preset telemetry capture and scoped aggregation.
-- Lock Phase 3 safety validation with RBAC/CSRF and integration coverage.
+- Close follow-up for `TELE-02`: exclude failed business outcomes from telemetry sampling, not only auth/validation failures.
+- Close follow-up for `TEST-12`: add DB-backed integration coverage for telemetry ingestion and scoped aggregation.
+- Run verification refresh and close v1.1 after both follow-up outcomes are complete.

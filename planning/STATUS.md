@@ -1,6 +1,6 @@
 # Planning Status
 
-Last sync: 2026-02-20 11:05 UTC
+Last sync: 2026-02-20 12:18 UTC
 Active sprint: Sprint 52
 
 | Item | Title | Issue | PR |
@@ -10,6 +10,8 @@ Active sprint: Sprint 52
 | S52-003 | Add preset telemetry event capture and aggregation | [#222](https://github.com/Nombah501/LiteAuction/issues/222) (closed) | - |
 | S52-004 | Expose preset telemetry insights in admin workflow surfaces | [#223](https://github.com/Nombah501/LiteAuction/issues/223) (closed) | - |
 | S52-005 | Harden v1.1 safety and regression coverage | [#224](https://github.com/Nombah501/LiteAuction/issues/224) (closed) | - |
+| S52-006 | Sync planning status after Sprint 52 completion | [#229](https://github.com/Nombah501/LiteAuction/issues/229) (closed) | - |
+| S52-007 | Verify v1.1 requirements coverage and milestone readiness | [#231](https://github.com/Nombah501/LiteAuction/issues/231) (open) | - |
 
 ## Recovery Checklist
 
