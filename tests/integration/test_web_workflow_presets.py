@@ -203,6 +203,13 @@ async def test_trade_feedback_telemetry_filter_preserves_queue_context(monkeypat
                 "avg_filter_churn_count": 2.0,
                 "reopen_total": 3,
                 "reopen_rate": 0.25,
+                "trend_window_hours": 168,
+                "trend_min_sample_size": 5,
+                "trend_previous_events_total": 12,
+                "trend_low_sample_guardrail": False,
+                "time_to_action_delta_ms": -210.0,
+                "reopen_rate_delta": 0.05,
+                "filter_churn_delta": -0.5,
             }
         ]
 
@@ -228,6 +235,69 @@ async def test_trade_feedback_telemetry_filter_preserves_queue_context(monkeypat
     assert "telemetry_preset_id=5" in body
     assert "Preset filter:" in body
     assert "preset #5" in body
+    assert "Δ time-to-action" in body
+    assert "Δ reopen rate" in body
+    assert "-210ms" in body
+    assert "+5.0pp" in body
+    assert "-0.50" in body
+
+
+@pytest.mark.asyncio
+async def test_trade_feedback_telemetry_guardrail_for_low_sample_segments(monkeypatch) -> None:
+    async def _resolve(_session, **_kwargs):
+        return {
+            "source": "none",
+            "state": {
+                "density": "compact",
+                "columns": {"visible": ["id"], "order": ["id"], "pinned": []},
+                "filters": {},
+                "sort": {},
+            },
+            "active_preset": None,
+            "presets": [],
+            "notice": None,
+        }
+
+    async def _segments(_session, **_kwargs):
+        return [
+            {
+                "queue_context": "feedback",
+                "queue_key": "trade_feedback",
+                "preset_id": 7,
+                "events_total": 2,
+                "avg_time_to_action_ms": 900.0,
+                "avg_filter_churn_count": 1.0,
+                "reopen_total": 0,
+                "reopen_rate": 0.0,
+                "trend_window_hours": 168,
+                "trend_min_sample_size": 5,
+                "trend_previous_events_total": 1,
+                "trend_low_sample_guardrail": True,
+                "time_to_action_delta_ms": None,
+                "reopen_rate_delta": None,
+                "filter_churn_delta": None,
+            }
+        ]
+
+    monkeypatch.setattr("app.web.main.resolve_queue_preset_state", _resolve)
+    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=2)))
+    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+
+    body = bytes(
+        (
+            await trade_feedback(
+                _make_request("/trade-feedback"),
+                status="visible",
+                moderated="all",
+                page=0,
+                q="",
+                telemetry_preset_id=7,
+            )
+        ).body
+    ).decode("utf-8")
+
+    assert "guardrail (2/1" in body
 
 
 @pytest.mark.asyncio
