@@ -1,5 +1,23 @@
 # Milestones
 
+## v1.1 Adaptive Triage Intelligence (Planned: 2026-02-20)
+
+**Phases planned:** 3 phases
+**Timeline:** 2026-02-20 -> TBD
+**Git range:** `TBD`
+**Code delta:** `TBD`
+
+**Milestone scope:**
+- Deliver adaptive detail depth rules that preserve predictable triage navigation.
+- Add preset telemetry capture and segmented quality reporting for operator workflows.
+- Keep moderation safety posture intact with RBAC/CSRF guardrails and focused regression coverage.
+
+**Entry criteria:**
+- `.planning/REQUIREMENTS.md` reflects approved v1.1 requirement IDs and traceability plan.
+- Sprint 52 manifest is synced to GitHub milestone/issues.
+
+---
+
 ## v1.0 Operator UX (Shipped: 2026-02-20)
 
 **Phases completed:** 3 phases, 10 plans

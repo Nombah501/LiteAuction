@@ -1,17 +1,15 @@
 # Planning Status
 
-Last sync: 2026-02-20 09:09 UTC
-Active sprint: Sprint 51
+Last sync: 2026-02-20 10:14 UTC
+Active sprint: Sprint 52
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S51-001 | Add focus-mode dashboard defaults for operators | [#205](https://github.com/Nombah501/LiteAuction/issues/205) (closed) | - |
-| S51-002 | Introduce operator presets for dashboard information density | [#206](https://github.com/Nombah501/LiteAuction/issues/206) (closed) | - |
-| S51-003 | Refine visual density and typography scale on admin surfaces | [#207](https://github.com/Nombah501/LiteAuction/issues/207) (closed) | - |
-| S51-004 | Strengthen admin web tests for progressive disclosure UX | [#208](https://github.com/Nombah501/LiteAuction/issues/208) (closed) | - |
-| S51-005 | Implement Phase 3 in-place triage interactions | [#212](https://github.com/Nombah501/LiteAuction/issues/212) (closed) | - |
-| S51-006 | Close Phase 3 in-place triage verification gaps | [#215](https://github.com/Nombah501/LiteAuction/issues/215) (closed) | - |
-| S51-007 | Record Phase 3 manual verification sign-off | [#218](https://github.com/Nombah501/LiteAuction/issues/218) (closed) | - |
+| S52-001 | Define adaptive detail depth policy contract | [#220](https://github.com/Nombah501/LiteAuction/issues/220) (open) | - |
+| S52-002 | Implement adaptive detail depth in moderation queue UI | [#221](https://github.com/Nombah501/LiteAuction/issues/221) (open) | - |
+| S52-003 | Add preset telemetry event capture and aggregation | [#222](https://github.com/Nombah501/LiteAuction/issues/222) (open) | - |
+| S52-004 | Expose preset telemetry insights in admin workflow surfaces | [#223](https://github.com/Nombah501/LiteAuction/issues/223) (open) | - |
+| S52-005 | Harden v1.1 safety and regression coverage | [#224](https://github.com/Nombah501/LiteAuction/issues/224) (open) | - |
 
 ## Recovery Checklist
 

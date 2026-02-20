@@ -26,9 +26,10 @@ Run trustworthy Telegram auctions end-to-end with fast operator intervention and
 
 ### Active
 
-- [ ] Define and plan milestone v1.1 scope and acceptance criteria.
+- [x] Define and plan milestone v1.1 scope and acceptance criteria.
 - [ ] Deliver adaptive detail depth controls with predictable navigation (`ADPT-01`).
 - [ ] Add operator preset telemetry for quality analysis (`TELE-01`).
+- [ ] Validate adaptive/telemetry rollout with focused safety and integration gates.
 
 ### Out of Scope
 
@@ -45,6 +46,7 @@ The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (adm
 - Define a focused v1.1 milestone that extends v1.0 operator workflows without regressing queue speed.
 - Prioritize measurable operator outcomes (time-to-action, reopen risk, filter churn) to guide preset tuning.
 - Preserve strict safety posture (RBAC, CSRF, explicit confirmations, deterministic state transitions).
+- Sequence delivery through Sprint 52 issue set before implementation begins.
 
 ## Constraints
 
@@ -63,4 +65,4 @@ The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (adm
 | Gate destructive bulk actions with explicit confirmation + server-side validation | Reduces accidental moderation mutations and improves safety posture | ✓ Good |
 
 ---
-*Last updated: 2026-02-20 after v1.0 milestone completion*
+*Last updated: 2026-02-20 for v1.1 milestone kickoff*

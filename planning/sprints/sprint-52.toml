@@ -1,0 +1,85 @@
+sprint = "Sprint 52"
+milestone = "Sprint 52"
+milestone_description = "v1.1 kickoff: adaptive triage intelligence and preset telemetry"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S52-001"
+title = "Define adaptive detail depth policy contract"
+description = "Design and document deterministic adaptive depth rules (risk, priority, fallback) so queue behavior stays predictable under v1.1."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:feature", "area:web", "area:moderation", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Adaptive depth policy exposes explicit reason codes and deterministic fallback behavior",
+  "Policy keeps disclosure model bounded to list plus inline details without nested depth growth",
+  "Architecture notes capture safe defaults and rollout guardrails for operators",
+]
+
+[[items]]
+id = "S52-002"
+title = "Implement adaptive detail depth in moderation queue UI"
+description = "Add adaptive detail rendering and operator override controls to queue rows while preserving focus, scroll, and keyboard triage flow."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:feature", "area:web", "area:admin", "area:moderation", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Adaptive depth selection updates row details deterministically from queue context",
+  "Operator override is available per row and preserves current filters and row position",
+  "Keyboard workflow remains functional for open/close and row navigation",
+]
+
+[[items]]
+id = "S52-003"
+title = "Add preset telemetry event capture and aggregation"
+description = "Capture queue and preset telemetry events for time-to-action, reopen signals, and filter churn with scoped aggregation that excludes unauthorized failures."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:feature", "area:backend", "area:moderation", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Telemetry records include queue, preset, and action context needed for quality analysis",
+  "Aggregation excludes unauthenticated, unauthorized, and invalid attempts",
+  "Operational view can segment metrics by queue and preset",
+]
+
+[[items]]
+id = "S52-004"
+title = "Expose preset telemetry insights in admin workflow surfaces"
+description = "Present preset quality insights in admin surfaces so operators and product owners can tune presets based on measured workflow outcomes."
+priority = "P2"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:web", "area:admin", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Admin surface shows key metrics for time-to-action, reopen rate, and filter churn",
+  "Insights can be filtered by queue and preset without full page context loss",
+  "UI copy communicates that telemetry is advisory and does not automate moderation decisions",
+]
+
+[[items]]
+id = "S52-005"
+title = "Harden v1.1 safety and regression coverage"
+description = "Expand automated coverage and manual verification for adaptive depth and telemetry flows with explicit RBAC, CSRF, and integration assertions."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:test", "area:web", "area:backend", "area:security", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Unit and integration tests cover adaptive rule selection, override behavior, and fallback",
+  "Telemetry ingestion and aggregation paths are validated against RBAC/CSRF constraints",
+  "Manual verification checklist records keyboard-flow and deep-scroll continuity after v1.1 changes",
+]
