@@ -265,19 +265,78 @@ def render_dense_list_script(config: DenseListConfig) -> str:
   const triageRows = Array.from(shell.querySelectorAll('tbody tr[data-triage-row="1"]'));
   const rows = triageRows.length ? triageRows : Array.from(shell.querySelectorAll('tbody tr[data-row]'));
   const detailById = new Map(Array.from(shell.querySelectorAll('tbody tr[data-triage-detail]')).map((row) => [row.dataset.triageDetail, row]));
+  const rowById = new Map(rows.map((row) => [row.dataset.rowId || '', row]));
   const expandedRows = new Set();
+  const closeContextByRow = new Map();
   let focusedRowId = '';
+
+  const escapeHtml = (value) => String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+
+  const getVisibleRows = () => rows.filter((row) => !row.hidden);
+
+  const updateRowClasses = () => {{
+    const hasExpandedRows = expandedRows.size > 0;
+    rows.forEach((row) => {{
+      const rowId = row.dataset.rowId || '';
+      const isFocused = rowId && focusedRowId === rowId;
+      const isExpanded = rowId && expandedRows.has(rowId);
+      row.classList.toggle('is-focused', Boolean(isFocused));
+      row.classList.toggle('is-dimmed', Boolean(hasExpandedRows && !isExpanded));
+      const detail = detailById.get(rowId);
+      if (detail) {{
+        detail.dataset.expanded = isExpanded ? '1' : '0';
+        detail.hidden = row.hidden || !isExpanded;
+      }}
+      const toggle = row.querySelector('[data-triage-toggle]');
+      if (toggle) toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    }});
+  }};
+
+  const setFocusedRow = (rowId, options) => {{
+    const focusDom = Boolean(options && options.focusDom);
+    if (!rowId || !rowById.has(rowId)) {{
+      focusedRowId = '';
+      updateRowClasses();
+      return;
+    }}
+    focusedRowId = rowId;
+    updateRowClasses();
+    if (focusDom) {{
+      const targetRow = rowById.get(rowId);
+      if (targetRow) {{
+        targetRow.focus({{ preventScroll: true }});
+        targetRow.scrollIntoView({{ block: 'nearest' }});
+      }}
+    }}
+  }};
+
+  const ensureFocusedRow = () => {{
+    if (focusedRowId) {{
+      const existing = rowById.get(focusedRowId);
+      if (existing && !existing.hidden) return;
+    }}
+    const fallback = getVisibleRows()[0];
+    setFocusedRow(fallback ? (fallback.dataset.rowId || '') : '', {{ focusDom: false }});
+  }};
 
   const updateFilter = function() {{
     if (!input) return;
     const needle = input.value.trim().toLowerCase();
     let shown = 0;
     for (const row of rows) {{
+      const rowId = row.dataset.rowId || '';
       const haystack = (row.dataset.row || row.textContent || '').toLowerCase();
       const match = !needle || haystack.includes(needle);
       row.hidden=!match;
+      const detail = detailById.get(rowId);
+      if (detail) detail.hidden = !match || !expandedRows.has(rowId);
       if (match) shown += 1;
     }}
+    ensureFocusedRow();
+    updateRowClasses();
     if (counter) counter.textContent = `${{shown}}/${{rows.length}}`;
   }};
 
@@ -292,31 +351,74 @@ def render_dense_list_script(config: DenseListConfig) -> str:
   const fetchSection = async (rowId, section) => {{
     const query = new URLSearchParams({{ queue_key: (bulkHost?.dataset.queueKey || ''), row_id: rowId, section: section }});
     const response = await fetch(`${{detailSectionsUrl}}?${{query.toString()}}`, {{ credentials: 'same-origin' }});
-    if (!response.ok) throw new Error('section failed');
-    return await response.json();
+    let payload = null;
+    try {{
+      payload = await response.json();
+    }} catch (_e) {{
+      payload = null;
+    }}
+    if (!response.ok) {{
+      const message = payload && typeof payload.detail === 'string' ? payload.detail : 'section failed';
+      throw new Error(message);
+    }}
+    return payload;
   }};
 
-  const toggleDetail = async (rowId) => {{
+  const renderSectionRetry = (rowId, section, message) => `
+    <div data-detail-state='error'>${{message ? `<p>${{escapeHtml(message)}}</p>` : ''}}</div>
+    <button type='button' data-detail-retry='${{section}}' data-row-id='${{rowId}}'>Retry</button>
+  `;
+
+  const applySectionPayload = (rowId, section, payload, fallbackMessage) => {{
+    const detail = detailById.get(rowId);
+    if (!detail) return;
+    const target = detail.querySelector(`[data-detail-section='${{section}}']`);
+    if (!target) return;
+    if (payload && payload.ok) {{
+      target.innerHTML = payload.html || '';
+      return;
+    }}
+    const message = payload && typeof payload.message === 'string' ? payload.message : fallbackMessage;
+    target.innerHTML = renderSectionRetry(rowId, section, message || 'Section unavailable.');
+  }};
+
+  const hydrateSection = async (rowId, section) => {{
+    try {{
+      const payload = await fetchSection(rowId, section);
+      applySectionPayload(rowId, section, payload, 'Section unavailable.');
+    }} catch (error) {{
+      const message = error instanceof Error ? error.message : 'Retry failed.';
+      applySectionPayload(rowId, section, null, message || 'Retry failed.');
+    }}
+  }};
+
+  const toggleDetail = async (rowId, options) => {{
     const detail = detailById.get(rowId);
     if (!detail) return;
     if (expandedRows.has(rowId)) {{
       expandedRows.delete(rowId);
       detail.hidden = true;
+      updateRowClasses();
+      const closeContext = closeContextByRow.get(rowId);
+      if (closeContext) {{
+        window.scrollTo({{ top: closeContext.scrollY, behavior: 'auto' }});
+        if (closeContext.invoker instanceof HTMLElement) closeContext.invoker.focus({{ preventScroll: true }});
+      }}
       return;
     }}
+    const row = rowById.get(rowId);
+    const requestedInvoker = options && options.invoker;
+    const fallbackToggle = row ? row.querySelector('[data-triage-toggle]') : null;
+    const invoker = requestedInvoker instanceof HTMLElement ? requestedInvoker : fallbackToggle;
+    closeContextByRow.set(rowId, {{ invoker: invoker || null, scrollY: window.scrollY }});
     expandedRows.add(rowId);
     detail.hidden = false;
+    setFocusedRow(rowId, {{ focusDom: false }});
     renderSkeleton(rowId);
     for (const section of ['primary', 'secondary', 'audit']) {{
-      try {{
-        const payload = await fetchSection(rowId, section);
-        const target = detail.querySelector(`[data-detail-section='${{section}}']`);
-        if (target) target.innerHTML = payload && payload.ok ? (payload.html || '') : `<button type='button' data-detail-retry='${{section}}' data-row-id='${{rowId}}'>Retry</button>`;
-      }} catch (_e) {{
-        const target = detail.querySelector(`[data-detail-section='${{section}}']`);
-        if (target) target.innerHTML = `<button type='button' data-detail-retry='${{section}}' data-row-id='${{rowId}}'>Retry</button>`;
-      }}
+      await hydrateSection(rowId, section);
     }}
+    updateRowClasses();
   }};
 
   const destructiveActions = new Set(['dismiss', 'hide', 'reject']);
@@ -331,9 +433,55 @@ def render_dense_list_script(config: DenseListConfig) -> str:
   if (bulkHost) {{
     const actionNode = document.querySelector(`[data-bulk-action='${{tableId}}']`);
     const runNode = document.querySelector(`[data-bulk-execute='${{tableId}}']`);
+    const countNode = document.querySelector(`[data-bulk-count='${{tableId}}']`);
+    const resultNode = document.querySelector(`[data-bulk-result='${{tableId}}']`);
+    const selectAllNode = document.querySelector(`[data-bulk-select-all='${{tableId}}']`);
     const queue = bulkHost.dataset.queueKey || '';
     const bulkUrl = bulkHost.dataset.bulkUrl || '';
     const confirmText = bulkHost.dataset.confirmText || 'CONFIRM';
+    const selectedCheckboxes = () => Array.from(shell.querySelectorAll('input[data-bulk-select-id]'));
+    const checkedCheckboxes = () => selectedCheckboxes().filter((node) => node.checked);
+    const updateBulkCount = () => {{
+      const checked = checkedCheckboxes().length;
+      const total = selectedCheckboxes().length;
+      if (countNode) countNode.textContent = `${{checked}} selected`;
+      if (selectAllNode) selectAllNode.checked = total > 0 && checked === total;
+    }};
+    const ensureOutcomeNode = (row) => {{
+      const firstCell = row ? row.querySelector('td') : null;
+      if (!firstCell) return null;
+      let node = firstCell.querySelector('[data-bulk-outcome]');
+      if (!node) {{
+        node = document.createElement('div');
+        node.dataset.bulkOutcome = '1';
+        node.className = 'empty-state';
+        firstCell.appendChild(node);
+      }}
+      return node;
+    }};
+    const applyBulkResult = (result) => {{
+      const row = rowById.get(String(result.id || ''));
+      if (!row) return false;
+      const outcomeNode = ensureOutcomeNode(row);
+      const statusCell = row.querySelector("[data-status-cell='1'], [data-col='status']");
+      const checkbox = row.querySelector('input[data-bulk-select-id]');
+      if (result.ok) {{
+        const nextStatus = typeof result.next_status === 'string' ? result.next_status : '';
+        if (nextStatus && statusCell) statusCell.textContent = nextStatus;
+        if (outcomeNode) outcomeNode.textContent = nextStatus ? `Updated: ${{nextStatus}}` : 'Updated';
+        if (checkbox) checkbox.checked = false;
+        return true;
+      }}
+      const reason = typeof result.message === 'string' && result.message ? result.message : (result.reason_code || 'failed');
+      if (outcomeNode) outcomeNode.textContent = `Needs attention: ${{reason}}`;
+      return false;
+    }};
+
+    selectedCheckboxes().forEach((node) => node.addEventListener('change', updateBulkCount));
+    if (selectAllNode) selectAllNode.addEventListener('change', () => {{
+      selectedCheckboxes().forEach((node) => {{ node.checked = selectAllNode.checked; }});
+      updateBulkCount();
+    }});
     if (actionNode) for (const item of mapBulkActions(queue)) {{
       const option = document.createElement('option');
       option.value = item.value;
@@ -343,26 +491,47 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     if (runNode) runNode.addEventListener('click', async function() {{
       if (!actionNode || !bulkUrl) return;
       const action = actionNode.value || '';
-      const ids = Array.from(shell.querySelectorAll('input[data-bulk-select-id]')).filter((n) => n.checked).map((n) => Number(n.value));
+      const ids = checkedCheckboxes().map((n) => Number(n.value));
       if (!ids.length) return;
       let confirmValue = '';
       if (destructiveActions.has(action)) {{
         confirmValue = window.prompt(`Type ${{confirmText}} to confirm`, '') || '';
         if (confirmValue !== confirmText) return;
       }}
-      await fetch(bulkUrl, {{
+      const response = await fetch(bulkUrl, {{
         method: 'POST',
         credentials: 'same-origin',
         headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify({{ queue_key: queue, bulk_action: action, selected_ids: ids, confirm_text: confirmValue, csrf_token: bulkHost.dataset.csrfToken || '' }}),
       }});
+      let payload = null;
+      try {{
+        payload = await response.json();
+      }} catch (_e) {{
+        payload = null;
+      }}
+      if (!response.ok) {{
+        if (resultNode) resultNode.textContent = payload && payload.detail ? String(payload.detail) : `Bulk failed (${{response.status}})`;
+        return;
+      }}
+      const results = payload && Array.isArray(payload.results) ? payload.results : [];
+      let successCount = 0;
+      let failedCount = 0;
+      results.forEach((item) => {{
+        if (applyBulkResult(item)) successCount += 1;
+        else failedCount += 1;
+      }});
+      updateBulkCount();
+      if (resultNode) resultNode.textContent = `Bulk done: ${{successCount}} ok, ${{failedCount}} unresolved`;
     }});
+    updateBulkCount();
   }}
 
   rows.forEach((row) => {{
     const rowId = row.dataset.rowId || '';
     const toggle = row.querySelector('[data-triage-toggle]');
-    if (toggle) toggle.addEventListener('click', () => void toggleDetail(rowId));
+    if (toggle) toggle.addEventListener('click', () => void toggleDetail(rowId, {{ invoker: toggle }}));
+    row.addEventListener('click', () => setFocusedRow(rowId, {{ focusDom: false }}));
   }});
   shell.addEventListener('click', (event) => {{
     const target = event.target;
@@ -372,17 +541,56 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     const rowId = retry.getAttribute('data-row-id') || '';
     const section = retry.getAttribute('data-detail-retry') || '';
     if (!rowId || !section) return;
-    void fetchSection(rowId, section);
+    void hydrateSection(rowId, section);
   }});
+
+  const moveFocusedRow = (delta) => {{
+    const visibleRows = getVisibleRows();
+    if (!visibleRows.length) return;
+    const currentIndex = visibleRows.findIndex((row) => (row.dataset.rowId || '') === focusedRowId);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = Math.max(0, Math.min(visibleRows.length - 1, safeIndex + delta));
+    if (nextIndex === safeIndex) return;
+    const nextRow = visibleRows[nextIndex];
+    const nextRowId = nextRow.dataset.rowId || '';
+    if (nextRowId) setFocusedRow(nextRowId, {{ focusDom: true }});
+  }};
+
+  const toggleFocusedRowDetail = () => {{
+    ensureFocusedRow();
+    if (!focusedRowId) return;
+    const row = rowById.get(focusedRowId);
+    const toggle = row ? row.querySelector('[data-triage-toggle]') : null;
+    void toggleDetail(focusedRowId, {{ invoker: toggle }});
+  }};
+
+  const toggleFocusedRowSelection = () => {{
+    ensureFocusedRow();
+    if (!focusedRowId) return;
+    const row = rowById.get(focusedRowId);
+    const checkbox = row ? row.querySelector('input[data-bulk-select-id]') : null;
+    if (!checkbox) return;
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event('change', {{ bubbles: true }}));
+  }};
+
+  const isTypingControl = (element) => element
+    && element instanceof HTMLElement
+    && (element.tagName === 'INPUT'
+      || element.tagName === 'TEXTAREA'
+      || element.tagName === 'SELECT'
+      || element.isContentEditable);
 
   document.addEventListener('keydown', (event) => {{
     const active = document.activeElement;
-    const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+    const isTyping = isTypingControl(active);
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key==='/' && !isTyping && input) {{ event.preventDefault(); input.focus(); }}
     if (isTyping) return;
-    if (event.key==='j') event.preventDefault();
-    if (event.key==='k') event.preventDefault();
-    if (event.key==='o'||event.key==='Enter') event.preventDefault();
+    if (event.key==='j') {{ event.preventDefault(); moveFocusedRow(1); }}
+    if (event.key==='k') {{ event.preventDefault(); moveFocusedRow(-1); }}
+    if (event.key==='o'||event.key==='Enter') {{ event.preventDefault(); toggleFocusedRowDetail(); }}
+    if (event.key==='x') {{ event.preventDefault(); toggleFocusedRowSelection(); }}
   }});
 
   // preset markers retained for contract checks
@@ -391,7 +599,9 @@ def render_dense_list_script(config: DenseListConfig) -> str:
 
   applyLayout();
   renderColumnControls();
+  if (rows.length > 0) setFocusedRow(rows[0].dataset.rowId || '', {{ focusDom: false }});
   if (input) {{ input.addEventListener('input', updateFilter); updateFilter(); }}
+  else updateRowClasses();
 }})();
 </script>
 """

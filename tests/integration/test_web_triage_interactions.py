@@ -30,6 +30,28 @@ def _telegram_auth() -> AdminAuthContext:
     )
 
 
+def _telegram_auth_forbidden() -> AdminAuthContext:
+    return AdminAuthContext(
+        authorized=True,
+        via="telegram",
+        role="moderator",
+        can_manage=False,
+        scopes=frozenset(),
+        tg_user_id=900002,
+    )
+
+
+def _unauthorized_auth() -> AdminAuthContext:
+    return AdminAuthContext(
+        authorized=False,
+        via="telegram",
+        role="viewer",
+        can_manage=False,
+        scopes=frozenset(),
+        tg_user_id=None,
+    )
+
+
 def _make_request(path: str = "/") -> Request:
     scope = {
         "type": "http",
@@ -240,6 +262,42 @@ async def test_triage_markup_renders_for_trade_feedback_and_appeals(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_triage_markup_includes_keyboard_focus_and_scroll_hooks(monkeypatch) -> None:
+    async def _list_complaints(_session, **_kwargs):
+        return [
+            SimpleNamespace(
+                id=21,
+                auction_id=91,
+                reporter_user_id=333,
+                status="OPEN",
+                reason="duplicate",
+                created_at=None,
+            )
+        ]
+
+    async def _dense(_session, *, queue_key, **_kwargs):
+        assert queue_key == "complaints"
+        return _dense_config(queue_key, "complaints-table")
+
+    async def _risk_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.main.list_complaints", _list_complaints)
+    monkeypatch.setattr("app.web.main._load_dense_list_config", _dense)
+    monkeypatch.setattr("app.web.main._load_user_risk_snapshot_map", _risk_map)
+
+    body = bytes((await complaints(_make_request("/complaints"))).body).decode("utf-8")
+
+    assert "moveFocusedRow(1)" in body
+    assert "moveFocusedRow(-1)" in body
+    assert "toggleFocusedRowDetail()" in body
+    assert "window.scrollTo({ top: closeContext.scrollY, behavior: 'auto' });" in body
+    assert "closeContext.invoker.focus({ preventScroll: true });" in body
+
+
+@pytest.mark.asyncio
 async def test_triage_detail_section_contract(monkeypatch) -> None:
     monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
 
@@ -329,3 +387,94 @@ async def test_bulk_endpoint_returns_mixed_results(monkeypatch) -> None:
     assert payload["ok"] is True
     assert payload["results"][0]["ok"] is True
     assert payload["results"][1]["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_bulk_endpoint_rejects_unauthorized_actor_without_mutation(monkeypatch) -> None:
+    called = {"actor": False}
+
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _unauthorized_auth())
+
+    async def _actor_id(_auth):
+        called["actor"] = True
+        return 1
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _actor_id)
+
+    with pytest.raises(HTTPException) as exc:
+        await action_triage_bulk(
+            _make_json_request(
+                "/actions/triage/bulk",
+                {
+                    "queue_key": "trade_feedback",
+                    "bulk_action": "hide",
+                    "selected_ids": [1],
+                    "csrf_token": "ok",
+                    "confirm_text": "CONFIRM",
+                },
+            )
+        )
+
+    assert exc.value.status_code == 401
+    assert called["actor"] is False
+
+
+@pytest.mark.asyncio
+async def test_bulk_endpoint_rejects_forbidden_scope_without_mutation(monkeypatch) -> None:
+    called = {"actor": False}
+
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth_forbidden())
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+
+    async def _actor_id(_auth):
+        called["actor"] = True
+        return 1
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _actor_id)
+
+    with pytest.raises(HTTPException) as exc:
+        await action_triage_bulk(
+            _make_json_request(
+                "/actions/triage/bulk",
+                {
+                    "queue_key": "trade_feedback",
+                    "bulk_action": "hide",
+                    "selected_ids": [1],
+                    "csrf_token": "ok",
+                    "confirm_text": "CONFIRM",
+                },
+            )
+        )
+
+    assert exc.value.status_code == 403
+    assert called["actor"] is False
+
+
+@pytest.mark.asyncio
+async def test_bulk_endpoint_rejects_csrf_without_mutation(monkeypatch) -> None:
+    called = {"actor": False}
+
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth())
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: False)
+
+    async def _actor_id(_auth):
+        called["actor"] = True
+        return 1
+
+    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _actor_id)
+
+    with pytest.raises(HTTPException) as exc:
+        await action_triage_bulk(
+            _make_json_request(
+                "/actions/triage/bulk",
+                {
+                    "queue_key": "complaints",
+                    "bulk_action": "resolve",
+                    "selected_ids": [1],
+                    "csrf_token": "bad",
+                },
+            )
+        )
+
+    assert exc.value.status_code == 403
+    assert called["actor"] is False
