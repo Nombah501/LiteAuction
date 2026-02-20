@@ -99,3 +99,19 @@ acceptance = [
   "Keyboard shortcuts j/k/o/Enter execute row navigation and toggle behavior",
   "Bulk results render per-row outcomes inline and integration tests cover 401/403/CSRF failures",
 ]
+
+[[items]]
+id = "S51-007"
+title = "Record Phase 3 manual verification sign-off"
+description = "Capture and publish manual browser verification evidence for keyboard-first triage flow and deep-scroll continuity after Phase 3 gap closure."
+priority = "P2"
+estimate = "S"
+tech_debt = true
+labels = ["type:docs", "area:process", "area:web", "priority:p2", "sprint:sprint-51"]
+assignees = []
+create_draft_pr = false
+acceptance = [
+  "Phase 3 verification report records completion of manual keyboard-flow validation",
+  "Phase 3 verification report records completion of deep-scroll continuity validation",
+  "Sprint status reflects sign-off issue linkage for traceability",
+]
