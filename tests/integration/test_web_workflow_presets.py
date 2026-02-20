@@ -29,6 +29,17 @@ def _telegram_auth(*, tg_user_id: int, role: str = "owner") -> AdminAuthContext:
     )
 
 
+def _unauthorized_auth() -> AdminAuthContext:
+    return AdminAuthContext(
+        authorized=False,
+        via="none",
+        role="viewer",
+        can_manage=False,
+        scopes=frozenset(),
+        tg_user_id=None,
+    )
+
+
 class _SessionStub:
     class _BeginCtx:
         async def __aenter__(self):
@@ -364,6 +375,61 @@ async def test_workflow_presets_action_does_not_record_telemetry_on_invalid_acti
 
 
 @pytest.mark.asyncio
+async def test_workflow_presets_action_rejects_unauthorized_before_telemetry(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _unauthorized_auth())
+
+    called = {"telemetry": False}
+
+    async def _capture(**_kwargs):
+        called["telemetry"] = True
+
+    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+
+    with pytest.raises(HTTPException) as exc:
+        await action_workflow_presets(
+            _make_json_request(
+                "/actions/workflow-presets",
+                {
+                    "action": "save",
+                    "queue_context": "moderation",
+                    "csrf_token": "ok",
+                },
+            )
+        )
+
+    assert exc.value.status_code == 401
+    assert called["telemetry"] is False
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_action_rejects_csrf_before_telemetry(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=12))
+    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: False)
+
+    called = {"telemetry": False}
+
+    async def _capture(**_kwargs):
+        called["telemetry"] = True
+
+    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+
+    with pytest.raises(HTTPException) as exc:
+        await action_workflow_presets(
+            _make_json_request(
+                "/actions/workflow-presets",
+                {
+                    "action": "save",
+                    "queue_context": "moderation",
+                    "csrf_token": "bad",
+                },
+            )
+        )
+
+    assert exc.value.status_code == 403
+    assert called["telemetry"] is False
+
+
+@pytest.mark.asyncio
 async def test_workflow_presets_telemetry_endpoint_returns_segments(monkeypatch) -> None:
     monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=11)))
 
@@ -399,3 +465,43 @@ async def test_workflow_presets_telemetry_endpoint_returns_segments(monkeypatch)
     assert isinstance(segments, list)
     assert isinstance(segments[0], dict)
     assert segments[0].get("queue_key") == "complaints"
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_telemetry_endpoint_rejects_invalid_context(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=13)))
+    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+
+    async def _segments(_session, **_kwargs):
+        raise ValueError("Unknown queue context")
+
+    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
+
+    with pytest.raises(HTTPException) as exc:
+        await action_workflow_presets_telemetry(
+            _make_request("/actions/workflow-presets/telemetry"),
+            queue_context="invalid",
+            lookback_hours=48,
+        )
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_workflow_presets_telemetry_endpoint_requires_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.web.main._require_scope_permission",
+        lambda _req, _scope: (
+            SimpleNamespace(status_code=403),
+            _telegram_auth(tg_user_id=14, role="moderator"),
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await action_workflow_presets_telemetry(
+            _make_request("/actions/workflow-presets/telemetry"),
+            queue_context="moderation",
+            lookback_hours=48,
+        )
+
+    assert exc.value.status_code == 403

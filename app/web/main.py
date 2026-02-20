@@ -4159,16 +4159,20 @@ async def action_workflow_presets_telemetry(
 ) -> dict[str, object]:
     response, _auth = _require_scope_permission(request, SCOPE_USER_BAN)
     if response is not None:
-        raise HTTPException(status_code=response.status_code, detail="Forbidden")
+        detail = "Unauthorized" if response.status_code == 401 else "Forbidden"
+        raise HTTPException(status_code=response.status_code, detail=detail)
 
     context_filter = queue_context.strip().lower() if queue_context is not None else None
 
-    async with SessionFactory() as session:
-        segments = await load_workflow_preset_telemetry_segments(
-            session,
-            queue_context=context_filter,
-            lookback_hours=lookback_hours,
-        )
+    try:
+        async with SessionFactory() as session:
+            segments = await load_workflow_preset_telemetry_segments(
+                session,
+                queue_context=context_filter,
+                lookback_hours=lookback_hours,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {
         "ok": True,
