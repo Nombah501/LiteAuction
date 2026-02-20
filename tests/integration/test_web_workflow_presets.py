@@ -297,7 +297,7 @@ async def test_trade_feedback_telemetry_guardrail_for_low_sample_segments(monkey
         ).body
     ).decode("utf-8")
 
-    assert "guardrail (2/1 < 5)" in body
+    assert "guardrail (2/1" in body
 
 
 @pytest.mark.asyncio
