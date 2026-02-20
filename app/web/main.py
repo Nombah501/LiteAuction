@@ -1125,6 +1125,10 @@ def _resolve_workflow_preset_telemetry_preset_id(*, action: str, payload: dict[s
     return None
 
 
+def _workflow_preset_result_is_successful(result: object) -> bool:
+    return isinstance(result, dict) and result.get("ok") is True
+
+
 async def _record_workflow_preset_telemetry_safe(
     *,
     auth: AdminAuthContext,
@@ -4134,21 +4138,24 @@ async def action_workflow_presets(request: Request) -> dict[str, object]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    telemetry_preset_id = _resolve_workflow_preset_telemetry_preset_id(
-        action=action,
-        payload=payload,
-        result=result,
-    )
-    await _record_workflow_preset_telemetry_safe(
-        auth=auth,
-        queue_context=queue_context,
-        action=action,
-        preset_id=telemetry_preset_id,
-        telemetry_payload=telemetry_payload,
-        admin_token=token,
-    )
+    telemetry_recorded = False
+    if _workflow_preset_result_is_successful(result):
+        telemetry_preset_id = _resolve_workflow_preset_telemetry_preset_id(
+            action=action,
+            payload=payload,
+            result=result,
+        )
+        await _record_workflow_preset_telemetry_safe(
+            auth=auth,
+            queue_context=queue_context,
+            action=action,
+            preset_id=telemetry_preset_id,
+            telemetry_payload=telemetry_payload,
+            admin_token=token,
+        )
+        telemetry_recorded = True
 
-    return {"ok": True, "result": result, "telemetry_recorded": True}
+    return {"ok": True, "result": result, "telemetry_recorded": telemetry_recorded}
 
 
 @app.get("/actions/workflow-presets/telemetry")
