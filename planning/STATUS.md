@@ -1,12 +1,12 @@
 # Planning Status
 
-Last sync: 2026-02-20 12:23 UTC
+Last sync: 2026-02-20 13:04 UTC
 Active sprint: Sprint 53
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S53-001 | Exclude failed business outcomes from preset telemetry sampling | [#233](https://github.com/Nombah501/LiteAuction/issues/233) (open) | - |
-| S53-002 | Add DB-backed telemetry ingestion and aggregation integration coverage | [#234](https://github.com/Nombah501/LiteAuction/issues/234) (open) | - |
+| S53-001 | Exclude failed business outcomes from preset telemetry sampling | [#233](https://github.com/Nombah501/LiteAuction/issues/233) (closed) | - |
+| S53-002 | Add DB-backed telemetry ingestion and aggregation integration coverage | [#234](https://github.com/Nombah501/LiteAuction/issues/234) (closed) | - |
 | S53-003 | Re-verify v1.1 requirements and close milestone | [#235](https://github.com/Nombah501/LiteAuction/issues/235) (open) | - |
 
 ## Recovery Checklist

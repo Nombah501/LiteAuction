@@ -2,7 +2,7 @@
 
 ## What This Is
 
-LiteAuction is a Telegram-first auction platform with a FastAPI admin panel for operators and moderators. It covers the full auction trust loop: lot intake, bidding, moderation and risk triage, appeals, feedback, and audit trails. The current admin UX baseline includes dense queue controls, named workflow presets, and in-place triage interactions for faster queue handling.
+LiteAuction is a Telegram-first auction platform with a FastAPI admin panel for operators and moderators. It covers the full trust loop for auctions: lot intake, bidding, moderation and risk triage, appeals, feedback, and audit trails. The admin surface now includes dense queue controls, deterministic workflow presets, adaptive triage detail depth, and preset telemetry insights.
 
 ## Core Value
 
@@ -11,8 +11,9 @@ Run trustworthy Telegram auctions end-to-end with fast operator intervention and
 ## Current State
 
 - Milestone **v1.0 Operator UX** is shipped and archived.
-- Moderation queues support persisted dense-list ergonomics, deterministic workflow presets, and in-place triage interactions.
-- Planning focus has shifted from delivery to defining the next milestone scope.
+- Milestone **v1.1 Adaptive Triage Intelligence** is shipped and archived.
+- Moderation queues support adaptive detail depth with transparent reason/fallback metadata and per-row override controls.
+- Workflow preset telemetry now provides segmented quality signals and excludes failed action outcomes from sampling.
 
 ## Requirements
 
@@ -21,32 +22,32 @@ Run trustworthy Telegram auctions end-to-end with fast operator intervention and
 - ✓ Operators can configure dense moderation queues (density, filters, column layout) with durable persistence.
 - ✓ Operators and admins can manage named workflow presets with deterministic default and last-selected behavior.
 - ✓ Operators can triage queue rows in place with progressive details, keyboard flow, and safe bulk actions.
-- ✓ Scope-based RBAC and CSRF protections remain enforced for web moderation actions.
-- ✓ Sprint 51 delivery traceability is complete (issues `#205`, `#206`, `#207`, `#208`, `#212`, `#215`, `#218` all closed).
+- ✓ Adaptive detail depth by risk/priority is deterministic, transparent, and override-capable (`ADPT-01..03`) — v1.1.
+- ✓ Preset telemetry captures and segments actionable quality metrics while excluding failed outcomes (`TELE-01..03`) — v1.1.
+- ✓ RBAC and CSRF protections remain enforced for adaptive and telemetry surfaces (`SAFE-01..02`) — v1.1.
+- ✓ Automated coverage includes adaptive behavior and DB-backed telemetry integration paths (`TEST-11..12`) — v1.1.
 
 ### Active
 
-- [x] Define and plan milestone v1.1 scope and acceptance criteria.
-- [ ] Deliver adaptive detail depth controls with predictable navigation (`ADPT-01`).
-- [ ] Add operator preset telemetry for quality analysis (`TELE-01`).
-- [ ] Validate adaptive/telemetry rollout with focused safety and integration gates.
+- [ ] Define and scope milestone v1.2 requirements.
+- [ ] Identify next operator-trust outcomes to improve without regressing queue speed.
+- [ ] Build Sprint 54 manifest and sync issue scaffolds for v1.2 kickoff.
 
 ### Out of Scope
 
-- Native mobile app clients - current strategy is Telegram + web admin first.
-- Multi-platform auction channels outside Telegram - current operations are optimized for Telegram workflows.
-- Non-auction social feature expansion - outside trust-first auction operations scope.
+- Native mobile app clients - current strategy remains Telegram + web admin first.
+- Multi-platform auction channels outside Telegram - operations remain optimized for Telegram workflows.
+- Autonomous moderation decisioning - conflicts with trust and auditability posture.
 
 ## Context
 
-The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (admin web), SQLAlchemy/Alembic (data), PostgreSQL, and Redis with Docker Compose services (`bot`, `admin`, `db`, `redis`). Milestone v1.0 (Sprint 51 delivery line) completed three phases and delivered operator UX improvements for focus, presets, and in-place triage while preserving moderation and security guarantees.
+The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (admin web), SQLAlchemy/Alembic (data), PostgreSQL, and Redis with Docker Compose services (`bot`, `admin`, `db`, `redis`). v1.0 and v1.1 are now archived milestones; v1.1 added adaptive triage intelligence and telemetry quality signals while preserving moderation safety boundaries.
 
 ## Next Milestone Goals
 
-- Define a focused v1.1 milestone that extends v1.0 operator workflows without regressing queue speed.
-- Prioritize measurable operator outcomes (time-to-action, reopen risk, filter churn) to guide preset tuning.
-- Preserve strict safety posture (RBAC, CSRF, explicit confirmations, deterministic state transitions).
-- Sequence delivery through Sprint 52 issue set before implementation begins.
+- Define focused v1.2 scope from post-v1.1 operational feedback.
+- Prioritize measurable operator outcomes that improve triage speed and decision confidence.
+- Keep deterministic behavior, auditability, and security posture as non-negotiable constraints.
 
 ## Constraints
 
@@ -63,6 +64,8 @@ The codebase is a Python 3.12 modular monolith using aiogram (bot), FastAPI (adm
 | Use deterministic preset precedence (first-entry admin default, then last-selected) | Prevents non-deterministic queue state and operator confusion | ✓ Good |
 | Keep triage interaction model to two disclosure levels (list + inline details) | Maintains scan speed and avoids deep navigation context loss | ✓ Good |
 | Gate destructive bulk actions with explicit confirmation + server-side validation | Reduces accidental moderation mutations and improves safety posture | ✓ Good |
+| Gate telemetry sampling on successful business outcomes only | Avoids misleading quality signals from conflict/failure paths | ✓ Good |
+| Require DB-backed telemetry integration assertions before milestone closeout | Ensures aggregation confidence beyond monkeypatched route checks | ✓ Good |
 
 ---
-*Last updated: 2026-02-20 for v1.1 milestone kickoff*
+*Last updated: 2026-02-20 after v1.1 milestone closeout*
