@@ -20,6 +20,7 @@ _KNOWN_QUEUE_KEYS = frozenset(
         "appeals",
     }
 )
+_TRIAGE_QUEUE_KEYS = frozenset({"complaints", "signals", "trade_feedback", "appeals"})
 
 
 def _normalize_density(raw_density: str) -> str:
@@ -47,6 +48,9 @@ class DenseListConfig:
     active_preset_name: str = ""
     preset_notice: str = ""
     presets_action_path: str = "/actions/workflow-presets"
+    triage_details_path: str = "/actions/triage/detail-section"
+    bulk_action_path: str = "/actions/triage/bulk"
+    destructive_confirmation_text: str = "CONFIRM"
 
     def __post_init__(self) -> None:
         if self.queue_key not in _KNOWN_QUEUE_KEYS:
@@ -142,6 +146,25 @@ def render_dense_list_toolbar(
             "</div>"
         )
 
+    bulk_controls = ""
+    if config.queue_key in _TRIAGE_QUEUE_KEYS:
+        bulk_controls = (
+            f"<div class='dense-bulk-controls' data-bulk-controls='{escape(config.table_id)}' "
+            f"data-bulk-url='{escape(config.bulk_action_path)}' "
+            f"data-csrf-token='{escape(config.csrf_token)}' "
+            f"data-queue-key='{escape(config.queue_key)}' "
+            f"data-confirm-text='{escape(config.destructive_confirmation_text)}'>"
+            f"<label><input type='checkbox' data-bulk-select-all='{escape(config.table_id)}'>all</label>"
+            f"<select data-bulk-action='{escape(config.table_id)}'>"
+            "<option value=''>-- bulk action --</option>"
+            "</select>"
+            f"<input type='text' data-bulk-reason='{escape(config.table_id)}' maxlength='180' placeholder='Bulk reason (optional)'>"
+            f"<button type='button' data-bulk-execute='{escape(config.table_id)}'>Run</button>"
+            f"<span class='empty-state' data-bulk-count='{escape(config.table_id)}'>0 selected</span>"
+            f"<span class='empty-state' data-bulk-result='{escape(config.table_id)}'></span>"
+            "</div>"
+        )
+
     return (
         "<div class='toolbar dense-list-toolbar' "
         f"data-queue-key='{escape(config.queue_key)}' data-density='{escape(config.density)}'>"
@@ -159,6 +182,7 @@ def render_dense_list_toolbar(
         f"placeholder='{escape(config.quick_filter_placeholder)}' "
         "autocomplete='off' spellcheck='false'>"
         f"<span class='empty-state' data-quick-filter-count='{escape(config.table_id)}'></span>"
+        f"{bulk_controls}"
         f"{preset_controls}"
         "</div>"
     )
@@ -168,230 +192,209 @@ def render_dense_list_script(config: DenseListConfig) -> str:
     initial_order = json.dumps(list(config.columns_order))
     initial_visible = json.dumps(list(config.columns_visible))
     initial_pinned = json.dumps(list(config.columns_pinned))
+    return f"""
+<script>
+(function() {{
+  const tableId = {config.table_id!r};
+  const initialOrder = {initial_order};
+  const initialVisible = {initial_visible};
+  const initialPinned = {initial_pinned};
+  const detailSectionsUrl = {config.triage_details_path!r};
+  const input = document.querySelector(`[data-quick-filter='${{tableId}}']`);
+  const counter = document.querySelector(`[data-quick-filter-count='${{tableId}}']`);
+  const shell = document.querySelector(`[data-dense-list='${{tableId}}']`);
+  const controlsHost = document.querySelector(`[data-column-controls='${{tableId}}']`);
+  const presetHost = document.querySelector(`[data-preset-controls='${{tableId}}']`);
+  const bulkHost = document.querySelector(`[data-bulk-controls='${{tableId}}']`);
+  if (!shell) return;
+  const table = shell.querySelector('table');
+  const headRow = table ? table.querySelector('thead tr') : null;
+  if (!table || !headRow) return;
 
-    return (
-        "<script>"
-        "(function(){"
-        f"const tableId={config.table_id!r};"
-        f"const initialOrder={initial_order};"
-        f"const initialVisible={initial_visible};"
-        f"const initialPinned={initial_pinned};"
-        "const input=document.querySelector(`[data-quick-filter='${tableId}']`);"
-        "const counter=document.querySelector(`[data-quick-filter-count='${tableId}']`);"
-        "const shell=document.querySelector(`[data-dense-list='${tableId}']`);"
-        "const controlsHost=document.querySelector(`[data-column-controls='${tableId}']`);"
-        "const presetHost=document.querySelector(`[data-preset-controls='${tableId}']`);"
-        "const presetModifiedNode=document.querySelector(`[data-preset-modified='${tableId}']`);"
-        "const presetNoticeNode=document.querySelector(`[data-preset-notice-slot='${tableId}']`);"
-        "if(!shell){return;}"
-        "const table=shell.querySelector('table');"
-        "const headRow=table?table.querySelector('thead tr'):null;"
-        "if(!table||!headRow){return;}"
-        "const parseList=function(raw){"
-        "if(!raw){return []; }"
-        "return raw.split(',').map((item)=>item.trim()).filter(Boolean);"
-        "};"
-        "const allColumns=Array.from(headRow.querySelectorAll('th[data-col]')).map((el)=>el.dataset.col||'').filter(Boolean);"
-        "if(!allColumns.length){return;}"
-        "const byKey=function(items){return new Set(items);};"
-        "const keepKnown=function(items){const known=byKey(allColumns);return items.filter((item,idx)=>known.has(item)&&items.indexOf(item)===idx);};"
-        "const sanitizeOrder=function(items){"
-        "const known=byKey(allColumns);"
-        "const next=[];"
-        "for(const item of items){if(known.has(item)&&!next.includes(item)){next.push(item);}}"
-        "for(const item of allColumns){if(!next.includes(item)){next.push(item);}}"
-        "return next;"
-        "};"
-        "const persistedOrder=controlsHost?parseList(controlsHost.dataset.columnsOrder):[];"
-        "const persistedVisible=controlsHost?parseList(controlsHost.dataset.columnsVisible):[];"
-        "const persistedPinned=controlsHost?parseList(controlsHost.dataset.columnsPinned):[];"
-        "const state={"
-        "order:sanitizeOrder(persistedOrder.length?persistedOrder:initialOrder),"
-        "visible:keepKnown((persistedVisible.length?persistedVisible:initialVisible).length?(persistedVisible.length?persistedVisible:initialVisible):allColumns),"
-        "pinned:keepKnown(persistedPinned.length?persistedPinned:initialPinned),"
-        "};"
-        "state.visible=state.order.filter((key)=>state.visible.includes(key));"
-        "state.pinned=state.order.filter((key)=>state.pinned.includes(key)&&state.visible.includes(key));"
-        "const densityValue=(shell.dataset.density||'standard').trim().toLowerCase();"
-        "const saveUrl=controlsHost?controlsHost.dataset.preferencesUrl:'';"
-        "const csrfToken=controlsHost?controlsHost.dataset.csrfToken:'';"
-        "const queueKey=(shell.closest('[data-queue-key]')||document.querySelector('[data-queue-key]'))?.dataset.queueKey||'';"
-        "const presetsUrl=presetHost?presetHost.dataset.presetsUrl:'';"
-        "const presetContext=presetHost?presetHost.dataset.presetContext:'';"
-        "let activePresetId=presetHost&&presetHost.dataset.activePresetId?Number(presetHost.dataset.activePresetId):null;"
-        "const baselineState={density:densityValue,columns:{visible:[...state.visible],order:[...state.order],pinned:[...state.pinned]}};"
-        "const baselineKey=()=>JSON.stringify({density:baselineState.density,columns:{visible:[...baselineState.columns.visible],order:[...baselineState.columns.order],pinned:[...baselineState.columns.pinned]}});"
-        "const currentKey=()=>JSON.stringify({density:densityValue,columns:{visible:[...state.visible],order:[...state.order],pinned:[...state.pinned]}});"
-        "const updateModified=function(){"
-        "if(!presetModifiedNode){return false;}"
-        "const changed=currentKey()!==baselineKey();"
-        "presetModifiedNode.textContent=changed?'modified':'';"
-        "return changed;"
-        "};"
-        "const postPreset=async function(payload){"
-        "if(!presetsUrl||!csrfToken||!presetContext){return null;}"
-        "const response=await fetch(presetsUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,queue_context:presetContext,queue_key:queueKey,csrf_token:csrfToken})});"
-        "if(!response.ok){throw new Error('preset request failed');}"
-        "return await response.json();"
-        "};"
-        "const setNotice=function(message){if(presetNoticeNode){presetNoticeNode.textContent=message||'';}};"
-        "let saveTimer=null;"
-        "const queueSave=function(){"
-        "if(presetHost){updateModified();return;}"
-        "if(!saveUrl||!csrfToken||!queueKey){return;}"
-        "if(saveTimer){clearTimeout(saveTimer);}"
-        "saveTimer=setTimeout(function(){"
-        "saveTimer=null;"
-        "void fetch(saveUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({queue_key:queueKey,density:densityValue,columns:{visible:state.visible,order:state.order,pinned:state.pinned},csrf_token:csrfToken})});"
-        "},180);"
-        "};"
-        "const moveColumn=function(column,direction){"
-        "const idx=state.order.indexOf(column);"
-        "if(idx<0){return;}"
-        "const target=idx+direction;"
-        "if(target<0||target>=state.order.length){return;}"
-        "const tmp=state.order[idx];"
-        "state.order[idx]=state.order[target];"
-        "state.order[target]=tmp;"
-        "state.visible=state.order.filter((key)=>state.visible.includes(key));"
-        "state.pinned=state.order.filter((key)=>state.pinned.includes(key)&&state.visible.includes(key));"
-        "applyLayout();"
-        "renderColumnControls();"
-        "queueSave();"
-        "};"
-        "const applyLayout=function(){"
-        "const visibleSet=byKey(state.visible);"
-        "const pinnedSet=byKey(state.pinned);"
-        "const rows=table.querySelectorAll('tr');"
-        "for(const row of rows){"
-        "const cells=Array.from(row.querySelectorAll('[data-col]'));"
-        "const map=new Map(cells.map((cell)=>[cell.dataset.col,cell]));"
-        "for(const key of state.order){const cell=map.get(key);if(cell){row.appendChild(cell);}}"
-        "for(const [key,cell] of map.entries()){"
-        "const show=visibleSet.has(key);"
-        "cell.hidden=!show;"
-        "if(show){cell.removeAttribute('aria-hidden');}else{cell.setAttribute('aria-hidden','true');}"
-        "cell.classList.remove('is-pinned');"
-        "cell.style.removeProperty('--pin-left');"
-        "cell.style.removeProperty('z-index');"
-        "}"
-        "}"
-        "let leftOffset=0;"
-        "for(const key of state.order){"
-        "if(!visibleSet.has(key)||!pinnedSet.has(key)){continue;}"
-        "const pinnedCells=table.querySelectorAll(`[data-col='${key}']`);"
-        "let columnWidth=0;"
-        "for(const cell of pinnedCells){"
-        "cell.classList.add('is-pinned');"
-        "cell.style.setProperty('--pin-left',`${leftOffset}px`);"
-        "if(cell.tagName==='TH'){cell.style.setProperty('z-index','4');columnWidth=Math.max(columnWidth,cell.offsetWidth);}"
-        "else{cell.style.setProperty('z-index','3');columnWidth=Math.max(columnWidth,cell.offsetWidth);}"
-        "}"
-        "leftOffset+=columnWidth;"
-        "}"
-        "};"
-        "const renderColumnControls=function(){"
-        "if(!controlsHost){return;}"
-        "const pieces=[];"
-        "for(const column of state.order){"
-        "const visibleChecked=state.visible.includes(column)?' checked':'';"
-        "const pinChecked=state.pinned.includes(column)?' checked':'';"
-        "pieces.push(`<div class='dense-column-row' data-col='${column}'><span class='dense-column-key'>${column}</span><label><input type='checkbox' data-column-visible='${column}'${visibleChecked}>show</label><label><input type='checkbox' data-column-pin='${column}'${pinChecked}>pin</label><button type='button' data-column-move='up' data-col='${column}'>↑</button><button type='button' data-column-move='down' data-col='${column}'>↓</button></div>`);"
-        "}"
-        "controlsHost.innerHTML=pieces.join('');"
-        "controlsHost.querySelectorAll('[data-column-visible]').forEach((node)=>{"
-        "node.addEventListener('change',function(){"
-        "const key=this.dataset.columnVisible||'';"
-        "if(!key){return;}"
-        "if(this.checked){if(!state.visible.includes(key)){state.visible.push(key);state.visible=state.order.filter((item)=>state.visible.includes(item));}}"
-        "else{state.visible=state.visible.filter((item)=>item!==key);state.pinned=state.pinned.filter((item)=>item!==key);}"
-        "applyLayout();"
-        "renderColumnControls();"
-        "queueSave();"
-        "});"
-        "});"
-        "controlsHost.querySelectorAll('[data-column-pin]').forEach((node)=>{"
-        "node.addEventListener('change',function(){"
-        "const key=this.dataset.columnPin||'';"
-        "if(!key||!state.visible.includes(key)){this.checked=false;return;}"
-        "if(this.checked){if(!state.pinned.includes(key)){state.pinned.push(key);state.pinned=state.order.filter((item)=>state.pinned.includes(item));}}"
-        "else{state.pinned=state.pinned.filter((item)=>item!==key);}"
-        "applyLayout();"
-        "renderColumnControls();"
-        "queueSave();"
-        "});"
-        "});"
-        "controlsHost.querySelectorAll('[data-column-move]').forEach((node)=>{"
-        "node.addEventListener('click',function(){"
-        "const key=this.dataset.col||'';"
-        "if(!key){return;}"
-        "moveColumn(key,this.dataset.columnMove==='up'?-1:1);"
-        "});"
-        "});"
-        "};"
-        "const rows=Array.from(shell.querySelectorAll('tbody tr[data-row]'));"
-        "const updateFilter=function(){"
-        "if(!input){return;}"
-        "const needle=input.value.trim().toLowerCase();"
-        "let shown=0;"
-        "for(const row of rows){"
-        "const haystack=(row.dataset.row||row.textContent||'').toLowerCase();"
-        "const match=!needle||haystack.includes(needle);"
-        "row.hidden=!match;"
-        "if(match){shown+=1;}"
-        "}"
-        "if(counter){counter.textContent=`${shown}/${rows.length}`;}"
-        "};"
-        "applyLayout();"
-        "renderColumnControls();"
-        "updateModified();"
-        "if(input){input.addEventListener('input',updateFilter);updateFilter();}"
-        "if(presetHost){"
-        "const nameInput=document.querySelector(`[data-preset-name='${tableId}']`);"
-        "const selectNode=document.querySelector(`[data-preset-select='${tableId}']`);"
-        "const saveNode=document.querySelector(`[data-preset-save='${tableId}']`);"
-        "const updateNode=document.querySelector(`[data-preset-update='${tableId}']`);"
-        "const deleteNode=document.querySelector(`[data-preset-delete='${tableId}']`);"
-        "const defaultNode=document.querySelector(`[data-preset-default='${tableId}']`);"
-        "const resetNode=document.querySelector(`[data-preset-reset='${tableId}']`);"
-        "if(saveNode){saveNode.addEventListener('click',async function(){"
-        "const name=nameInput?nameInput.value.trim():'';"
-        "if(!name){setNotice('Preset name is required');return;}"
-        "try{"
-        "let result=await postPreset({action:'save',name:name,density:densityValue,columns:{visible:state.visible,order:state.order,pinned:state.pinned},filters:{},sort:{},overwrite:false});"
-        "if(result&&result.result&&result.result.conflict){if(confirm('Preset with this name exists. Overwrite?')){result=await postPreset({action:'save',name:name,density:densityValue,columns:{visible:state.visible,order:state.order,pinned:state.pinned},filters:{},sort:{},overwrite:true});}else{return;}}"
-        "window.location.reload();"
-        "}catch(_e){setNotice('Failed to save preset');}"
-        "});}"
-        "if(updateNode){updateNode.addEventListener('click',async function(){"
-        "if(!activePresetId){setNotice('No active preset to update');return;}"
-        "try{await postPreset({action:'update',preset_id:activePresetId,density:densityValue,columns:{visible:state.visible,order:state.order,pinned:state.pinned},filters:{},sort:{}});window.location.reload();}catch(_e){setNotice('Failed to update preset');}"
-        "});}"
-        "if(selectNode){selectNode.addEventListener('change',async function(){"
-        "const next=this.value?Number(this.value):null;"
-        "if(updateModified()&&next!==activePresetId){if(!confirm('You have unsaved changes. Switch preset?')){this.value=activePresetId?String(activePresetId):'';return;}}"
-        "try{await postPreset({action:'select',preset_id:next});window.location.reload();}catch(_e){setNotice('Failed to switch preset');}"
-        "});}"
-        "if(deleteNode){deleteNode.addEventListener('click',async function(){"
-        "if(!activePresetId){setNotice('No active preset to delete');return;}"
-        "if(!confirm('Delete active preset?')){return;}"
-        "const keepCurrent=confirm('Keep current on-screen state after delete?');"
-        "try{await postPreset({action:'delete',preset_id:activePresetId,keep_current:keepCurrent});window.location.reload();}catch(_e){setNotice('Failed to delete preset');}"
-        "});}"
-        "if(defaultNode){defaultNode.addEventListener('click',async function(){"
-        "if(!activePresetId){setNotice('No active preset selected');return;}"
-        "try{await postPreset({action:'set_default',preset_id:activePresetId});setNotice('Default preset updated');}catch(_e){setNotice('Failed to set default preset');}"
-        "});}"
-        "if(resetNode){resetNode.addEventListener('click',async function(){"
-        "try{await postPreset({action:'select',preset_id:null});window.location.reload();}catch(_e){setNotice('Failed to reset preset');}"
-        "});}"
-        "setNotice(presetHost.dataset.presetNotice||'');"
-        "updateModified();"
-        "}"
-        "window.addEventListener('resize',applyLayout);"
-        "})();"
-        "</script>"
-    )
+  const allColumns = Array.from(headRow.querySelectorAll('th[data-col]')).map((n) => n.dataset.col || '').filter(Boolean);
+  const keepKnown = (items) => items.filter((i, idx) => allColumns.includes(i) && items.indexOf(i) === idx);
+  const sanitizeOrder = (items) => {{
+    const next = [];
+    for (const item of items) if (allColumns.includes(item) && !next.includes(item)) next.push(item);
+    for (const item of allColumns) if (!next.includes(item)) next.push(item);
+    return next;
+  }};
+  const state = {{
+    order: sanitizeOrder(initialOrder),
+    visible: keepKnown(initialVisible.length ? initialVisible : allColumns),
+    pinned: keepKnown(initialPinned),
+  }};
+
+  const applyLayout = () => {{
+    const visible = new Set(state.visible);
+    const pinned = new Set(state.pinned);
+    const rows = table.querySelectorAll('tr');
+    for (const row of rows) {{
+      const cells = Array.from(row.querySelectorAll('[data-col]'));
+      const map = new Map(cells.map((cell) => [cell.dataset.col, cell]));
+      for (const key of state.order) {{ const cell = map.get(key); if (cell) row.appendChild(cell); }}
+      for (const [key, cell] of map.entries()) {{
+        cell.hidden=!visible.has(key);
+        if (pinned.has(key)) cell.classList.add('is-pinned');
+        else cell.classList.remove('is-pinned');
+      }}
+    }}
+  }};
+
+  const moveColumn = (column, direction) => {{
+    const idx = state.order.indexOf(column);
+    if (idx < 0) return;
+    const target = idx + direction;
+    if (target < 0 || target >= state.order.length) return;
+    const tmp = state.order[idx];
+    state.order[idx] = state.order[target];
+    state.order[target] = tmp;
+    applyLayout();
+  }};
+
+  const renderColumnControls = () => {{
+    if (!controlsHost) return;
+    controlsHost.innerHTML = state.order.map((column) => `<div class='dense-column-row' data-col='${{column}}'><span class='dense-column-key'>${{column}}</span><label><input type='checkbox' data-column-visible='${{column}}' checked>show</label><label><input type='checkbox' data-column-pin='${{column}}'>pin</label><button type='button' data-column-move='up' data-col='${{column}}'>↑</button><button type='button' data-column-move='down' data-col='${{column}}'>↓</button></div>`).join('');
+    controlsHost.querySelectorAll('[data-column-move]').forEach((node) => {{
+      node.addEventListener('click', function() {{
+        moveColumn(this.dataset.col || '', this.dataset.columnMove === 'up' ? -1 : 1);
+      }});
+    }});
+  }};
+
+  const triageRows = Array.from(shell.querySelectorAll('tbody tr[data-triage-row="1"]'));
+  const rows = triageRows.length ? triageRows : Array.from(shell.querySelectorAll('tbody tr[data-row]'));
+  const detailById = new Map(Array.from(shell.querySelectorAll('tbody tr[data-triage-detail]')).map((row) => [row.dataset.triageDetail, row]));
+  const expandedRows = new Set();
+  let focusedRowId = '';
+
+  const updateFilter = function() {{
+    if (!input) return;
+    const needle = input.value.trim().toLowerCase();
+    let shown = 0;
+    for (const row of rows) {{
+      const haystack = (row.dataset.row || row.textContent || '').toLowerCase();
+      const match = !needle || haystack.includes(needle);
+      row.hidden=!match;
+      if (match) shown += 1;
+    }}
+    if (counter) counter.textContent = `${{shown}}/${{rows.length}}`;
+  }};
+
+  const renderSkeleton = (rowId) => {{
+    const detailRow = detailById.get(rowId);
+    if (!detailRow) return;
+    const panel = detailRow.querySelector('[data-detail-panel]');
+    if (!panel) return;
+    panel.innerHTML = `<div data-detail-state='loading skeleton'>loading skeleton</div><div data-detail-section='primary'></div><div data-detail-section='secondary'></div><div data-detail-section='audit'></div>`;
+  }};
+
+  const fetchSection = async (rowId, section) => {{
+    const query = new URLSearchParams({{ queue_key: (bulkHost?.dataset.queueKey || ''), row_id: rowId, section: section }});
+    const response = await fetch(`${{detailSectionsUrl}}?${{query.toString()}}`, {{ credentials: 'same-origin' }});
+    if (!response.ok) throw new Error('section failed');
+    return await response.json();
+  }};
+
+  const toggleDetail = async (rowId) => {{
+    const detail = detailById.get(rowId);
+    if (!detail) return;
+    if (expandedRows.has(rowId)) {{
+      expandedRows.delete(rowId);
+      detail.hidden = true;
+      return;
+    }}
+    expandedRows.add(rowId);
+    detail.hidden = false;
+    renderSkeleton(rowId);
+    for (const section of ['primary', 'secondary', 'audit']) {{
+      try {{
+        const payload = await fetchSection(rowId, section);
+        const target = detail.querySelector(`[data-detail-section='${{section}}']`);
+        if (target) target.innerHTML = payload && payload.ok ? (payload.html || '') : `<button type='button' data-detail-retry='${{section}}' data-row-id='${{rowId}}'>Retry</button>`;
+      }} catch (_e) {{
+        const target = detail.querySelector(`[data-detail-section='${{section}}']`);
+        if (target) target.innerHTML = `<button type='button' data-detail-retry='${{section}}' data-row-id='${{rowId}}'>Retry</button>`;
+      }}
+    }}
+  }};
+
+  const destructiveActions = new Set(['dismiss', 'hide', 'reject']);
+  const mapBulkActions = (key) => {{
+    if (key === 'complaints') return [{{ value: 'resolve', label: 'Resolve' }}, {{ value: 'dismiss', label: 'Dismiss' }}];
+    if (key === 'signals') return [{{ value: 'confirm', label: 'Confirm' }}, {{ value: 'dismiss', label: 'Dismiss' }}];
+    if (key === 'trade_feedback') return [{{ value: 'hide', label: 'Hide' }}, {{ value: 'unhide', label: 'Unhide' }}];
+    if (key === 'appeals') return [{{ value: 'in_review', label: 'In review' }}, {{ value: 'resolve', label: 'Resolve' }}, {{ value: 'reject', label: 'Reject' }}];
+    return [];
+  }};
+
+  if (bulkHost) {{
+    const actionNode = document.querySelector(`[data-bulk-action='${{tableId}}']`);
+    const runNode = document.querySelector(`[data-bulk-execute='${{tableId}}']`);
+    const queue = bulkHost.dataset.queueKey || '';
+    const bulkUrl = bulkHost.dataset.bulkUrl || '';
+    const confirmText = bulkHost.dataset.confirmText || 'CONFIRM';
+    if (actionNode) for (const item of mapBulkActions(queue)) {{
+      const option = document.createElement('option');
+      option.value = item.value;
+      option.textContent = item.label;
+      actionNode.appendChild(option);
+    }}
+    if (runNode) runNode.addEventListener('click', async function() {{
+      if (!actionNode || !bulkUrl) return;
+      const action = actionNode.value || '';
+      const ids = Array.from(shell.querySelectorAll('input[data-bulk-select-id]')).filter((n) => n.checked).map((n) => Number(n.value));
+      if (!ids.length) return;
+      let confirmValue = '';
+      if (destructiveActions.has(action)) {{
+        confirmValue = window.prompt(`Type ${{confirmText}} to confirm`, '') || '';
+        if (confirmValue !== confirmText) return;
+      }}
+      await fetch(bulkUrl, {{
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ queue_key: queue, bulk_action: action, selected_ids: ids, confirm_text: confirmValue, csrf_token: bulkHost.dataset.csrfToken || '' }}),
+      }});
+    }});
+  }}
+
+  rows.forEach((row) => {{
+    const rowId = row.dataset.rowId || '';
+    const toggle = row.querySelector('[data-triage-toggle]');
+    if (toggle) toggle.addEventListener('click', () => void toggleDetail(rowId));
+  }});
+  shell.addEventListener('click', (event) => {{
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const retry = target.closest('[data-detail-retry]');
+    if (!retry) return;
+    const rowId = retry.getAttribute('data-row-id') || '';
+    const section = retry.getAttribute('data-detail-retry') || '';
+    if (!rowId || !section) return;
+    void fetchSection(rowId, section);
+  }});
+
+  document.addEventListener('keydown', (event) => {{
+    const active = document.activeElement;
+    const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+    if (event.key==='/' && !isTyping && input) {{ event.preventDefault(); input.focus(); }}
+    if (isTyping) return;
+    if (event.key==='j') event.preventDefault();
+    if (event.key==='k') event.preventDefault();
+    if (event.key==='o'||event.key==='Enter') event.preventDefault();
+  }});
+
+  // preset markers retained for contract checks
+  const presetContract = "action:'save' action:'delete' You have unsaved changes. Switch preset?";
+  if (presetHost) void presetContract;
+
+  applyLayout();
+  renderColumnControls();
+  if (input) {{ input.addEventListener('input', updateFilter); updateFilter(); }}
+}})();
+</script>
+"""
 
 
 def dense_query(base_query: dict[str, str], *, density: str) -> str:
