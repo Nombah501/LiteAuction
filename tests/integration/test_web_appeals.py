@@ -362,12 +362,78 @@ async def test_appeals_page_overdue_filter_and_pagination_context(monkeypatch, i
     body_page_0 = bytes(response_page_0.body).decode("utf-8")
     assert response_page_0.status_code == 200
     assert "manual_not_due" not in body_page_0
-    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;escalated=all&amp;page=1&amp;q=manual_due" in body_page_0
+    assert (
+        "/appeals?status=open&amp;source=all&amp;overdue=only&amp;escalated=all"
+        "&amp;sla_health=all&amp;aging=all&amp;page=1&amp;q=manual_due"
+    ) in body_page_0
 
     response_page_1 = await appeals(request, status="open", source="all", overdue="only", page=1, q="manual_due")
     body_page_1 = bytes(response_page_1.body).decode("utf-8")
     assert response_page_1.status_code == 200
-    assert "/appeals?status=open&amp;source=all&amp;overdue=only&amp;escalated=all&amp;page=0&amp;q=manual_due" in body_page_1
+    assert (
+        "/appeals?status=open&amp;source=all&amp;overdue=only&amp;escalated=all"
+        "&amp;sla_health=all&amp;aging=all&amp;page=0&amp;q=manual_due"
+    ) in body_page_1
+
+
+@pytest.mark.asyncio
+async def test_appeals_page_sla_health_and_aging_filters_render_metadata(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    now = datetime.now(UTC)
+
+    async with session_factory() as session:
+        async with session.begin():
+            user = User(tg_user_id=99295, username="sla_filter_user")
+            session.add(user)
+            await session.flush()
+
+            session.add_all(
+                [
+                    Appeal(
+                        appeal_ref="manual_warning_bucket",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=user.id,
+                        status=AppealStatus.OPEN,
+                        created_at=now - timedelta(hours=8),
+                        sla_deadline_at=now + timedelta(hours=4),
+                    ),
+                    Appeal(
+                        appeal_ref="manual_healthy_bucket",
+                        source_type=AppealSourceType.MANUAL,
+                        source_id=None,
+                        appellant_user_id=user.id,
+                        status=AppealStatus.OPEN,
+                        created_at=now - timedelta(hours=2),
+                        sla_deadline_at=now + timedelta(hours=9),
+                    ),
+                ]
+            )
+
+    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+
+    request = _make_request("/appeals")
+    response = await appeals(
+        request,
+        status="open",
+        source="all",
+        overdue="all",
+        escalated="all",
+        sla_health="warning",
+        aging="aging",
+        page=0,
+        q="manual_",
+    )
+
+    body = bytes(response.body).decode("utf-8")
+    assert response.status_code == 200
+    assert "manual_warning_bucket" in body
+    assert "manual_healthy_bucket" not in body
+    assert "data-sla-health='warning'" in body
+    assert "data-aging-bucket='aging'" in body
+    assert "SLA health:" in body
+    assert "Возраст:" in body
 
 
 @pytest.mark.asyncio

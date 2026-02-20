@@ -17,7 +17,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -101,6 +101,7 @@ from app.services.points_service import (
     grant_points,
     list_user_points_entries,
 )
+from app.services.queue_sla_health_service import SLA_THRESHOLDS_BY_CONTEXT, decide_queue_sla_health
 from app.services.risk_eval_service import UserRiskSnapshot, evaluate_user_risk_snapshot, format_risk_reason_label
 from app.services.runtime_settings_service import (
     build_runtime_settings_snapshot,
@@ -237,6 +238,20 @@ def _parse_appeal_escalated_filter(raw: str) -> str:
     if value in {"all", "only", "none"}:
         return value
     raise HTTPException(status_code=400, detail="Invalid appeals escalated filter")
+
+
+def _parse_appeal_sla_health_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "healthy", "warning", "critical", "overdue", "no_sla"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid appeals SLA health filter")
+
+
+def _parse_appeal_aging_bucket_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "fresh", "aging", "stale", "critical", "overdue", "unknown"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid appeals aging filter")
 
 
 def _parse_trade_feedback_status(raw: str) -> str:
@@ -3657,6 +3672,8 @@ async def appeals(
     source: str = "all",
     overdue: str = "all",
     escalated: str = "all",
+    sla_health: str = "all",
+    aging: str = "all",
     page: int = 0,
     q: str = "",
     density: str | None = None,
@@ -3674,7 +3691,16 @@ async def appeals(
     source_value = source.strip().lower()
     overdue_value = _parse_appeal_overdue_filter(overdue)
     escalated_value = _parse_appeal_escalated_filter(escalated)
+    sla_health_value = _parse_appeal_sla_health_filter(sla_health)
+    aging_value = _parse_appeal_aging_bucket_filter(aging)
     now = datetime.now(UTC)
+    appeal_sla_thresholds = SLA_THRESHOLDS_BY_CONTEXT["appeals"]
+    active_appeal_statuses = [AppealStatus.OPEN, AppealStatus.IN_REVIEW]
+    overdue_clause = and_(
+        Appeal.status.in_(active_appeal_statuses),
+        Appeal.sla_deadline_at.is_not(None),
+        Appeal.sla_deadline_at <= now,
+    )
 
     status_filter = _parse_appeal_status_filter(status_value)
     source_filter = _parse_appeal_source_filter(source_value)
@@ -3692,19 +3718,61 @@ async def appeals(
         stmt = stmt.where(Appeal.source_type == source_filter)
 
     if overdue_value == "only":
-        stmt = stmt.where(
-            Appeal.status.in_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]),
-            Appeal.sla_deadline_at.is_not(None),
-            Appeal.sla_deadline_at <= now,
-        )
+        stmt = stmt.where(overdue_clause)
     elif overdue_value == "none":
         stmt = stmt.where(
             or_(
-                Appeal.status.notin_([AppealStatus.OPEN, AppealStatus.IN_REVIEW]),
+                Appeal.status.notin_(active_appeal_statuses),
                 Appeal.sla_deadline_at.is_(None),
                 Appeal.sla_deadline_at > now,
             )
         )
+
+    warning_cutoff = now + appeal_sla_thresholds.warning_window
+    critical_cutoff = now + appeal_sla_thresholds.critical_window
+    if sla_health_value == "healthy":
+        stmt = stmt.where(
+            Appeal.status.in_(active_appeal_statuses),
+            Appeal.sla_deadline_at.is_not(None),
+            Appeal.sla_deadline_at > warning_cutoff,
+        )
+    elif sla_health_value == "warning":
+        stmt = stmt.where(
+            Appeal.status.in_(active_appeal_statuses),
+            Appeal.sla_deadline_at.is_not(None),
+            Appeal.sla_deadline_at > critical_cutoff,
+            Appeal.sla_deadline_at <= warning_cutoff,
+        )
+    elif sla_health_value == "critical":
+        stmt = stmt.where(
+            Appeal.status.in_(active_appeal_statuses),
+            Appeal.sla_deadline_at.is_not(None),
+            Appeal.sla_deadline_at > now,
+            Appeal.sla_deadline_at <= critical_cutoff,
+        )
+    elif sla_health_value == "overdue":
+        stmt = stmt.where(overdue_clause)
+    elif sla_health_value == "no_sla":
+        stmt = stmt.where(
+            Appeal.status.in_(active_appeal_statuses),
+            Appeal.sla_deadline_at.is_(None),
+        )
+
+    fresh_cutoff = now - appeal_sla_thresholds.aging_fresh_max
+    aging_cutoff = now - appeal_sla_thresholds.aging_aging_max
+    stale_cutoff = now - appeal_sla_thresholds.aging_stale_max
+    if aging_value == "fresh":
+        stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at >= fresh_cutoff)
+    elif aging_value == "aging":
+        stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at < fresh_cutoff, Appeal.created_at >= aging_cutoff)
+    elif aging_value == "stale":
+        stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at < aging_cutoff, Appeal.created_at >= stale_cutoff)
+    elif aging_value == "critical":
+        stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at < stale_cutoff)
+    elif aging_value == "overdue":
+        stmt = stmt.where(overdue_clause)
+    elif aging_value == "unknown":
+        stmt = stmt.where(Appeal.created_at.is_(None))
 
     if escalated_value == "only":
         stmt = stmt.where(or_(Appeal.escalated_at.is_not(None), Appeal.escalation_level > 0))
@@ -3768,6 +3836,8 @@ async def appeals(
         "source": source_value,
         "overdue": overdue_value,
         "escalated": escalated_value,
+        "sla_health": sla_health_value,
+        "aging": aging_value,
         "q": query_value,
         "density": dense_config.density,
     }
@@ -3781,6 +3851,8 @@ async def appeals(
         source_filter_value: str | None = None,
         overdue_filter: str | None = None,
         escalated_filter: str | None = None,
+        sla_health_filter: str | None = None,
+        aging_filter: str | None = None,
         query_filter: str | None = None,
         density_value: str | None = None,
         telemetry_preset_id_value: int | None = telemetry_preset_id,
@@ -3792,6 +3864,8 @@ async def appeals(
                 "source": source_filter_value or source_value,
                 "overdue": overdue_filter or overdue_value,
                 "escalated": escalated_filter or escalated_value,
+                "sla_health": sla_health_filter or sla_health_value,
+                "aging": aging_filter or aging_value,
                 "q": query_value if query_filter is None else query_filter,
                 "page": str(page_value),
                 "density": density_value or dense_config.density,
@@ -3832,6 +3906,14 @@ async def appeals(
         if appeal.priority_boosted_at is not None:
             status_label += " ⚡"
         sla_state_label = _appeal_sla_state_label(appeal, now=now)
+        sla_decision = decide_queue_sla_health(
+            queue_context="appeals",
+            status=appeal.status,
+            created_at=appeal.created_at,
+            deadline_at=appeal.sla_deadline_at,
+            now=now,
+        )
+        health_hint = f"SLA:{sla_decision.health_state} | age:{sla_decision.aging_bucket}"
         escalation_marker = _appeal_escalation_marker(appeal)
         appeal_priority = "normal"
         if appeal.priority_boosted_at is not None:
@@ -3887,7 +3969,7 @@ async def appeals(
             f"<td data-col='resolution'>{escape((appeal.resolution_note or '-')[:160])}</td>"
             f"<td data-col='moderator'>{escape(resolver_label)}</td>"
             f"<td data-col='created'>{escape(_fmt_ts(appeal.created_at))}</td>"
-            f"<td data-col='sla'>{escape(sla_state_label)}</td>"
+            f"<td data-col='sla' data-sla-health='{escape(sla_decision.health_state)}' data-aging-bucket='{escape(sla_decision.aging_bucket)}'>{escape(sla_state_label)}<br><small>{escape(health_hint)}</small></td>"
             f"<td data-col='deadline'>{escape(_fmt_ts(appeal.sla_deadline_at))}</td>"
             f"<td data-col='escalation'>{escape(escalation_marker)}</td>"
             f"<td data-col='closed'>{escape(_fmt_ts(appeal.resolved_at))}</td>"
@@ -3946,6 +4028,8 @@ async def appeals(
         f"<input type='hidden' name='source' value='{escape(source_value)}'>"
         f"<input type='hidden' name='overdue' value='{escape(overdue_value)}'>"
         f"<input type='hidden' name='escalated' value='{escape(escalated_value)}'>"
+        f"<input type='hidden' name='sla_health' value='{escape(sla_health_value)}'>"
+        f"<input type='hidden' name='aging' value='{escape(aging_value)}'>"
         f"<input type='hidden' name='density' value='{escape(dense_config.density)}'>"
         f"<input type='hidden' name='telemetry_preset_id' value='{escape(str(telemetry_preset_id) if telemetry_preset_id else '')}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='референс / tg id / username' style='width:300px'>"
@@ -3968,6 +4052,21 @@ async def appeals(
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, overdue_filter='all')))}'>Все</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, overdue_filter='only')))}'>Просроченные</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, overdue_filter='none')))}'>Непросроченные</a></div>"
+        f"<div class='toolbar'><span>SLA health:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, sla_health_filter='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, sla_health_filter='healthy')))}'>В норме</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, sla_health_filter='warning')))}'>Внимание</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, sla_health_filter='critical')))}'>Критично</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, sla_health_filter='overdue')))}'>Просрочена</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, sla_health_filter='no_sla')))}'>Без SLA</a></div>"
+        f"<div class='toolbar'><span>Возраст:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, aging_filter='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, aging_filter='fresh')))}'>Свежие</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, aging_filter='aging')))}'>Aging</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, aging_filter='stale')))}'>Stale</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, aging_filter='critical')))}'>Critical</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, aging_filter='overdue')))}'>Overdue</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, aging_filter='unknown')))}'>Unknown</a></div>"
         f"<div class='toolbar'><span>Эскалация:</span>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='all')))}'>Все</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='only')))}'>Эскалированные</a>"

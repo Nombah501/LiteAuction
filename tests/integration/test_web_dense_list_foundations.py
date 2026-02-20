@@ -370,7 +370,7 @@ async def test_appeals_filter_links_keep_qualifiers_with_density(monkeypatch) ->
     assert "data-density-option='compact'" in body
     assert (
         "/appeals?status=open&amp;source=manual&amp;overdue=only&amp;escalated=none"
-        "&amp;q=case42&amp;density=compact&amp;page=0"
+        "&amp;sla_health=all&amp;aging=all&amp;q=case42&amp;density=compact&amp;page=0"
     ) in body
 
 
