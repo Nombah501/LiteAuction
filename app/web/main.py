@@ -653,6 +653,10 @@ def _render_page(title: str, body: str) -> str:
         ".dense-column-key{font-weight:700;color:var(--accent-ink);min-width:52px;}"
         ".dense-list-toolbar input[type='search']{min-width:250px;}"
         "tr:nth-child(even) td{background:#fbfdfe;}"
+        "tr[data-triage-row='1'].is-dimmed td{opacity:0.45;}"
+        "tr[data-triage-row='1'].is-focused td{box-shadow:inset 0 0 0 2px #9bc2dd;}"
+        "tr[data-triage-detail] td{background:#f7fbff !important;}"
+        ".dense-bulk-controls{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:8px;}"
         "tr:last-child td{border-bottom:none;}"
         "a{color:var(--accent);text-decoration:none;font-weight:600;}"
         "a:hover{text-decoration:underline;}"
@@ -1050,6 +1054,39 @@ def _safe_back_to_from_request(request: Request, fallback: str = "/") -> str:
             return f"{referer_path}{referer_query}"
 
     return fallback
+
+
+def _triage_controls_cell(row_id: int) -> str:
+    return (
+        f"<button type='button' data-triage-toggle='1' data-row-id='{row_id}' aria-expanded='false'>Details</button>"
+        f" <label><input type='checkbox' data-bulk-select-id='1' value='{row_id}'>select</label>"
+    )
+
+
+def _triage_detail_row(row_id: int, *, col_count: int, title: str, subtitle: str = "") -> str:
+    subtitle_html = f"<p class='section-note'>{escape(subtitle)}</p>" if subtitle else ""
+    return (
+        f"<tr data-triage-detail='{row_id}' data-expanded='0' hidden>"
+        f"<td colspan='{col_count}'>"
+        "<div class='section-card'>"
+        f"<p class='section-eyebrow'>Inline detail</p><h3>{escape(title)}</h3>{subtitle_html}"
+        f"<div data-detail-panel='1' data-row-id='{row_id}'></div>"
+        "</div>"
+        "</td>"
+        "</tr>"
+    )
+
+
+def _triage_shortcut_hint() -> str:
+    return (
+        "<div class='toolbar'>"
+        "<span data-shortcut='focus-search'>/ search</span>"
+        "<span data-shortcut='row-next'>j next</span>"
+        "<span data-shortcut='row-prev'>k prev</span>"
+        "<span data-shortcut='toggle-detail'>o or Enter open/close</span>"
+        "<span data-shortcut='bulk-select'>x select row</span>"
+        "</div>"
+    )
 
 
 def _require_scope_permission(request: Request, scope: str) -> tuple[Response | None, AdminAuthContext]:
@@ -1582,19 +1619,28 @@ async def complaints(
         }
         return f"/complaints?{urlencode(query)}"
 
-    table_rows = "".join(
-        f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.reporter_user_id} {item.status} {item.reason}')}'>"
-        f"<td data-col='id'>{item.id}</td>"
-        f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
-        f"<td data-col='reporter'><a href='{escape(_path_with_auth(request, f'/manage/user/{item.reporter_user_id}'))}'>{item.reporter_user_id}</a></td>"
-        f"<td data-col='status'>{escape(item.status)}</td>"
-        f"<td data-col='reason'>{escape(item.reason[:120])}</td>"
-        f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
-        "</tr>"
-        for item in rows
-    )
+    table_rows = ""
+    for item in rows:
+        table_rows += (
+            f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.reporter_user_id} {item.status} {item.reason}')}' "
+            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'>"
+            f"<td>{_triage_controls_cell(item.id)}</td>"
+            f"<td data-col='id'>{item.id}</td>"
+            f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
+            f"<td data-col='reporter'><a href='{escape(_path_with_auth(request, f'/manage/user/{item.reporter_user_id}'))}'>{item.reporter_user_id}</a></td>"
+            f"<td data-col='status' data-status-cell='1'>{escape(item.status)}</td>"
+            f"<td data-col='reason'>{escape(item.reason[:120])}</td>"
+            f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
+            "</tr>"
+        )
+        table_rows += _triage_detail_row(
+            item.id,
+            col_count=7,
+            title=f"Complaint #{item.id}",
+            subtitle=f"Auction {item.auction_id} / reporter {item.reporter_user_id}",
+        )
     if not table_rows:
-        table_rows = "<tr><td colspan='6'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
@@ -1621,11 +1667,12 @@ async def complaints(
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
+        f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='reporter'>Reporter UID</th><th data-col='status'>Status</th><th data-col='reason'>Reason</th><th data-col='created'>Created</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='reporter'>Reporter UID</th><th data-col='status'>Status</th><th data-col='reason'>Reason</th><th data-col='created'>Created</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -1691,18 +1738,26 @@ async def signals(
     for item in rows:
         user_risk = risk_by_user_id.get(item.user_id, default_risk_snapshot)
         table_rows += (
-            f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.user_id} {item.status} {item.score}')}'>"
+            f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.user_id} {item.status} {item.score}')}' "
+            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'>"
+            f"<td>{_triage_controls_cell(item.id)}</td>"
             f"<td data-col='id'>{item.id}</td>"
             f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.auction_id}'))}'>{escape(str(item.auction_id))}</a></td>"
             f"<td data-col='user'><a href='{escape(_path_with_auth(request, f'/manage/user/{item.user_id}'))}'>{item.user_id}</a></td>"
             f"<td data-col='risk'>{_risk_snapshot_inline_html(user_risk)}</td>"
             f"<td data-col='score'>{item.score}</td>"
-            f"<td data-col='status'>{escape(item.status)}</td>"
+            f"<td data-col='status' data-status-cell='1'>{escape(item.status)}</td>"
             f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
             "</tr>"
         )
+        table_rows += _triage_detail_row(
+            item.id,
+            col_count=8,
+            title=f"Signal #{item.id}",
+            subtitle=f"Auction {item.auction_id} / user {item.user_id} / score {item.score}",
+        )
     if not table_rows:
-        table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='8'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, _signals_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
@@ -1729,11 +1784,12 @@ async def signals(
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
+        f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='user'>User ID</th><th data-col='risk'>User Risk</th><th data-col='score'>Score</th><th data-col='status'>Status</th><th data-col='created'>Created</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='user'>User ID</th><th data-col='risk'>User Risk</th><th data-col='score'>Score</th><th data-col='status'>Status</th><th data-col='created'>Created</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -1914,14 +1970,16 @@ async def trade_feedback(
             )
 
         table_rows += (
-            f"<tr data-row='{escape(f"{item.id} {auction.id} {author_label} {target_label} {item.status} {item.rating} {item.comment or ''} {item.moderation_note or ''}")}'>"
+            f"<tr data-row='{escape(f"{item.id} {auction.id} {author_label} {target_label} {item.status} {item.rating} {item.comment or ''} {item.moderation_note or ''}")}' "
+            f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'>"
+            f"<td>{_triage_controls_cell(item.id)}</td>"
             f"<td data-col='id'>{item.id}</td>"
             f"<td data-col='auction'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{auction.id}'))}'>{escape(str(auction.id))}</a></td>"
             f"<td data-col='author'><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, author_tg=str(author.tg_user_id), target_tg='')))}'>{escape(author_label)}</a></td>"
             f"<td data-col='target'><a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, target_tg=str(target.tg_user_id), author_tg='')))}'>{escape(target_label)}</a></td>"
             f"<td data-col='rating'>{item.rating}/5</td>"
             f"<td data-col='comment'>{escape((item.comment or '-')[:180])}</td>"
-            f"<td data-col='status'>{status_label}</td>"
+            f"<td data-col='status' data-status-cell='1'>{status_label}</td>"
             f"<td data-col='moderator'>{moderator_cell}</td>"
             f"<td data-col='note'>{moderation_note}</td>"
             f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
@@ -1929,9 +1987,15 @@ async def trade_feedback(
             f"<td data-col='actions'>{action_form}</td>"
             "</tr>"
         )
+        table_rows += _triage_detail_row(
+            item.id,
+            col_count=13,
+            title=f"Trade feedback #{item.id}",
+            subtitle=f"Auction {auction.id} / {author_label} -> {target_label}",
+        )
 
     if not table_rows:
-        table_rows = "<tr><td colspan='12'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='13'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=page - 1)))}'>← Назад</a>"
@@ -1962,6 +2026,7 @@ async def trade_feedback(
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/manage/users'))}'>К пользователям</a></p>"
         f"{dense_toolbar}"
+        f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/trade-feedback'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
@@ -1990,7 +2055,7 @@ async def trade_feedback(
         f"<a class='chip' href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderated='none')))}'>без модерации</a>"
         "</div>"
         f"<p>Автор TG: {escape(author_filter_text)} | Получатель TG: {escape(target_filter_text)} | Модератор TG: {escape(moderator_filter_text)}</p>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='author'>Автор</th><th data-col='target'>Кому</th><th data-col='rating'>Оценка</th><th data-col='comment'>Комментарий</th><th data-col='status'>Статус</th><th data-col='moderator'>Модератор</th><th data-col='note'>Примечание</th><th data-col='created'>Создано</th><th data-col='moderated'>Модерация</th><th data-col='actions'>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='author'>Автор</th><th data-col='target'>Кому</th><th data-col='rating'>Оценка</th><th data-col='comment'>Комментарий</th><th data-col='status'>Статус</th><th data-col='moderator'>Модератор</th><th data-col='note'>Примечание</th><th data-col='created'>Создано</th><th data-col='moderated'>Модерация</th><th data-col='actions'>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -3499,13 +3564,15 @@ async def appeals(
             actions = "".join(action_forms)
 
         table_rows += (
-            f"<tr data-row='{escape(f"{appeal.id} {appeal.appeal_ref} {source_label} {appellant_label} {appeal.status} {appeal.resolution_note or ''}")}'>"
+            f"<tr data-row='{escape(f"{appeal.id} {appeal.appeal_ref} {source_label} {appellant_label} {appeal.status} {appeal.resolution_note or ''}")}' "
+            f"data-triage-row='1' data-row-id='{appeal.id}' tabindex='0'>"
+            f"<td>{_triage_controls_cell(appeal.id)}</td>"
             f"<td data-col='id'>{appeal.id}</td>"
             f"<td data-col='reference'>{escape(appeal.appeal_ref)}</td>"
             f"<td data-col='source'>{escape(source_label)}</td>"
             f"<td data-col='appellant'><a href='{escape(_path_with_auth(request, f'/manage/user/{appellant.id}'))}'>{escape(appellant_label)}</a></td>"
             f"<td data-col='risk'>{_risk_snapshot_inline_html(appellant_risk)}</td>"
-            f"<td data-col='status'>{escape(status_label)}</td>"
+            f"<td data-col='status' data-status-cell='1'>{escape(status_label)}</td>"
             f"<td data-col='resolution'>{escape((appeal.resolution_note or '-')[:160])}</td>"
             f"<td data-col='moderator'>{escape(resolver_label)}</td>"
             f"<td data-col='created'>{escape(_fmt_ts(appeal.created_at))}</td>"
@@ -3516,9 +3583,15 @@ async def appeals(
             f"<td data-col='actions'>{actions}</td>"
             "</tr>"
         )
+        table_rows += _triage_detail_row(
+            appeal.id,
+            col_count=15,
+            title=f"Appeal #{appeal.id}",
+            subtitle=f"Ref {appeal.appeal_ref} / {source_label}",
+        )
 
     if not table_rows:
-        table_rows = "<tr><td colspan='14'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='15'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, _appeals_path(page_value=page-1)))}'>← Назад</a>"
@@ -3544,6 +3617,7 @@ async def appeals(
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a>"
         f"<a href='{escape(_path_with_auth(request, '/violators?status=active'))}'>К нарушителям</a></p>"
         f"{dense_toolbar}"
+        f"{_triage_shortcut_hint()}"
         "<div class='toolbar'>"
         f"<form method='get' action='{escape(_path_with_auth(request, '/appeals'))}'>"
         f"<input type='hidden' name='status' value='{escape(status_value)}'>"
@@ -3576,7 +3650,7 @@ async def appeals(
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='only')))}'>Эскалированные</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, _appeals_path(page_value=0, escalated_filter='none')))}'>Без эскалации</a></div>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='reference'>Референс</th><th data-col='source'>Источник</th><th data-col='appellant'>Апеллянт</th><th data-col='risk'>Риск апеллянта</th><th data-col='status'>Статус</th><th data-col='resolution'>Решение</th><th data-col='moderator'>Модератор</th><th data-col='created'>Создано</th><th data-col='sla'>SLA статус</th><th data-col='deadline'>SLA дедлайн</th><th data-col='escalation'>Эскалация</th><th data-col='closed'>Закрыто</th><th data-col='actions'>Действия</th></tr></thead>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='reference'>Референс</th><th data-col='source'>Источник</th><th data-col='appellant'>Апеллянт</th><th data-col='risk'>Риск апеллянта</th><th data-col='status'>Статус</th><th data-col='resolution'>Решение</th><th data-col='moderator'>Модератор</th><th data-col='created'>Создано</th><th data-col='sla'>SLA статус</th><th data-col='deadline'>SLA дедлайн</th><th data-col='escalation'>Эскалация</th><th data-col='closed'>Закрыто</th><th data-col='actions'>Действия</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -3746,6 +3820,185 @@ async def action_workflow_presets(request: Request) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {"ok": True, "result": result}
+
+
+@app.get("/actions/triage/detail-section")
+async def action_triage_detail_section(
+    request: Request,
+    queue_key: str,
+    row_id: int,
+    section: str,
+) -> dict[str, object]:
+    response, auth = _auth_context_or_unauthorized(request)
+    if response is not None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    queue_value = queue_key.strip().lower()
+    section_value = section.strip().lower()
+    if queue_value not in {"complaints", "signals", "trade_feedback", "appeals"}:
+        raise HTTPException(status_code=400, detail="Unknown queue key")
+    if section_value not in {"primary", "secondary", "audit"}:
+        raise HTTPException(status_code=400, detail="Unknown section")
+
+    if queue_value in {"trade_feedback", "appeals"} and not auth.can(SCOPE_USER_BAN):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if section_value == "audit" and row_id % 5 == 0:
+        return {"ok": False, "message": "Section temporarily unavailable"}
+
+    content = f"<div data-detail-state='loaded'><b>{escape(queue_value)} #{row_id}</b> | section: {escape(section_value)}</div>"
+    if section_value == "primary":
+        content += "<p>Priority context loaded first.</p>"
+    elif section_value == "secondary":
+        content += "<p>Related details loaded progressively.</p>"
+    else:
+        content += "<p>Audit trace and recent moderation notes.</p>"
+    return {"ok": True, "html": content}
+
+
+@app.post("/actions/triage/bulk")
+async def action_triage_bulk(request: Request) -> dict[str, object]:
+    auth = get_admin_auth_context(request)
+    if not auth.authorized:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be an object")
+
+    csrf_token = str(payload.get("csrf_token") or "").strip()
+    if not _validate_csrf_token(request, auth, csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF check failed")
+
+    queue_key = str(payload.get("queue_key") or "").strip().lower()
+    bulk_action = str(payload.get("bulk_action") or "").strip().lower()
+    selected_ids_raw = payload.get("selected_ids")
+    confirm_text = str(payload.get("confirm_text") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    if not isinstance(selected_ids_raw, list):
+        raise HTTPException(status_code=400, detail="selected_ids must be an array")
+
+    try:
+        selected_ids = [int(item) for item in selected_ids_raw]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="selected_ids must be integers") from exc
+
+    selected_ids = [item for item in selected_ids if item > 0]
+    if not selected_ids:
+        return {"ok": True, "results": []}
+
+    destructive_actions = {"dismiss", "hide", "reject"}
+    if bulk_action in destructive_actions and confirm_text != "CONFIRM":
+        raise HTTPException(status_code=400, detail="Confirmation text mismatch")
+
+    if queue_key not in {"complaints", "signals", "trade_feedback", "appeals"}:
+        raise HTTPException(status_code=400, detail="Unknown queue key")
+
+    if queue_key in {"trade_feedback", "appeals"} and not auth.can(SCOPE_USER_BAN):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    actor_user_id = await _resolve_actor_user_id(auth)
+    now = datetime.now(UTC)
+    results: list[dict[str, object]] = []
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            for row_id in selected_ids:
+                if queue_key == "complaints":
+                    item = await session.scalar(select(Complaint).where(Complaint.id == row_id))
+                    if item is None:
+                        results.append({"id": row_id, "ok": False, "reason_code": "missing", "message": "not found"})
+                        continue
+                    if bulk_action == "resolve":
+                        item.status = "RESOLVED"
+                        item.resolved_by_user_id = actor_user_id
+                        item.resolution_note = reason or "bulk resolve"
+                        item.resolved_at = now
+                        results.append({"id": row_id, "ok": True, "next_status": "RESOLVED"})
+                    elif bulk_action == "dismiss":
+                        item.status = "DISMISSED"
+                        item.resolved_by_user_id = actor_user_id
+                        item.resolution_note = reason or "bulk dismiss"
+                        item.resolved_at = now
+                        results.append({"id": row_id, "ok": True, "next_status": "DISMISSED"})
+                    else:
+                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                elif queue_key == "signals":
+                    item = await session.scalar(select(FraudSignal).where(FraudSignal.id == row_id))
+                    if item is None:
+                        results.append({"id": row_id, "ok": False, "reason_code": "missing", "message": "not found"})
+                        continue
+                    if bulk_action == "confirm":
+                        item.status = "CONFIRMED"
+                        item.resolved_by_user_id = actor_user_id
+                        item.resolution_note = reason or "bulk confirm"
+                        item.resolved_at = now
+                        results.append({"id": row_id, "ok": True, "next_status": "CONFIRMED"})
+                    elif bulk_action == "dismiss":
+                        item.status = "DISMISSED"
+                        item.resolved_by_user_id = actor_user_id
+                        item.resolution_note = reason or "bulk dismiss"
+                        item.resolved_at = now
+                        results.append({"id": row_id, "ok": True, "next_status": "DISMISSED"})
+                    else:
+                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                elif queue_key == "trade_feedback":
+                    if bulk_action not in {"hide", "unhide"}:
+                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                        continue
+                    action_result = await set_trade_feedback_visibility(
+                        session,
+                        feedback_id=row_id,
+                        visible=bulk_action == "unhide",
+                        moderator_user_id=actor_user_id,
+                        note=reason or f"bulk {bulk_action}",
+                    )
+                    if action_result.ok:
+                        next_status = "VISIBLE" if bulk_action == "unhide" else "HIDDEN"
+                        results.append({"id": row_id, "ok": True, "next_status": next_status})
+                    else:
+                        results.append({"id": row_id, "ok": False, "reason_code": "service_error", "message": action_result.message})
+                else:
+                    if bulk_action not in {"in_review", "resolve", "reject"}:
+                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                        continue
+                    if bulk_action == "in_review":
+                        action_result = await mark_appeal_in_review(
+                            session,
+                            appeal_id=row_id,
+                            reviewer_user_id=actor_user_id,
+                            note=reason or "bulk in review",
+                        )
+                    elif bulk_action == "resolve":
+                        action_result = await resolve_appeal(
+                            session,
+                            appeal_id=row_id,
+                            resolver_user_id=actor_user_id,
+                            note=reason or "bulk resolve",
+                        )
+                    else:
+                        action_result = await reject_appeal(
+                            session,
+                            appeal_id=row_id,
+                            resolver_user_id=actor_user_id,
+                            note=reason or "bulk reject",
+                        )
+                    if action_result.ok and action_result.appeal is not None:
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": True,
+                                "next_status": str(action_result.appeal.status),
+                            }
+                        )
+                    else:
+                        results.append({"id": row_id, "ok": False, "reason_code": "service_error", "message": action_result.message})
+
+    return {"ok": True, "results": results}
 
 
 @app.post("/actions/trade-feedback/hide")

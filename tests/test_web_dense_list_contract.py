@@ -153,3 +153,39 @@ def test_dense_list_contract_renders_preset_controls_when_enabled() -> None:
     assert "action:'save'" in script_html
     assert "action:'delete'" in script_html
     assert "You have unsaved changes. Switch preset?" in script_html
+
+
+def test_dense_list_contract_renders_bulk_controls_for_triage_queues() -> None:
+    config = DenseListConfig(
+        queue_key="appeals",
+        density="compact",
+        table_id="appeals-table",
+        quick_filter_placeholder="id / ref",
+        csrf_token="csrf-token",
+    )
+
+    toolbar_html = render_dense_list_toolbar(config, density_query_builder=_density_path)
+    script_html = render_dense_list_script(config)
+
+    assert "data-bulk-controls='appeals-table'" in toolbar_html
+    assert "data-bulk-action='appeals-table'" in toolbar_html
+    assert "data-bulk-execute='appeals-table'" in toolbar_html
+    assert "data-triage-row=\"1\"" in script_html
+    assert "data-detail-section='primary'" in script_html
+    assert "destructiveActions" in script_html
+
+
+def test_dense_list_contract_contains_keyboard_shortcuts_contract() -> None:
+    config = DenseListConfig(
+        queue_key="signals",
+        density="standard",
+        table_id="signals-table",
+        quick_filter_placeholder="id / user",
+    )
+
+    script_html = render_dense_list_script(config)
+
+    assert "event.key==='/'" in script_html
+    assert "event.key==='j'" in script_html
+    assert "event.key==='k'" in script_html
+    assert "event.key==='o'||event.key==='Enter'" in script_html
