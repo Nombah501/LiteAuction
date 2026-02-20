@@ -225,3 +225,20 @@ def test_dense_list_contract_wires_bulk_results_rendering_contract() -> None:
     assert "const statusCell = row.querySelector(\"[data-status-cell='1'], [data-col='status']\")" in script_html
     assert "Needs attention:" in script_html
     assert "Bulk done:" in script_html
+
+
+def test_dense_list_contract_includes_adaptive_depth_override_controls() -> None:
+    config = DenseListConfig(
+        queue_key="complaints",
+        density="standard",
+        table_id="complaints-table",
+        quick_filter_placeholder="id / reason",
+    )
+
+    script_html = render_dense_list_script(config)
+
+    assert "data-adaptive-override='auto'" in script_html
+    assert "data-adaptive-override='inline_summary'" in script_html
+    assert "data-adaptive-override='inline_full'" in script_html
+    assert "query.set('depth_override', override);" in script_html
+    assert "Adaptive depth:" in script_html
