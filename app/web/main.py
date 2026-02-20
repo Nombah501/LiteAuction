@@ -48,6 +48,7 @@ from app.services.admin_list_preferences_service import (
     save_admin_list_preference,
 )
 from app.services.admin_queue_presets_service import (
+    QUEUE_CONTEXT_TO_QUEUE_KEY,
     QUEUE_KEY_TO_QUEUE_CONTEXT,
     delete_preset,
     resolve_queue_preset_state,
@@ -55,6 +56,10 @@ from app.services.admin_queue_presets_service import (
     select_preset,
     set_admin_default,
     update_preset,
+)
+from app.services.admin_queue_preset_telemetry_service import (
+    load_workflow_preset_telemetry_segments,
+    record_workflow_preset_telemetry_event,
 )
 from app.services.adaptive_triage_policy_service import decide_adaptive_detail_depth
 from app.services.auction_service import refresh_auction_posts
@@ -984,6 +989,74 @@ def _parse_signed_int(raw: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def _normalize_workflow_preset_telemetry_payload(payload: object) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        return {}
+
+    telemetry = payload.get("telemetry")
+    if not isinstance(telemetry, dict):
+        return {}
+
+    normalized: dict[str, object] = {}
+    for key in ("time_to_action_ms", "reopen_signal", "filter_churn_count"):
+        if key in telemetry:
+            normalized[key] = telemetry[key]
+    return normalized
+
+
+def _resolve_workflow_preset_telemetry_preset_id(*, action: str, payload: dict[str, object], result: dict[str, object]) -> int | None:
+    if action in {"save", "update", "select"}:
+        preset_meta = result.get("preset")
+        if isinstance(preset_meta, dict):
+            preset_id = preset_meta.get("id")
+            if isinstance(preset_id, int) and preset_id > 0:
+                return preset_id
+
+    raw_preset_id = payload.get("preset_id")
+    if isinstance(raw_preset_id, int) and raw_preset_id > 0:
+        return raw_preset_id
+    if isinstance(raw_preset_id, str) and raw_preset_id.isdigit():
+        parsed = int(raw_preset_id)
+        if parsed > 0:
+            return parsed
+    return None
+
+
+async def _record_workflow_preset_telemetry_safe(
+    *,
+    auth: AdminAuthContext,
+    queue_context: str,
+    action: str,
+    preset_id: int | None,
+    telemetry_payload: dict[str, object],
+    admin_token: str | None,
+) -> None:
+    if queue_context not in QUEUE_CONTEXT_TO_QUEUE_KEY:
+        return
+    if action not in {"save", "update", "select", "delete", "set_default"}:
+        return
+
+    try:
+        async with SessionFactory() as telemetry_session:
+            async with telemetry_session.begin():
+                await record_workflow_preset_telemetry_event(
+                    telemetry_session,
+                    auth=auth,
+                    queue_context=queue_context,
+                    action=action,
+                    preset_id=preset_id,
+                    time_to_action_ms=telemetry_payload.get("time_to_action_ms"),
+                    reopen_signal=telemetry_payload.get("reopen_signal"),
+                    filter_churn_count=telemetry_payload.get("filter_churn_count"),
+                    admin_token=admin_token,
+                )
+    except Exception:
+        logger.exception(
+            "Failed to record workflow preset telemetry",
+            extra={"queue_context": queue_context, "action": action, "preset_id": preset_id},
+        )
 
 
 def _normalize_points_filter_query(raw: str | None) -> PointsEventType | None:
@@ -3778,12 +3851,7 @@ async def action_workflow_presets(request: Request) -> dict[str, object]:
     if not queue_context:
         raise HTTPException(status_code=400, detail="Unknown queue context")
 
-    context_queue_key = {
-        "moderation": "complaints",
-        "appeals": "appeals",
-        "risk": "signals",
-        "feedback": "trade_feedback",
-    }.get(queue_context)
+    context_queue_key = QUEUE_CONTEXT_TO_QUEUE_KEY.get(queue_context)
     if context_queue_key is None:
         raise HTTPException(status_code=400, detail="Unknown queue context")
 
@@ -3793,6 +3861,7 @@ async def action_workflow_presets(request: Request) -> dict[str, object]:
 
     action = str(payload.get("action") or "").strip().lower()
     token = _token_from_request(request)
+    telemetry_payload = _normalize_workflow_preset_telemetry_payload(payload)
 
     try:
         async with SessionFactory() as session:
@@ -3867,7 +3936,49 @@ async def action_workflow_presets(request: Request) -> dict[str, object]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return {"ok": True, "result": result}
+    telemetry_preset_id = _resolve_workflow_preset_telemetry_preset_id(
+        action=action,
+        payload=payload,
+        result=result,
+    )
+    await _record_workflow_preset_telemetry_safe(
+        auth=auth,
+        queue_context=queue_context,
+        action=action,
+        preset_id=telemetry_preset_id,
+        telemetry_payload=telemetry_payload,
+        admin_token=token,
+    )
+
+    return {"ok": True, "result": result, "telemetry_recorded": True}
+
+
+@app.get("/actions/workflow-presets/telemetry")
+async def action_workflow_presets_telemetry(
+    request: Request,
+    queue_context: str | None = None,
+    lookback_hours: int = 24 * 7,
+) -> dict[str, object]:
+    response, _auth = _require_scope_permission(request, SCOPE_USER_BAN)
+    if response is not None:
+        raise HTTPException(status_code=response.status_code, detail="Forbidden")
+
+    context_filter = queue_context.strip().lower() if queue_context is not None else None
+
+    async with SessionFactory() as session:
+        segments = await load_workflow_preset_telemetry_segments(
+            session,
+            queue_context=context_filter,
+            lookback_hours=lookback_hours,
+        )
+
+    return {
+        "ok": True,
+        "lookback_hours": max(int(lookback_hours), 1),
+        "queue_context": context_filter,
+        "segments": segments,
+        "segment_count": len(segments),
+    }
 
 
 @app.get("/actions/triage/detail-section")
