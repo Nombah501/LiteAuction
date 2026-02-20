@@ -347,6 +347,47 @@ async def test_triage_detail_section_honors_operator_override(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
+async def test_triage_detail_section_collapses_optional_sections_for_summary_depth(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+
+    payload = await action_triage_detail_section(
+        _make_request("/actions/triage/detail-section"),
+        queue_key="complaints",
+        row_id=33,
+        section="secondary",
+        risk_level="low",
+        priority_level="normal",
+    )
+
+    assert payload["ok"] is True
+    assert str(payload["depth"]) == "inline_summary"
+    assert str(payload["reason_code"]) == "default_collapsed"
+    assert "Summary mode active" in str(payload["html"])
+
+
+@pytest.mark.asyncio
+async def test_triage_detail_section_reports_fallback_for_invalid_tokens(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+
+    payload = await action_triage_detail_section(
+        _make_request("/actions/triage/detail-section"),
+        queue_key="signals",
+        row_id=44,
+        section="primary",
+        risk_level="???",
+        priority_level="???",
+        depth_override="bad",
+    )
+
+    assert payload["ok"] is True
+    assert str(payload["depth"]) == "inline_summary"
+    assert str(payload["reason_code"]) == "fallback_default"
+    assert payload["fallback_applied"] is True
+    assert isinstance(payload["fallback_notes"], list)
+    assert "invalid_override" in payload["fallback_notes"]
+
+
+@pytest.mark.asyncio
 async def test_bulk_endpoint_requires_confirmation_for_destructive(monkeypatch) -> None:
     monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth())
     monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
