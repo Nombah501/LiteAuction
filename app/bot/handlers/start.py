@@ -6,7 +6,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.auction import (
     auction_report_gateway_keyboard,
@@ -194,7 +194,29 @@ def _dashboard_start_text() -> str:
         "Привет! Я LiteAuction bot.\n"
         "Создавайте аукционы через кнопку ниже.\n"
         "Для модераторов там же есть вход в панель.\n\n"
-        "В посте будут live-ставки, топ-3, анти-снайпер и выкуп."
+        "В посте будут live-ставки, топ-3, анти-снайпер и выкуп.\n\n"
+        "Быстрые команды: /settings, /points, /tradefeedback."
+    )
+
+
+def _balance_shortcuts_text() -> str:
+    return (
+        "<b>Баланс и points</b>\n"
+        "Открыть баланс и историю: <code>/points</code>\n"
+        "Приоритет фидбека: <code>/boostfeedback &lt;feedback_id&gt;</code>\n"
+        "Приоритет гаранта: <code>/boostguarant &lt;request_id&gt;</code>\n"
+        "Приоритет апелляции: <code>/boostappeal &lt;appeal_id&gt;</code>\n\n"
+        "После завершения сделки: <code>/tradefeedback &lt;auction_id&gt; &lt;1..5&gt; [комментарий]</code>\n"
+        "Уведомления и тихие часы: <code>/settings</code>"
+    )
+
+
+def _balance_shortcuts_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Настройки", callback_data="dash:settings")],
+            [InlineKeyboardButton(text="К меню", callback_data="dash:home")],
+        ]
     )
 
 
@@ -1027,4 +1049,17 @@ async def callback_notification_mute_type(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "dash:balance")
 async def callback_dashboard_balance(callback: CallbackQuery) -> None:
-    await callback.answer("Раздел «Баланс» в разработке.", show_alert=True)
+    if callback.message is None:
+        await callback.answer("Не удалось открыть раздел баланса", show_alert=True)
+        return
+
+    text = _balance_shortcuts_text()
+    keyboard = _balance_shortcuts_keyboard()
+    await callback.answer()
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    except TelegramBadRequest:
+        pass
+
+    await callback.message.answer(text, reply_markup=keyboard, disable_web_page_preview=True)
