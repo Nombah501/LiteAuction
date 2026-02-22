@@ -32,7 +32,7 @@ class _DummyMessage:
 
 
 @pytest.mark.asyncio
-async def test_points_command_shows_balance_and_history(monkeypatch, integration_engine) -> None:
+async def test_points_command_shows_compact_balance_and_actions(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr("app.bot.handlers.points.SessionFactory", session_factory)
 
@@ -64,31 +64,20 @@ async def test_points_command_shows_balance_and_history(monkeypatch, integration
 
     assert message.answers
     reply_text = message.answers[-1]
-    assert "Ваш баланс: 25 points" in reply_text
-    assert "Всего начислено: +30" in reply_text
-    assert "Всего списано: -5" in reply_text
-    assert "Буст фидбека: /boostfeedback <feedback_id>" in reply_text
-    assert "Лимит фидбек-бустов сегодня:" in reply_text
-    assert "Буст гаранта: /boostguarant <request_id>" in reply_text
-    assert "Лимит бустов гаранта сегодня:" in reply_text
-    assert "Буст апелляции: /boostappeal <appeal_id>" in reply_text
-    assert "Лимит бустов апелляций сегодня:" in reply_text
-    assert "Глобальный лимит бустов в день:" in reply_text
-    assert "Глобальный лимит бустов в неделю:" in reply_text
-    assert "Глобальный лимит списания на бусты:" in reply_text
-    assert "Глобальный недельный лимит списания:" in reply_text
-    assert "Глобальный месячный лимит списания:" in reply_text
-    assert "Глобальный статус редимпшенов:" in reply_text
-    assert "Минимальный остаток после буста:" in reply_text
-    assert "Минимальный возраст аккаунта для буста:" in reply_text
-    assert "Минимум заработанных points для буста:" in reply_text
-    assert "Глобальный кулдаун между бустами:" in reply_text
+    assert "Баланс: 25 points" in reply_text
+    assert "Начислено/списано: +30 / -5" in reply_text
+    assert "Быстрые действия:" in reply_text
+    assert "- Фидбек: /boostfeedback <feedback_id>" in reply_text
+    assert "- Гарант: /boostguarant <request_id>" in reply_text
+    assert "- Апелляция: /boostappeal <appeal_id>" in reply_text
+    assert "Подробный режим: /points detailed" in reply_text
     assert "Последние операции (до 5):" in reply_text
     assert "-5" in reply_text
+    assert "Глобальный месячный лимит списания:" not in reply_text
 
 
 @pytest.mark.asyncio
-async def test_points_command_shows_boost_usage_status(monkeypatch, integration_engine) -> None:
+async def test_points_command_detailed_mode_shows_boost_usage_status(monkeypatch, integration_engine) -> None:
     from app.config import settings
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
@@ -103,7 +92,7 @@ async def test_points_command_shows_boost_usage_status(monkeypatch, integration_
     monkeypatch.setattr(settings, "appeal_priority_boost_daily_limit", 2)
     monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 90)
 
-    message = _DummyMessage(from_user_id=93631)
+    message = _DummyMessage(from_user_id=93631, text="/points detailed")
 
     async with session_factory() as session:
         async with session.begin():
@@ -189,7 +178,7 @@ async def test_points_command_supports_custom_limit(monkeypatch, integration_eng
 
 
 @pytest.mark.asyncio
-async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch, integration_engine) -> None:
+async def test_points_command_compact_mode_shows_actionable_blockers(monkeypatch, integration_engine) -> None:
     from app.config import settings
 
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
@@ -211,7 +200,60 @@ async def test_points_command_shows_boost_toggle_status_and_cooldown(monkeypatch
     monkeypatch.setattr(settings, "points_redemption_min_earned_points", 20)
     monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 3600)
 
-    message = _DummyMessage(from_user_id=93641)
+    message = _DummyMessage(from_user_id=93640)
+
+    async with session_factory() as session:
+        async with session.begin():
+            from app.services.user_service import upsert_user
+
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            await grant_points(
+                session,
+                user_id=user.id,
+                amount=-10,
+                event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST,
+                dedupe_key="seed:points:compact:blockers",
+                reason="seed cooldown",
+                payload=None,
+            )
+
+    await command_points(message)
+
+    assert message.answers
+    reply_text = message.answers[-1]
+    assert "Сейчас блокирует:" in reply_text
+    assert "Глобальные редимпшены временно отключены" in reply_text
+    assert "До доступа по возрасту аккаунта:" in reply_text
+    assert "До допуска по заработанным points:" in reply_text
+    assert "До следующего буста:" in reply_text
+    assert "Подробный режим: /points detailed" in reply_text
+    assert "Глобальный месячный лимит списания:" not in reply_text
+
+
+@pytest.mark.asyncio
+async def test_points_command_detailed_mode_shows_boost_toggle_status_and_cooldown(monkeypatch, integration_engine) -> None:
+    from app.config import settings
+
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.points.SessionFactory", session_factory)
+    monkeypatch.setattr(settings, "feedback_priority_boost_enabled", False)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "appeal_priority_boost_enabled", True)
+    monkeypatch.setattr(settings, "feedback_priority_boost_cooldown_seconds", 120)
+    monkeypatch.setattr(settings, "guarantor_priority_boost_cooldown_seconds", 45)
+    monkeypatch.setattr(settings, "appeal_priority_boost_cooldown_seconds", 15)
+    monkeypatch.setattr(settings, "points_redemption_enabled", False)
+    monkeypatch.setattr(settings, "points_redemption_daily_limit", 2)
+    monkeypatch.setattr(settings, "points_redemption_weekly_limit", 3)
+    monkeypatch.setattr(settings, "points_redemption_daily_spend_cap", 50)
+    monkeypatch.setattr(settings, "points_redemption_weekly_spend_cap", 100)
+    monkeypatch.setattr(settings, "points_redemption_monthly_spend_cap", 200)
+    monkeypatch.setattr(settings, "points_redemption_min_balance", 15)
+    monkeypatch.setattr(settings, "points_redemption_min_account_age_seconds", 3600)
+    monkeypatch.setattr(settings, "points_redemption_min_earned_points", 20)
+    monkeypatch.setattr(settings, "points_redemption_cooldown_seconds", 3600)
+
+    message = _DummyMessage(from_user_id=93641, text="/points detailed")
 
     async with session_factory() as session:
         async with session.begin():
@@ -262,3 +304,43 @@ async def test_points_command_rejects_invalid_limit(monkeypatch, integration_eng
 
     assert message.answers
     assert "Формат: /points [1..20]" in message.answers[-1]
+    assert "/points detailed [1..20]" in message.answers[-1]
+
+
+@pytest.mark.asyncio
+async def test_points_command_supports_detailed_mode_with_custom_limit(monkeypatch, integration_engine) -> None:
+    session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.bot.handlers.points.SessionFactory", session_factory)
+
+    message = _DummyMessage(from_user_id=93661, text="/points detailed 1")
+
+    async with session_factory() as session:
+        async with session.begin():
+            from app.services.user_service import upsert_user
+
+            user = await upsert_user(session, message.from_user, mark_private_started=True)
+            await grant_points(
+                session,
+                user_id=user.id,
+                amount=12,
+                event_type=PointsEventType.FEEDBACK_APPROVED,
+                dedupe_key="feedback:761:reward",
+                reason="seed",
+            )
+            await grant_points(
+                session,
+                user_id=user.id,
+                amount=-2,
+                event_type=PointsEventType.MANUAL_ADJUSTMENT,
+                dedupe_key="manual:761:spent",
+                reason="seed",
+            )
+
+    await command_points(message)
+
+    assert message.answers
+    reply_text = message.answers[-1]
+    assert "Ваш баланс: 10 points" in reply_text
+    assert "Глобальный лимит бустов в день:" in reply_text
+    assert "Последние операции (до 1):" in reply_text
+    assert reply_text.count("\n-") == 1
