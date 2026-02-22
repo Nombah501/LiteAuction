@@ -445,6 +445,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 /tradefeedback <auction_id> <1..5> [комментарий]
 /points
 /points <1..20>
+/points detailed [1..20]
 /topics
 ```
 
