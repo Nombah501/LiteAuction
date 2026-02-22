@@ -1,0 +1,85 @@
+sprint = "Sprint 56"
+milestone = "Sprint 56"
+milestone_description = "Telegram bot reliability hardening and moderation flow cleanup"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S56-001"
+title = "Harden publish flow for album and post consistency"
+description = "Refactor chat publish sequence to avoid orphaned media/albums and guarantee consistent rollback behavior when final publish activation fails."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:bugfix", "area:bot", "area:auctions", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Publish sequence is atomic from user perspective with deterministic cleanup on partial failures",
+  "No orphaned album/media artifacts remain when activation fails",
+  "Integration tests cover primary success and rollback/failure branches",
+]
+
+[[items]]
+id = "S56-002"
+title = "Normalize moderation topic routing taxonomy"
+description = "Separate fraud and channel-DM guard alerts into dedicated moderation sections and remove overloaded BUGS routing to improve triage clarity and SLA ownership."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:moderation", "area:bot", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Fraud and chat-owner guard events route to explicit moderation sections with backward-safe fallbacks",
+  "Routing config supports clear ownership without breaking existing topic IDs",
+  "Regression tests verify section resolution and callback continuity",
+]
+
+[[items]]
+id = "S56-003"
+title = "Redesign /points output into compact and detailed modes"
+description = "Split points UX into concise default output plus opt-in detailed diagnostics so mobile users can quickly understand balance, limits, and immediate next actions."
+priority = "P2"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:points", "area:ux", "priority:p2", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Default /points response fits mobile-first readability and highlights only actionable items",
+  "Detailed policy and counters remain accessible via explicit flag/command mode",
+  "Tests cover rendering parity and policy edge cases across both modes",
+]
+
+[[items]]
+id = "S56-004"
+title = "Modularize oversized bot handlers into use-case slices"
+description = "Decompose large handler modules into cohesive submodules/use-cases to reduce maintenance risk, improve test focus, and lower change-collision frequency."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:refactor", "area:bot", "area:maintainability", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "High-churn handlers are split into focused modules with stable public router wiring",
+  "No behavior regressions in command/callback routing after refactor",
+  "Test suites become more localized with reduced fixture/setup duplication",
+]
+
+[[items]]
+id = "S56-005"
+title = "Expand bot smoke and resilience test matrix"
+description = "Add scenario-driven smoke and resilience coverage for user, seller, and moderator journeys including restart continuity, retry safety, and degraded Telegram API behavior."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:test", "area:tests", "area:bot", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Smoke matrix documents and automates critical cross-role Telegram journeys",
+  "Resilience tests cover retry-after, forbidden, and transient API failure branches",
+  "CI includes clear pass/fail evidence for new matrix scenarios",
+]
