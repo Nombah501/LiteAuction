@@ -8,7 +8,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.auction import (
     auction_report_gateway_keyboard,
@@ -20,14 +20,22 @@ from app.bot.keyboards.auction import (
     start_private_keyboard,
 )
 from app.config import settings
-from app.db.enums import AuctionStatus
+from app.db.enums import AuctionStatus, PointsEventType
 from app.db.session import SessionFactory
-from app.services.appeal_service import create_appeal_from_ref, redeem_appeal_priority_boost
+from app.services.appeal_service import (
+    AppealPriorityBoostPolicy,
+    create_appeal_from_ref,
+    get_appeal_priority_boost_policy,
+    redeem_appeal_priority_boost,
+)
 from app.services.auction_service import load_auction_view, refresh_auction_posts
+from app.services.feedback_service import FeedbackPriorityBoostPolicy, get_feedback_priority_boost_policy
+from app.services.guarantor_service import GuarantorPriorityBoostPolicy, get_guarantor_priority_boost_policy
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import (
     PrivateTopicPurpose,
+    enforce_callback_topic,
     enforce_message_topic,
     render_user_topics_overview,
     resolve_user_topic_thread_id,
@@ -65,6 +73,7 @@ from app.services.seller_dashboard_service import (
     list_seller_auctions,
     load_seller_auction,
 )
+from app.services.points_service import UserPointsSummary, get_user_points_summary, list_user_points_entries
 from app.services.user_service import upsert_user
 
 router = Router(name="start")
@@ -639,6 +648,123 @@ def _dashboard_start_text() -> str:
         "Создавайте аукционы через кнопку ниже.\n"
         "Для модераторов там же есть вход в панель.\n\n"
         "В посте будут live-ставки, топ-3, анти-снайпер и выкуп."
+    )
+
+
+def _points_event_label(event_type: PointsEventType) -> str:
+    labels = {
+        PointsEventType.FEEDBACK_APPROVED: "Награда за фидбек",
+        PointsEventType.FEEDBACK_PRIORITY_BOOST: "Списание: буст фидбека",
+        PointsEventType.GUARANTOR_PRIORITY_BOOST: "Списание: буст гаранта",
+        PointsEventType.APPEAL_PRIORITY_BOOST: "Списание: буст апелляции",
+        PointsEventType.MANUAL_ADJUSTMENT: "Ручная корректировка",
+    }
+    return labels.get(event_type, "Операция")
+
+
+def _boost_line(
+    *,
+    title: str,
+    command: str,
+    cost_points: int,
+    remaining_today: int,
+    enabled: bool,
+) -> str:
+    status = "доступен" if enabled else "временно недоступен"
+    return (
+        f"- {title}: {cost_points} pts · осталось сегодня {remaining_today} · {status} · "
+        f"<code>{command}</code>"
+    )
+
+
+def _render_balance_text(
+    *,
+    summary: UserPointsSummary,
+    feedback_policy: FeedbackPriorityBoostPolicy,
+    guarantor_policy: GuarantorPriorityBoostPolicy,
+    appeal_policy: AppealPriorityBoostPolicy,
+    recent_entries: list,
+) -> str:
+    lines = [
+        "<b>Баланс и points</b>",
+        f"Текущий баланс: <b>{summary.balance}</b> points",
+        f"Начислено: +{summary.total_earned} · Списано: -{summary.total_spent}",
+        "",
+        "<b>Быстрые действия</b>",
+        _boost_line(
+            title="Буст фидбека",
+            command="/boostfeedback <feedback_id>",
+            cost_points=feedback_policy.cost_points,
+            remaining_today=feedback_policy.remaining_today,
+            enabled=feedback_policy.enabled,
+        ),
+        _boost_line(
+            title="Буст гаранта",
+            command="/boostguarant <request_id>",
+            cost_points=guarantor_policy.cost_points,
+            remaining_today=guarantor_policy.remaining_today,
+            enabled=guarantor_policy.enabled,
+        ),
+        _boost_line(
+            title="Буст апелляции",
+            command="/boostappeal <appeal_id>",
+            cost_points=appeal_policy.cost_points,
+            remaining_today=appeal_policy.remaining_today,
+            enabled=appeal_policy.enabled,
+        ),
+        "",
+        "<b>Политика</b>",
+        (
+            "- Глобальные редимпшены: доступны"
+            if settings.points_redemption_enabled
+            else "- Глобальные редимпшены: временно отключены"
+        ),
+        f"- Минимальный остаток после буста: {max(settings.points_redemption_min_balance, 0)} points",
+        f"- Кулдаун между бустами: {max(settings.points_redemption_cooldown_seconds, 0)} сек",
+        "",
+        "<b>Последние операции</b>",
+    ]
+    if not recent_entries:
+        lines.append("- Операций пока нет")
+        return "\n".join(lines)
+
+    for entry in recent_entries:
+        created_at = entry.created_at.astimezone(UTC).strftime("%d.%m %H:%M UTC")
+        amount = int(entry.amount)
+        amount_text = f"+{amount}" if amount > 0 else str(amount)
+        event_type = PointsEventType(entry.event_type)
+        lines.append(f"- {created_at} · {amount_text} · {_points_event_label(event_type)}")
+    return "\n".join(lines)
+
+
+def _balance_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Скопировать /points",
+                    copy_text=CopyTextButton(text="/points"),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Скопировать /boostfeedback",
+                    copy_text=CopyTextButton(text="/boostfeedback <feedback_id>"),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Скопировать /boostguarant",
+                    copy_text=CopyTextButton(text="/boostguarant <request_id>"),
+                ),
+                InlineKeyboardButton(
+                    text="Скопировать /boostappeal",
+                    copy_text=CopyTextButton(text="/boostappeal <appeal_id>"),
+                ),
+            ],
+            [InlineKeyboardButton(text="Настройки", callback_data="dash:settings")],
+            [InlineKeyboardButton(text="К меню", callback_data="dash:home")],
+        ]
     )
 
 
@@ -1470,5 +1596,58 @@ async def callback_notification_mute_type(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "dash:balance")
-async def callback_dashboard_balance(callback: CallbackQuery) -> None:
-    await callback.answer("Раздел «Баланс» в разработке.", show_alert=True)
+async def callback_dashboard_balance(callback: CallbackQuery, bot: Bot | None = None) -> None:
+    if callback.from_user is None:
+        return
+    if callback.message is None:
+        await callback.answer("Не удалось открыть раздел «Баланс»", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            if not await enforce_callback_topic(
+                callback,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.POINTS,
+                command_hint="/points",
+            ):
+                return
+
+            now = datetime.now(UTC)
+            summary = await get_user_points_summary(session, user_id=user.id)
+            recent_entries = await list_user_points_entries(session, user_id=user.id, limit=5)
+            feedback_policy = await get_feedback_priority_boost_policy(
+                session,
+                submitter_user_id=user.id,
+                now=now,
+            )
+            guarantor_policy = await get_guarantor_priority_boost_policy(
+                session,
+                submitter_user_id=user.id,
+                now=now,
+            )
+            appeal_policy = await get_appeal_priority_boost_policy(
+                session,
+                appellant_user_id=user.id,
+                now=now,
+            )
+
+    text = _render_balance_text(
+        summary=summary,
+        feedback_policy=feedback_policy,
+        guarantor_policy=guarantor_policy,
+        appeal_policy=appeal_policy,
+        recent_entries=recent_entries,
+    )
+    keyboard = _balance_keyboard()
+    await callback.answer()
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    except TelegramBadRequest:
+        pass
+
+    await callback.message.answer(text, reply_markup=keyboard, disable_web_page_preview=True)
