@@ -20,6 +20,12 @@ from app.config import settings
 from app.db.enums import AuctionStatus
 from app.db.session import SessionFactory
 from app.services.appeal_service import create_appeal_from_ref, redeem_appeal_priority_boost
+from app.services.bot_funnel_metrics_service import (
+    BotFunnelActorRole,
+    BotFunnelJourney,
+    BotFunnelStep,
+    record_bot_funnel_event,
+)
 from app.services.auction_service import load_auction_view, refresh_auction_posts
 from app.services.moderation_service import has_moderator_access, is_moderator_tg_user
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
@@ -76,6 +82,16 @@ from app.bot.handlers.start_notification_views import (
 )
 
 router = Router(name="start")
+
+
+async def _record_appeal_boost_funnel(*, step: BotFunnelStep, failure_reason: str | None = None) -> None:
+    await record_bot_funnel_event(
+        journey=BotFunnelJourney.BOOST_APPEAL,
+        step=step,
+        actor_role=BotFunnelActorRole.SELLER,
+        context_key="command_boostappeal",
+        failure_reason=failure_reason,
+    )
 
 
 def _extract_start_payload(message: Message) -> str | None:
@@ -227,8 +243,11 @@ async def command_boost_appeal(message: Message, bot: Bot) -> None:
 
     appeal_id = _extract_boost_appeal_id(message.text)
     if appeal_id is None:
+        await _record_appeal_boost_funnel(step=BotFunnelStep.FAIL, failure_reason="invalid_format")
         await message.answer("Формат: /boostappeal <appeal_id>")
         return
+
+    await _record_appeal_boost_funnel(step=BotFunnelStep.START)
 
     result_message = ""
     result_changed = False
@@ -243,6 +262,10 @@ async def command_boost_appeal(message: Message, bot: Bot) -> None:
                 purpose=PrivateTopicPurpose.POINTS,
                 command_hint=f"/boostappeal {appeal_id}",
             ):
+                await _record_appeal_boost_funnel(
+                    step=BotFunnelStep.FAIL,
+                    failure_reason="topic_routing",
+                )
                 return
             result = await redeem_appeal_priority_boost(
                 session,
@@ -250,6 +273,10 @@ async def command_boost_appeal(message: Message, bot: Bot) -> None:
                 appellant_user_id=user.id,
             )
             if not result.ok:
+                await _record_appeal_boost_funnel(
+                    step=BotFunnelStep.FAIL,
+                    failure_reason="redeem_rejected",
+                )
                 await message.answer(result.message)
                 return
 
@@ -257,10 +284,12 @@ async def command_boost_appeal(message: Message, bot: Bot) -> None:
             result_changed = result.changed
 
     if result_changed:
+        await _record_appeal_boost_funnel(step=BotFunnelStep.COMPLETE)
         await _notify_moderators_about_appeal_boost(bot, message, appeal_id=appeal_id)
         await message.answer(f"{result_message}. Модераторы получили уведомление.")
         return
 
+    await _record_appeal_boost_funnel(step=BotFunnelStep.FAIL, failure_reason="no_change")
     await message.answer(result_message)
 
 

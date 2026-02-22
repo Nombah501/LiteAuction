@@ -535,3 +535,4 @@ async def test_mod_help_lists_notifstats_command(monkeypatch) -> None:
 
     assert message.answers
     assert "/notifstats [compact] [window] [event] [reason]" in message.answers[-1]
+    assert "/funnelstats [compact]" in message.answers[-1]
