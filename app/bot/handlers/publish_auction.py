@@ -45,7 +45,8 @@ async def _send_auction_album(
     chat_id: int,
     message_thread_id: int | None,
     photo_ids: list[str],
-) -> None:
+) -> list[Message]:
+    sent_messages: list[Message] = []
     for chunk_index, chunk in enumerate(_chunk_photo_ids(photo_ids, chunk_size=10)):
         media = [
             InputMediaPhoto(
@@ -54,10 +55,32 @@ async def _send_auction_album(
             )
             for item_index, file_id in enumerate(chunk)
         ]
-        if message_thread_id is not None:
-            await bot.send_media_group(chat_id=chat_id, message_thread_id=message_thread_id, media=media)
-        else:
-            await bot.send_media_group(chat_id=chat_id, media=media)
+        try:
+            if message_thread_id is not None:
+                sent_chunk = await bot.send_media_group(
+                    chat_id=chat_id,
+                    message_thread_id=message_thread_id,
+                    media=media,
+                )
+            else:
+                sent_chunk = await bot.send_media_group(chat_id=chat_id, media=media)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            await _safe_delete_messages(
+                bot,
+                chat_id=chat_id,
+                message_ids=[album_message.message_id for album_message in sent_messages],
+            )
+            return []
+        sent_messages.extend(sent_chunk)
+    return sent_messages
+
+
+async def _safe_delete_messages(bot: Bot, *, chat_id: int, message_ids: list[int]) -> None:
+    for message_id in dict.fromkeys(message_ids):
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except (TelegramForbiddenError, TelegramBadRequest):
+            continue
 
 
 @router.message(Command("publish"), F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
@@ -102,18 +125,15 @@ async def publish_auction_to_current_chat(message: Message, bot: Bot) -> None:
     if view is None or publisher_user_id is None:
         return
 
+    album_message_ids: list[int] = []
     if len(photo_ids) > 1:
-        try:
-            await _send_auction_album(
-                bot,
-                chat_id=message.chat.id,
-                message_thread_id=message.message_thread_id,
-                photo_ids=photo_ids,
-            )
-        except TelegramBadRequest:
-            pass
-        except TelegramForbiddenError:
-            pass
+        album_messages = await _send_auction_album(
+            bot,
+            chat_id=message.chat.id,
+            message_thread_id=message.message_thread_id,
+            photo_ids=photo_ids,
+        )
+        album_message_ids = [album_message.message_id for album_message in album_messages]
 
     try:
         sent_message = await bot.send_photo(
@@ -128,30 +148,41 @@ async def publish_auction_to_current_chat(message: Message, bot: Bot) -> None:
             ),
         )
     except TelegramForbiddenError:
+        if album_message_ids:
+            await _safe_delete_messages(bot, chat_id=message.chat.id, message_ids=album_message_ids)
         await message.answer("Бот не может публиковать в этом чате/разделе. Проверьте права бота.")
         return
     except TelegramBadRequest:
+        if album_message_ids:
+            await _safe_delete_messages(bot, chat_id=message.chat.id, message_ids=album_message_ids)
         await message.answer("Не удалось опубликовать лот в этом чате/разделе")
         return
 
     activated = None
-    async with SessionFactory() as session:
-        async with session.begin():
-            activated = await activate_auction_chat_post(
-                session,
-                auction_id=auction_id,
-                publisher_user_id=publisher_user_id,
-                chat_id=sent_message.chat.id,
-                message_id=sent_message.message_id,
-            )
+    try:
+        async with SessionFactory() as session:
+            async with session.begin():
+                activated = await activate_auction_chat_post(
+                    session,
+                    auction_id=auction_id,
+                    publisher_user_id=publisher_user_id,
+                    chat_id=sent_message.chat.id,
+                    message_id=sent_message.message_id,
+                )
+    except Exception:
+        await _safe_delete_messages(
+            bot,
+            chat_id=sent_message.chat.id,
+            message_ids=[sent_message.message_id, *album_message_ids],
+        )
+        raise
 
     if activated is None:
-        try:
-            await bot.delete_message(chat_id=sent_message.chat.id, message_id=sent_message.message_id)
-        except TelegramForbiddenError:
-            pass
-        except TelegramBadRequest:
-            pass
+        await _safe_delete_messages(
+            bot,
+            chat_id=sent_message.chat.id,
+            message_ids=[sent_message.message_id, *album_message_ids],
+        )
         await message.answer("Лот уже был опубликован. Обновите статус в личном чате с ботом.")
         return
 

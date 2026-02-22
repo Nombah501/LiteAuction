@@ -275,7 +275,7 @@ async def _notify_moderators_about_fraud(
     keyboard = fraud_actions_keyboard(signal_id)
     return await send_section_message(
         bot,
-        section=ModerationTopicSection.BUGS,
+        section=ModerationTopicSection.FRAUD,
         text=text,
         reply_markup=keyboard,
     )

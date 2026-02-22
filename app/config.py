@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     moderation_topic_complaints_id: str = ""
     moderation_topic_suggestions_id: str = ""
     moderation_topic_bugs_id: str = ""
+    moderation_topic_fraud_id: str = ""
+    moderation_topic_channel_dm_guard_id: str = ""
     moderation_topic_guarantors_id: str = ""
     moderation_topic_appeals_id: str = ""
     moderation_topic_auctions_active_id: str = ""
@@ -242,6 +244,8 @@ class Settings(BaseSettings):
             "complaints": self.moderation_topic_complaints_id,
             "suggestions": self.moderation_topic_suggestions_id,
             "bugs": self.moderation_topic_bugs_id,
+            "fraud": self.moderation_topic_fraud_id,
+            "channel_dm_guard": self.moderation_topic_channel_dm_guard_id,
             "guarantors": self.moderation_topic_guarantors_id,
             "appeals": self.moderation_topic_appeals_id,
             "auctions_active": self.moderation_topic_auctions_active_id,
