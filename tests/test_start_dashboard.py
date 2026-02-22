@@ -43,6 +43,18 @@ class _DummyCallback:
         self.answers.append((text, show_alert))
 
 
+class _DummyEditableMessage:
+    def __init__(self) -> None:
+        self.edits: list[str] = []
+        self.answers: list[str] = []
+
+    async def edit_text(self, text: str, **_kwargs) -> None:
+        self.edits.append(text)
+
+    async def answer(self, text: str, **_kwargs) -> None:
+        self.answers.append(text)
+
+
 def test_parse_my_auctions_list_payload() -> None:
     assert _parse_my_auctions_list_payload("dash:my:list:a:0") == ("a", "n", 0)
     assert _parse_my_auctions_list_payload("dash:my:list:f:e:3") == ("f", "e", 3)
@@ -166,12 +178,16 @@ async def test_dashboard_settings_callback_ignores_missing_user() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dashboard_balance_callback_returns_in_development_alert() -> None:
+async def test_dashboard_balance_callback_renders_shortcuts_card() -> None:
     callback = _DummyCallback()
+    callback.message = _DummyEditableMessage()
 
     await callback_dashboard_balance(cast(CallbackQuery, callback))
 
-    assert callback.answers == [("Раздел «Баланс» в разработке.", True)]
+    assert callback.answers == [("", False)]
+    assert callback.message.edits
+    assert "/points" in callback.message.edits[0]
+    assert "/settings" in callback.message.edits[0]
 
 
 def test_settings_toggle_mapping_contains_all_supported_events() -> None:
