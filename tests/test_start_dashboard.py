@@ -81,8 +81,6 @@ class _DummySessionFactory:
 
     async def __aexit__(self, *_args) -> bool:
         return False
-
-
 def test_parse_my_auctions_list_payload() -> None:
     assert _parse_my_auctions_list_payload("dash:my:list:a:0") == ("a", "n", 0)
     assert _parse_my_auctions_list_payload("dash:my:list:f:e:3") == ("f", "e", 3)
