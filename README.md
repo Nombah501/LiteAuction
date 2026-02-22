@@ -475,6 +475,8 @@ MODERATION_CHAT_ID=-100xxxxxxxxxx
 MODERATION_THREAD_ID=12345
 MODERATION_TOPIC_COMPLAINTS_ID=12345
 MODERATION_TOPIC_BUGS_ID=12346
+MODERATION_TOPIC_FRAUD_ID=12353
+MODERATION_TOPIC_CHANNEL_DM_GUARD_ID=12354
 MODERATION_TOPIC_SUGGESTIONS_ID=12347
 MODERATION_TOPIC_GUARANTORS_ID=12348
 MODERATION_TOPIC_APPEALS_ID=12349
@@ -500,6 +502,7 @@ FEEDBACK_GITHUB_ACTOR_TG_USER_ID=-998
 For full non-secret tuning keys (fraud thresholds, points limits, boosts, private topic policy, feature flags, UI emojis), use `.env.full.example`.
 
 Topic-specific IDs are optional; when unset the bot falls back to `MODERATION_THREAD_ID`.
+For backward compatibility, fraud and channel-DM guard routing fall back to `MODERATION_TOPIC_BUGS_ID` when dedicated topic IDs are not set.
 
 Configuration precedence (high -> low): init kwargs -> environment -> `.env` -> `config/defaults.toml` -> hardcoded fallback defaults.
 
