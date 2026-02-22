@@ -174,7 +174,7 @@ async def capture_chat_owner_service_events(message: Message, bot: Bot) -> None:
 
     await send_section_message(
         bot,
-        section=ModerationTopicSection.BUGS,
+        section=ModerationTopicSection.CHANNEL_DM_GUARD,
         text=build_chat_owner_guard_alert_text(
             chat_id=monitored_chat_id,
             event=parsed_event,

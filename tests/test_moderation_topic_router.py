@@ -23,6 +23,26 @@ def test_resolve_topic_thread_id_prefers_section_specific_value(monkeypatch) -> 
     assert resolve_topic_thread_id("unknown_section") == 500
 
 
+def test_resolve_topic_thread_id_fraud_falls_back_to_legacy_bugs_topic(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "moderation_thread_id", "500")
+    monkeypatch.setattr(settings, "moderation_topic_fraud_id", "")
+    monkeypatch.setattr(settings, "moderation_topic_bugs_id", "777")
+
+    assert resolve_topic_thread_id(ModerationTopicSection.FRAUD) == 777
+
+
+def test_resolve_topic_thread_id_channel_dm_guard_prefers_dedicated_topic(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "moderation_thread_id", "500")
+    monkeypatch.setattr(settings, "moderation_topic_bugs_id", "777")
+    monkeypatch.setattr(settings, "moderation_topic_channel_dm_guard_id", "909")
+
+    assert resolve_topic_thread_id(ModerationTopicSection.CHANNEL_DM_GUARD) == 909
+
+
 @pytest.mark.asyncio
 async def test_send_section_message_uses_section_topic_id(monkeypatch) -> None:
     from app.config import settings
