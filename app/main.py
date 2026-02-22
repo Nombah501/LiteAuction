@@ -6,7 +6,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
+from aiogram.fsm.storage.redis import RedisEventIsolation, RedisStorage
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
 from app.bot.handlers import router as start_router
@@ -47,14 +47,22 @@ async def configure_bot_commands(bot: Bot) -> None:
     await bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())
 
 
+def build_dispatcher() -> Dispatcher:
+    dp = Dispatcher(
+        storage=RedisStorage.from_url(settings.redis_url),
+        events_isolation=RedisEventIsolation.from_url(settings.redis_url),
+    )
+    dp.include_router(start_router)
+    return dp
+
+
 async def run() -> None:
     configure_logging(settings.log_level)
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher(storage=MemoryStorage(), events_isolation=SimpleEventIsolation())
-    dp.include_router(start_router)
+    dp = build_dispatcher()
 
     await startup_checks()
     await configure_bot_commands(bot)
@@ -68,6 +76,7 @@ async def run() -> None:
         await cancel_watcher(watcher_task)
         await cancel_watcher(escalation_task)
         await cancel_watcher(outbox_task)
+        await dp.fsm.close()
         await bot.session.close()
         await close_redis()
         await dispose_database()
