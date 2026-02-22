@@ -4,7 +4,7 @@ MVP Telegram auction bot scaffold on `aiogram` + `PostgreSQL` + `Redis` with Doc
 
 For agent-driven sessions and planning workflow, start with `AGENTS.md` and `planning/STATUS.md`.
 
-This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Sprint 6 + Sprint 7 + Sprint 8 + Sprint 9 + Sprint 10 + Sprint 11 + Sprint 12 + Sprint 13 + Sprint 14 + Sprint 15 + Sprint 16 + Sprint 17 + Sprint 18 + Sprint 19 + Sprint 20 + Sprint 21 + Sprint 22 + Sprint 23 + Sprint 24 + Sprint 25 + Sprint 26 + Sprint 27 + Sprint 28 + Sprint 29 + Sprint 30**:
+This repository currently contains delivered scope through **Sprint 56**:
 
 - Dockerized runtime (`bot`, `db`, `redis`)
 - `Alembic` migrations and initial PostgreSQL schema
@@ -13,7 +13,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Startup and container health checks for DB/Redis
 - FSM lot creation via private chat (and optional channel DM topics) using `/newauction`
 - Inline auction publishing via `auc_<id>` and `chosen_inline_result`
-- High-risk publish gate requiring assigned guarantor for risky sellers
+- Runtime-toggleable high-risk publish gate requiring assigned guarantor for risky sellers
 - Live post updates after bids (`top-3`, current price, ending time)
 - Buyout, anti-sniper (`2m -> +3m`, max `3`) and anti-mistake protections
 - Background watcher for expired auctions
@@ -51,7 +51,7 @@ This repository currently contains **Sprint 0 + Sprint 1 + Sprint 2 + Sprint 3 +
 - Section-based moderation topic routing and user feedback/guarantor intake commands (`/bug`, `/suggest`, `/guarant`, `/boostfeedback`, `/boostguarant`, `/boostappeal`)
 - Rewards ledger foundation with idempotent points accrual, advanced `/points`, moderator `/modpoints` + `/modpoints_history`, and admin user-page rewards widget
 - Outbox-driven automation for approved feedback -> GitHub issue creation with retry/backoff
-- Full private-chat topic routing for bot DM (`Лоты`, `Поддержка`, `Баллы`, `Сделки`, `Модерация`) with strict command/topic enforcement and `/topics`
+- Full private-chat topic routing for bot DM (`Аукционы`, `Уведомления`, `Модерация`) with topic-aware command enforcement and `/topics`
 - Channel DM lot intake foundation (Bot API 9.2) via `direct_messages_topic_id` for `/newauction`
 - Suggested post moderation pipeline for channel DM topics (approve/decline + persisted review audit)
 - Draft-stream progress hints (`sendMessageDraft`) for long-running bot actions like `/modstats` and auction finalize
@@ -431,6 +431,8 @@ Use it as a reply to a message that contains premium/custom emoji.
 
 ```text
 /modstats
+/notifstats
+/funnelstats
 ```
 
 - Send user feedback from private chat:
@@ -449,7 +451,7 @@ Use it as a reply to a message that contains premium/custom emoji.
 /topics
 ```
 
-High-risk sellers cannot publish drafts until a guarantor request is assigned by moderation.
+When `PUBLISH_HIGH_RISK_REQUIRES_GUARANTOR=true`, high-risk sellers cannot publish drafts until a guarantor request is assigned by moderation.
 
 Trade feedback moderation list is available in admin web: `/trade-feedback` (status/rating/actor filters).
 
@@ -467,6 +469,12 @@ Current points redemption guardrails:
 - Global redemption spend caps: daily, weekly, monthly.
 - Global account gates: minimum retained balance, minimum account age, minimum earned points.
 - Policy visibility in `/points`, `/modstats`, dashboard, and `/manage/user/{id}`.
+
+Additional operational runtime keys:
+
+- Outbid anti-noise tuning: `OUTBID_NOTIFICATION_DEBOUNCE_SECONDS`, `OUTBID_NOTIFICATION_DIGEST_WINDOW_SECONDS`.
+- Publish gate tuning: `PUBLISH_HIGH_RISK_REQUIRES_GUARANTOR`, `PUBLISH_GUARANTOR_ASSIGNMENT_MAX_AGE_DAYS`.
+- Appeals SLA/escalation: `APPEAL_SLA_OPEN_HOURS`, `APPEAL_SLA_IN_REVIEW_HOURS`, `APPEAL_ESCALATION_ENABLED`, `APPEAL_ESCALATION_INTERVAL_SECONDS`, `APPEAL_ESCALATION_BATCH_SIZE`, `APPEAL_ESCALATION_ACTOR_TG_USER_ID`.
 
 - Include moderation queue destination in env (recommended):
 
@@ -517,10 +525,10 @@ Configuration precedence (high -> low): init kwargs -> environment -> `.env` -> 
 Private DM topics (Bot API 9.3/9.4):
 
 - `PRIVATE_TOPICS_ENABLED` - enables personal topic routing in bot private chat.
-- `PRIVATE_TOPICS_STRICT_ROUTING` - when enabled, commands are processed only in their assigned topic.
+- `PRIVATE_TOPICS_STRICT_ROUTING` - when enabled, topic-scoped commands are processed only in their assigned topic.
 - `PRIVATE_TOPICS_AUTOCREATE_ON_START` - bootstrap all personal topics on `/start`.
 - `PRIVATE_TOPICS_USER_TOPIC_POLICY` - controls topic mutation mode: `auto` (BotFather policy), `allow`, or `block`.
-- `PRIVATE_TOPIC_TITLE_*` - topic names for `auctions/support/points/trades/moderation`.
+- `PRIVATE_TOPIC_TITLE_*` - topic names for `auctions/support/points/trades/moderation` (`support` is canonical for notifications, points, and trades).
 - When Telegram reports `has_topics_enabled=false` for a user, bot falls back to regular private-chat flow.
 
 Examples:
