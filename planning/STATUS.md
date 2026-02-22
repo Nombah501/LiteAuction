@@ -1,15 +1,15 @@
 # Planning Status
 
-Last sync: 2026-02-21 16:17 UTC
-Active sprint: Sprint 54
+Last sync: 2026-02-22 19:48 UTC
+Active sprint: Sprint 56
 
 | Item | Title | Issue | PR |
 |---|---|---|---|
-| S54-001 | Define queue SLA health model and aging thresholds | [#243](https://github.com/Nombah501/LiteAuction/issues/243) (closed) | - |
-| S54-002 | Implement SLA indicators and aging filters in queue UI | [#244](https://github.com/Nombah501/LiteAuction/issues/244) (closed) | - |
-| S54-003 | Add inline evidence timeline and moderation rationale artifact | [#245](https://github.com/Nombah501/LiteAuction/issues/245) (closed) | - |
-| S54-004 | Add telemetry trend deltas with low-sample guardrails | [#246](https://github.com/Nombah501/LiteAuction/issues/246) (closed) | - |
-| S54-005 | Harden v1.2 safety and regression coverage | [#247](https://github.com/Nombah501/LiteAuction/issues/247) (closed) | - |
+| S56-001 | Harden publish flow for album and post consistency | [#263](https://github.com/Nombah501/LiteAuction/issues/263) (open) | - |
+| S56-002 | Normalize moderation topic routing taxonomy | [#264](https://github.com/Nombah501/LiteAuction/issues/264) (open) | - |
+| S56-003 | Redesign /points output into compact and detailed modes | [#265](https://github.com/Nombah501/LiteAuction/issues/265) (closed) | - |
+| S56-004 | Modularize oversized bot handlers into use-case slices | [#266](https://github.com/Nombah501/LiteAuction/issues/266) (open) | - |
+| S56-005 | Expand bot smoke and resilience test matrix | [#267](https://github.com/Nombah501/LiteAuction/issues/267) (open) | - |
 
 ## Recovery Checklist
 
