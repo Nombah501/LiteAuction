@@ -6,7 +6,7 @@ Ship actionable direct-notification controls that let users mute noisy categorie
 
 ## Scope
 
-- One-tap `Отключить этот тип` action in direct notifications
+- One-tap `Отключить тип уведомлений` action in direct notifications
 - One-tap auction snooze action (`Пауза по лоту на 1ч`) for auction events
 - Per-auction snooze storage with automatic expiry (`user_auction_notification_snoozes`)
 - Settings panel visibility for active snoozes and one-tap remove actions
@@ -28,7 +28,7 @@ Notes:
 - [ ] Receive outbid/finish/win/mod notification and see buttons:
   - `Открыть аукцион` (when link can be resolved)
   - `Пауза по лоту на 1ч`
-  - `Отключить этот тип`
+  - `Отключить тип уведомлений`
 - [ ] Tap `Пауза по лоту на 1ч` and verify next auction event is suppressed for ~1 hour
 - [ ] Open `/settings` and verify active snooze appears with expiry and `Снять паузу #...`
 - [ ] Tap `Снять паузу #...` and verify next auction event for the same lot is delivered

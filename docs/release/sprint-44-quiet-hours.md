@@ -10,8 +10,14 @@ Quiet-hours controls are available in `/settings`:
 
 - toggle quiet-hours on/off
 - quick presets:
-  - `23:00-08:00 UTC`
-  - `00:00-07:00 UTC`
+  - `23:00-08:00 (<selected timezone>)`
+  - `00:00-07:00 (<selected timezone>)`
+- timezone selector presets:
+  - `UTC`
+  - `Europe/Moscow`
+  - `Asia/Yekaterinburg`
+  - `Asia/Novosibirsk`
+  - `Asia/Vladivostok`
 
 ## Delivery Behavior
 
@@ -27,6 +33,7 @@ Quiet-hours controls are available in `/settings`:
 - `quiet_hours_enabled` (`bool`)
 - `quiet_hours_start_hour` (`0..23`)
 - `quiet_hours_end_hour` (`0..23`)
+- `quiet_hours_timezone` (IANA timezone string)
 
 Migration: `0034_notif_quiet_hours`.
 

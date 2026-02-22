@@ -1,0 +1,85 @@
+sprint = "Sprint 55"
+milestone = "Sprint 55"
+milestone_description = "Bot UX discoverability, telemetry, and runtime resilience hardening"
+base_branch = "main"
+status_file = "planning/STATUS.md"
+
+[[items]]
+id = "S55-001"
+title = "Close command discoverability gaps for core user flows"
+description = "Align bot command menu, dashboard entry points, and help surfaces so users can reliably discover auction, support, trades, points, and settings actions."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:bot", "area:ux", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Private command menu includes all supported user-facing flows or explicit alternatives with rationale",
+  "Dashboard and command entry points are consistent and do not dead-end into placeholders",
+  "Regression tests cover command parsing and entry-point availability for critical user roles",
+]
+
+[[items]]
+id = "S55-002"
+title = "Ship actionable Balance section in private dashboard"
+description = "Replace dashboard balance placeholder with an actionable points overview and links to relevant boost/history flows optimized for mobile reading."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:feature", "area:bot", "area:points", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Balance button opens a real section with current balance, recent operations, and policy highlights",
+  "Section links users to boost commands and settings without requiring memorized syntax",
+  "Coverage validates callbacks, rendering branches, and topic-routing compatibility",
+]
+
+[[items]]
+id = "S55-003"
+title = "Add product telemetry funnels for bot critical journeys"
+description = "Instrument start-to-success funnels for auction creation, bid/buyout, complaint submission, and boost redemption with stable event taxonomy for operational analytics."
+priority = "P1"
+estimate = "L"
+tech_debt = true
+labels = ["type:feature", "area:bot", "area:metrics", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Funnel events are emitted for key steps and completion/failure states across selected journeys",
+  "Event schema includes actor role, context key, and machine-readable failure reason",
+  "Moderator-facing snapshot exposes funnel conversion and top drop-off reasons",
+]
+
+[[items]]
+id = "S55-004"
+title = "Persist bot FSM state in Redis-backed storage"
+description = "Migrate bot runtime FSM/event isolation from in-memory storage to Redis-backed storage so multi-step flows survive restarts and rolling deploys."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:bot", "area:infra", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "FSM state survives bot process restart for active multi-step user flows",
+  "Runtime keeps event-isolation guarantees under concurrent callbacks/messages",
+  "Integration tests cover restart-like state continuity scenarios",
+]
+
+[[items]]
+id = "S55-005"
+title = "Introduce centralized bot error boundary and diagnostics"
+description = "Add dispatcher-level exception handling and structured error diagnostics for handlers/watchers to reduce silent failures and improve operator triage speed."
+priority = "P1"
+estimate = "M"
+tech_debt = true
+labels = ["type:enhancement", "area:bot", "area:reliability", "priority:p1", "tech-debt"]
+assignees = []
+create_draft_pr = true
+acceptance = [
+  "Unhandled handler exceptions are captured by a centralized boundary with structured context",
+  "Silent catch-all branches in critical flows are replaced by actionable logging/alerts",
+  "Failure paths are covered by unit tests to prevent regression to silent drop behavior",
+]
