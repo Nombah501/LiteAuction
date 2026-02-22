@@ -107,6 +107,11 @@ from app.services.notification_copy_service import (
     moderation_winner_text,
 )
 from app.services.notification_metrics_service import load_notification_metrics_snapshot
+from app.services.bot_funnel_metrics_service import (
+    BotFunnelJourney,
+    BotFunnelSnapshot,
+    load_bot_funnel_snapshot,
+)
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -140,6 +145,16 @@ _NOTIFICATION_EVENT_LABELS: dict[NotificationEventType, str] = {
 
 _NOTIFSTATS_WINDOWS: frozenset[str] = frozenset({"24h", "7d", "all"})
 NotifstatsWindow = Literal["24h", "7d", "all"]
+
+_BOT_FUNNEL_JOURNEY_LABELS: dict[BotFunnelJourney, str] = {
+    BotFunnelJourney.AUCTION_CREATE: "Создание аукциона",
+    BotFunnelJourney.BID: "Ставка",
+    BotFunnelJourney.BUYOUT: "Выкуп",
+    BotFunnelJourney.COMPLAINT: "Жалоба",
+    BotFunnelJourney.BOOST_FEEDBACK: "Буст фидбека",
+    BotFunnelJourney.BOOST_GUARANTOR: "Буст гаранта",
+    BotFunnelJourney.BOOST_APPEAL: "Буст апелляции",
+}
 
 
 @dataclass(slots=True)
@@ -1188,6 +1203,83 @@ async def _render_notification_metrics_snapshot_text(
     return "\n".join(lines)
 
 
+def _bot_funnel_journey_label(journey: BotFunnelJourney) -> str:
+    return _BOT_FUNNEL_JOURNEY_LABELS.get(journey, journey.value)
+
+
+def _render_bot_funnel_snapshot(snapshot: BotFunnelSnapshot, *, compact_mode: bool = False) -> str:
+    lines = [
+        "Bot funnel metrics snapshot",
+        (
+            "Totals: "
+            f"start={snapshot.total_starts}, complete={snapshot.total_completes}, fail={snapshot.total_fails}"
+        ),
+    ]
+    if compact_mode:
+        lines.append("Journey conversion (compact):")
+        if not snapshot.journey_summaries:
+            lines.append("- пока нет данных")
+            return "\n".join(lines)
+        for item in snapshot.journey_summaries:
+            lines.append(
+                "- {}: start={}, complete={}, fail={}, conversion={}%.".format(
+                    _bot_funnel_journey_label(item.journey),
+                    item.starts,
+                    item.completes,
+                    item.fails,
+                    item.conversion_rate_percent,
+                )
+            )
+        return "\n".join(lines)
+
+    lines.append("Journey conversion:")
+    if not snapshot.journey_summaries:
+        lines.append("- пока нет данных")
+    else:
+        for item in snapshot.journey_summaries:
+            lines.append(
+                "- {}: start={}, complete={}, fail={}, conversion={}%.".format(
+                    _bot_funnel_journey_label(item.journey),
+                    item.starts,
+                    item.completes,
+                    item.fails,
+                    item.conversion_rate_percent,
+                )
+            )
+            if item.top_drop_offs:
+                for dropoff in item.top_drop_offs:
+                    lines.append(
+                        "  - dropoff {} / {} / {}: {}".format(
+                            dropoff.reason,
+                            dropoff.context_key,
+                            dropoff.actor_role.value,
+                            dropoff.total,
+                        )
+                    )
+
+    lines.append("")
+    lines.append("Top drop-offs overall:")
+    if not snapshot.top_drop_offs:
+        lines.append("- пока нет данных")
+    else:
+        for dropoff in snapshot.top_drop_offs:
+            lines.append(
+                "- {} / {} / {} / {}: {}".format(
+                    _bot_funnel_journey_label(dropoff.journey),
+                    dropoff.reason,
+                    dropoff.context_key,
+                    dropoff.actor_role.value,
+                    dropoff.total,
+                )
+            )
+    return "\n".join(lines)
+
+
+async def _render_bot_funnel_snapshot_text(*, compact_mode: bool = False) -> str:
+    snapshot = await load_bot_funnel_snapshot(top_limit=5)
+    return _render_bot_funnel_snapshot(snapshot, compact_mode=compact_mode)
+
+
 def _parse_page(raw: str) -> int | None:
     if not raw.isdigit():
         return None
@@ -1238,6 +1330,7 @@ async def mod_help(message: Message, bot: Bot) -> None:
         "/modpanel",
         "/modstats",
         "/notifstats [compact] [window] [event] [reason]",
+        "/funnelstats [compact]",
         "/audit [auction_uuid]",
         "/risk [auction_uuid]",
     ]
@@ -1337,6 +1430,31 @@ async def mod_notification_stats(message: Message, bot: Bot | None = None) -> No
             window_filter=window_filter,
         )
     )
+
+
+@router.message(Command("funnelstats"), F.chat.type == ChatType.PRIVATE)
+async def mod_funnel_stats(message: Message, bot: Bot | None = None) -> None:
+    if not await _ensure_moderation_topic(message, bot, "/funnelstats"):
+        return
+    if not await _require_moderator(message):
+        return
+
+    compact_mode = False
+    tokens = (message.text or "").split()[1:]
+    for token in tokens:
+        if token.strip().lower() == "compact":
+            compact_mode = True
+            continue
+        await message.answer("Формат: /funnelstats [compact]")
+        return
+
+    await send_progress_draft(
+        bot,
+        message,
+        text="Собираю snapshot по funnel telemetry...",
+        scope_key="funnelstats",
+    )
+    await message.answer(await _render_bot_funnel_snapshot_text(compact_mode=compact_mode))
 
 
 @router.message(Command("botphoto"), F.chat.type == ChatType.PRIVATE)

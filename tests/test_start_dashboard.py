@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import cast
 from uuid import UUID
 
@@ -9,9 +10,11 @@ from aiogram.types import CallbackQuery
 
 from app.bot.handlers.start import (
     _SETTINGS_TOGGLE_EVENTS,
+    _balance_keyboard,
     _extract_report_auction_id,
     _parse_my_auctions_item_payload,
     _parse_my_auctions_list_payload,
+    _render_balance_text,
     _render_bid_logs_text,
     _render_my_auction_detail_text,
     _render_my_auctions_list_text,
@@ -22,13 +25,17 @@ from app.bot.handlers.start import (
     callback_dashboard_balance,
     callback_dashboard_settings,
 )
-from app.db.enums import AuctionStatus
+from app.db.enums import AuctionStatus, PointsEventType
+from app.services.appeal_service import AppealPriorityBoostPolicy
+from app.services.feedback_service import FeedbackPriorityBoostPolicy
 from app.services.notification_policy_service import (
     AuctionNotificationSnoozeView,
     NotificationEventType,
     NotificationPreset,
     NotificationSettingsSnapshot,
 )
+from app.services.guarantor_service import GuarantorPriorityBoostPolicy
+from app.services.points_service import UserPointsSummary
 from app.services.seller_dashboard_service import SellerAuctionListItem, SellerBidLogItem
 
 
@@ -36,13 +43,44 @@ class _DummyCallback:
     def __init__(self) -> None:
         self.answers: list[tuple[str, bool]] = []
         self.from_user: object | None = None
-        self.message = None
+        self.message: object | None = None
         self.data: str | None = None
 
     async def answer(self, text: str = "", show_alert: bool = False, **_kwargs) -> None:
         self.answers.append((text, show_alert))
 
 
+class _DummyEditableMessage:
+    def __init__(self) -> None:
+        self.edits: list[str] = []
+        self.answers: list[str] = []
+
+    async def edit_text(self, text: str, **_kwargs) -> None:
+        self.edits.append(text)
+
+    async def answer(self, text: str, **_kwargs) -> None:
+        self.answers.append(text)
+
+
+class _DummyTransaction:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *_args) -> bool:
+        return False
+
+
+class _DummySession:
+    def begin(self) -> _DummyTransaction:
+        return _DummyTransaction()
+
+
+class _DummySessionFactory:
+    async def __aenter__(self) -> _DummySession:
+        return _DummySession()
+
+    async def __aexit__(self, *_args) -> bool:
+        return False
 def test_parse_my_auctions_list_payload() -> None:
     assert _parse_my_auctions_list_payload("dash:my:list:a:0") == ("a", "n", 0)
     assert _parse_my_auctions_list_payload("dash:my:list:f:e:3") == ("f", "e", 3)
@@ -166,12 +204,146 @@ async def test_dashboard_settings_callback_ignores_missing_user() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dashboard_balance_callback_returns_in_development_alert() -> None:
+async def test_dashboard_balance_callback_shows_error_without_message() -> None:
     callback = _DummyCallback()
+    callback.from_user = SimpleNamespace(id=7)
 
     await callback_dashboard_balance(cast(CallbackQuery, callback))
 
-    assert callback.answers == [("Раздел «Баланс» в разработке.", True)]
+    assert callback.answers == [("Не удалось открыть раздел «Баланс»", True)]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_balance_callback_renders_balance_card(monkeypatch) -> None:
+    callback = _DummyCallback()
+    callback.from_user = SimpleNamespace(id=777, username="alice")
+    message = _DummyEditableMessage()
+    callback.message = message
+
+    monkeypatch.setattr("app.bot.handlers.start.SessionFactory", lambda: _DummySessionFactory())
+
+    async def _fake_upsert_user(*_args, **_kwargs):
+        return SimpleNamespace(id=501)
+
+    async def _fake_enforce_callback_topic(*_args, **_kwargs) -> bool:
+        return True
+
+    async def _fake_summary(*_args, **_kwargs) -> UserPointsSummary:
+        return UserPointsSummary(balance=120, total_earned=240, total_spent=120, operations_count=4)
+
+    async def _fake_entries(*_args, **_kwargs):
+        return [
+            SimpleNamespace(
+                created_at=datetime.now(UTC),
+                amount=-20,
+                event_type=PointsEventType.FEEDBACK_PRIORITY_BOOST.value,
+            )
+        ]
+
+    async def _fake_feedback_policy(*_args, **_kwargs) -> FeedbackPriorityBoostPolicy:
+        return FeedbackPriorityBoostPolicy(
+            enabled=True,
+            cost_points=20,
+            daily_limit=3,
+            used_today=1,
+            remaining_today=2,
+            cooldown_seconds=300,
+            cooldown_remaining_seconds=0,
+        )
+
+    async def _fake_guarantor_policy(*_args, **_kwargs) -> GuarantorPriorityBoostPolicy:
+        return GuarantorPriorityBoostPolicy(
+            enabled=True,
+            cost_points=30,
+            daily_limit=2,
+            used_today=0,
+            remaining_today=2,
+            cooldown_seconds=300,
+            cooldown_remaining_seconds=0,
+        )
+
+    async def _fake_appeal_policy(*_args, **_kwargs) -> AppealPriorityBoostPolicy:
+        return AppealPriorityBoostPolicy(
+            enabled=False,
+            cost_points=40,
+            daily_limit=2,
+            used_today=2,
+            remaining_today=0,
+            cooldown_seconds=300,
+            cooldown_remaining_seconds=100,
+        )
+
+    monkeypatch.setattr("app.bot.handlers.start.upsert_user", _fake_upsert_user)
+    monkeypatch.setattr("app.bot.handlers.start.enforce_callback_topic", _fake_enforce_callback_topic)
+    monkeypatch.setattr("app.bot.handlers.start.get_user_points_summary", _fake_summary)
+    monkeypatch.setattr("app.bot.handlers.start.list_user_points_entries", _fake_entries)
+    monkeypatch.setattr("app.bot.handlers.start.get_feedback_priority_boost_policy", _fake_feedback_policy)
+    monkeypatch.setattr("app.bot.handlers.start.get_guarantor_priority_boost_policy", _fake_guarantor_policy)
+    monkeypatch.setattr("app.bot.handlers.start.get_appeal_priority_boost_policy", _fake_appeal_policy)
+
+    await callback_dashboard_balance(cast(CallbackQuery, callback))
+
+    assert callback.answers == [("", False)]
+    assert message.edits
+    assert "Текущий баланс: <b>120</b> points" in message.edits[0]
+    assert "/boostfeedback" in message.edits[0]
+
+
+def test_render_balance_text_contains_policy_and_recent_operations() -> None:
+    text = _render_balance_text(
+        summary=UserPointsSummary(balance=50, total_earned=80, total_spent=30, operations_count=2),
+        feedback_policy=FeedbackPriorityBoostPolicy(
+            enabled=True,
+            cost_points=20,
+            daily_limit=3,
+            used_today=1,
+            remaining_today=2,
+            cooldown_seconds=60,
+            cooldown_remaining_seconds=0,
+        ),
+        guarantor_policy=GuarantorPriorityBoostPolicy(
+            enabled=True,
+            cost_points=25,
+            daily_limit=3,
+            used_today=0,
+            remaining_today=3,
+            cooldown_seconds=60,
+            cooldown_remaining_seconds=0,
+        ),
+        appeal_policy=AppealPriorityBoostPolicy(
+            enabled=False,
+            cost_points=30,
+            daily_limit=1,
+            used_today=1,
+            remaining_today=0,
+            cooldown_seconds=60,
+            cooldown_remaining_seconds=60,
+        ),
+        recent_entries=[
+            SimpleNamespace(
+                created_at=datetime.now(UTC),
+                amount=15,
+                event_type=PointsEventType.FEEDBACK_APPROVED.value,
+            )
+        ],
+    )
+
+    assert "<b>Баланс и points</b>" in text
+    assert "Текущий баланс: <b>50</b> points" in text
+    assert "Буст фидбека" in text
+    assert "Последние операции" in text
+
+
+def test_balance_keyboard_has_settings_and_home_navigation() -> None:
+    keyboard = _balance_keyboard()
+    callback_data = {
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data is not None
+    }
+    assert "dash:settings" in callback_data
+    assert "dash:home" in callback_data
 
 
 def test_settings_toggle_mapping_contains_all_supported_events() -> None:

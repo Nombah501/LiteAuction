@@ -16,11 +16,19 @@ class ModerationTopicSection(StrEnum):
     COMPLAINTS = "complaints"
     SUGGESTIONS = "suggestions"
     BUGS = "bugs"
+    FRAUD = "fraud"
+    CHANNEL_DM_GUARD = "channel_dm_guard"
     GUARANTORS = "guarantors"
     APPEALS = "appeals"
     AUCTIONS_ACTIVE = "auctions_active"
     AUCTIONS_FROZEN = "auctions_frozen"
     AUCTIONS_CLOSED = "auctions_closed"
+
+
+_TOPIC_FALLBACKS: dict[str, str] = {
+    ModerationTopicSection.FRAUD.value: ModerationTopicSection.BUGS.value,
+    ModerationTopicSection.CHANNEL_DM_GUARD.value: ModerationTopicSection.BUGS.value,
+}
 
 
 def resolve_topic_thread_id(section: ModerationTopicSection | str) -> int | None:
@@ -29,6 +37,12 @@ def resolve_topic_thread_id(section: ModerationTopicSection | str) -> int | None
         section_thread_id = settings.parsed_moderation_topic_id(section_key)
         if section_thread_id is not None:
             return section_thread_id
+
+        fallback_key = _TOPIC_FALLBACKS.get(section_key)
+        if fallback_key is not None:
+            fallback_thread_id = settings.parsed_moderation_topic_id(fallback_key)
+            if fallback_thread_id is not None:
+                return fallback_thread_id
     return settings.parsed_moderation_thread_id()
 
 
