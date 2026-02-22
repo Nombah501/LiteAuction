@@ -25,6 +25,12 @@ from app.services.auction_create_wizard_service import (
     upsert_create_wizard_progress,
 )
 from app.services.auction_service import create_draft_auction, load_auction_view, render_auction_caption
+from app.services.bot_funnel_metrics_service import (
+    BotFunnelActorRole,
+    BotFunnelJourney,
+    BotFunnelStep,
+    record_bot_funnel_event,
+)
 from app.services.channel_dm_intake_service import (
     AuctionIntakeKind,
     extract_direct_messages_topic_id,
@@ -44,6 +50,21 @@ from app.services.user_service import upsert_user
 router = Router(name="create_auction")
 MAX_AUCTION_PHOTOS = 10
 logger = logging.getLogger(__name__)
+
+
+async def _record_create_auction_funnel(
+    *,
+    step: BotFunnelStep,
+    context_key: str,
+    failure_reason: str | None = None,
+) -> None:
+    await record_bot_funnel_event(
+        journey=BotFunnelJourney.AUCTION_CREATE,
+        step=step,
+        actor_role=BotFunnelActorRole.SELLER,
+        context_key=context_key,
+        failure_reason=failure_reason,
+    )
 
 
 def _parse_usd_amount(text: str) -> int | None:
@@ -292,10 +313,20 @@ async def _ensure_auction_state_callback(
 @router.message(Command("newauction"), F.chat.type.in_({ChatType.PRIVATE, ChatType.SUPERGROUP}))
 async def command_new_auction(message: Message, state: FSMContext, bot: Bot) -> None:
     if await _handle_unsupported_newauction_context(message):
+        await _record_create_auction_funnel(
+            step=BotFunnelStep.FAIL,
+            context_key="command_newauction",
+            failure_reason="unsupported_context",
+        )
         return
 
     actor = resolve_auction_intake_actor(message)
     if actor is None:
+        await _record_create_auction_funnel(
+            step=BotFunnelStep.FAIL,
+            context_key="command_newauction",
+            failure_reason="actor_missing",
+        )
         await message.answer("Не удалось определить отправителя. Попробуйте снова из личного диалога.")
         return
 
@@ -311,14 +342,28 @@ async def command_new_auction(message: Message, state: FSMContext, bot: Bot) -> 
                 purpose=PrivateTopicPurpose.AUCTIONS,
                 command_hint="/newauction",
             ):
+                await _record_create_auction_funnel(
+                    step=BotFunnelStep.FAIL,
+                    context_key="command_newauction",
+                    failure_reason="topic_routing",
+                )
                 return
             if await is_tg_user_blacklisted(session, actor.id):
+                await _record_create_auction_funnel(
+                    step=BotFunnelStep.FAIL,
+                    context_key="command_newauction",
+                    failure_reason="blacklisted",
+                )
                 await message.answer("Вы в черном списке и не можете создавать аукционы")
                 return
 
     await state.clear()
     await state.set_state(AuctionCreateStates.waiting_photo)
     await _store_expected_intake_scope(state, message)
+    await _record_create_auction_funnel(
+        step=BotFunnelStep.START,
+        context_key="command_newauction",
+    )
     await _update_wizard(
         state=state,
         bot=bot,
@@ -332,12 +377,22 @@ async def command_new_auction(message: Message, state: FSMContext, bot: Bot) -> 
 @router.callback_query(F.data == "create:new")
 async def callback_new_auction(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     if await _handle_unsupported_newauction_callback(callback):
+        await _record_create_auction_funnel(
+            step=BotFunnelStep.FAIL,
+            context_key="callback_create_new",
+            failure_reason="unsupported_context",
+        )
         return
 
     actor = callback.from_user
     if actor is None and isinstance(callback.message, Message):
         actor = resolve_auction_intake_actor(callback.message)
     if actor is None:
+        await _record_create_auction_funnel(
+            step=BotFunnelStep.FAIL,
+            context_key="callback_create_new",
+            failure_reason="actor_missing",
+        )
         await callback.answer("Не удалось определить отправителя", show_alert=True)
         return
 
@@ -353,8 +408,18 @@ async def callback_new_auction(callback: CallbackQuery, state: FSMContext, bot: 
                 purpose=PrivateTopicPurpose.AUCTIONS,
                 command_hint="/newauction",
             ):
+                await _record_create_auction_funnel(
+                    step=BotFunnelStep.FAIL,
+                    context_key="callback_create_new",
+                    failure_reason="topic_routing",
+                )
                 return
             if await is_tg_user_blacklisted(session, actor.id):
+                await _record_create_auction_funnel(
+                    step=BotFunnelStep.FAIL,
+                    context_key="callback_create_new",
+                    failure_reason="blacklisted",
+                )
                 await callback.answer("Вы в черном списке", show_alert=True)
                 return
 
@@ -362,6 +427,10 @@ async def callback_new_auction(callback: CallbackQuery, state: FSMContext, bot: 
     await state.set_state(AuctionCreateStates.waiting_photo)
     if isinstance(callback.message, Message):
         await _store_expected_intake_scope(state, callback.message)
+    await _record_create_auction_funnel(
+        step=BotFunnelStep.START,
+        context_key="callback_create_new",
+    )
     await callback.answer()
     if callback.message:
         await _update_wizard(
@@ -749,6 +818,11 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext, bo
 
     async with SessionFactory() as session:
         if await is_tg_user_blacklisted(session, callback.from_user.id):
+            await _record_create_auction_funnel(
+                step=BotFunnelStep.FAIL,
+                context_key="wizard_finalize",
+                failure_reason="blacklisted",
+            )
             await callback.answer("Вы в черном списке", show_alert=True)
             await state.clear()
             return
@@ -794,6 +868,11 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext, bo
         await session.commit()
 
     if view is None:
+        await _record_create_auction_funnel(
+            step=BotFunnelStep.FAIL,
+            context_key="wizard_finalize",
+            failure_reason="preview_unavailable",
+        )
         await _update_wizard(
             state=state,
             bot=bot,
@@ -822,6 +901,10 @@ async def create_anti_sniper_step(callback: CallbackQuery, state: FSMContext, bo
         last_event="Черновик успешно создан.",
     )
     await state.clear()
+    await _record_create_auction_funnel(
+        step=BotFunnelStep.COMPLETE,
+        context_key="wizard_finalize_publish_blocked" if publish_blocked else "wizard_finalize",
+    )
     await callback.answer("Черновик создан")
 
     caption = render_auction_caption(view, publish_pending=not publish_blocked)

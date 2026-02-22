@@ -22,6 +22,12 @@ from app.services.feedback_service import (
     set_feedback_queue_message,
     take_feedback_in_review,
 )
+from app.services.bot_funnel_metrics_service import (
+    BotFunnelActorRole,
+    BotFunnelJourney,
+    BotFunnelStep,
+    record_bot_funnel_event,
+)
 from app.services.moderation_service import has_moderator_access, log_moderation_action
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import (
@@ -33,6 +39,16 @@ from app.services.notification_policy_service import NotificationEventType
 from app.services.user_service import upsert_user
 
 router = Router(name="feedback")
+
+
+async def _record_feedback_boost_funnel(*, step: BotFunnelStep, failure_reason: str | None = None) -> None:
+    await record_bot_funnel_event(
+        journey=BotFunnelJourney.BOOST_FEEDBACK,
+        step=step,
+        actor_role=BotFunnelActorRole.SELLER,
+        context_key="command_boostfeedback",
+        failure_reason=failure_reason,
+    )
 
 
 def _extract_payload(message: Message) -> str | None:
@@ -215,8 +231,11 @@ async def command_boost_feedback(message: Message, bot: Bot) -> None:
 
     parts = message.text.split(maxsplit=1)
     if len(parts) != 2 or not parts[1].isdigit():
+        await _record_feedback_boost_funnel(step=BotFunnelStep.FAIL, failure_reason="invalid_format")
         await message.answer("Формат: /boostfeedback <feedback_id>")
         return
+
+    await _record_feedback_boost_funnel(step=BotFunnelStep.START)
 
     feedback_id = int(parts[1])
     queue_chat_id: int | None = None
@@ -236,6 +255,10 @@ async def command_boost_feedback(message: Message, bot: Bot) -> None:
                 purpose=PrivateTopicPurpose.POINTS,
                 command_hint=f"/boostfeedback {feedback_id}",
             ):
+                await _record_feedback_boost_funnel(
+                    step=BotFunnelStep.FAIL,
+                    failure_reason="topic_routing",
+                )
                 return
             result = await redeem_feedback_priority_boost(
                 session,
@@ -243,6 +266,10 @@ async def command_boost_feedback(message: Message, bot: Bot) -> None:
                 submitter_user_id=submitter.id,
             )
             if not result.ok or result.item is None:
+                await _record_feedback_boost_funnel(
+                    step=BotFunnelStep.FAIL,
+                    failure_reason="redeem_rejected",
+                )
                 await message.answer(result.message)
                 return
             result_message = result.message
@@ -267,9 +294,11 @@ async def command_boost_feedback(message: Message, bot: Bot) -> None:
             pass
 
     if result_changed:
+        await _record_feedback_boost_funnel(step=BotFunnelStep.COMPLETE)
         await message.answer(f"{result_message}. Модераторы получат обновленную карточку.")
         return
 
+    await _record_feedback_boost_funnel(step=BotFunnelStep.FAIL, failure_reason="no_change")
     await message.answer(result_message)
 
 
