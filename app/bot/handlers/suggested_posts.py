@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import logging
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
@@ -28,6 +29,7 @@ from app.services.rbac_service import SCOPE_DIRECT_MESSAGES_MANAGE, resolve_tg_u
 from app.services.user_service import upsert_user
 
 router = Router(name="suggested_posts")
+logger = logging.getLogger(__name__)
 
 _CALLBACK_PREFIX = "spp"
 _CALLBACK_ACTION_APPROVE = "ap"
@@ -356,5 +358,10 @@ async def handle_suggested_post_decision(callback: CallbackQuery, bot: Bot) -> N
                 text=f"{original_text}\n\n{ui_note}",
                 reply_markup=None,
             )
-        except Exception:
-            pass
+        except (TelegramBadRequest, TelegramForbiddenError, TelegramAPIError) as exc:
+            logger.warning(
+                "suggested_post_ui_refresh_failed chat_id=%s message_id=%s error=%s",
+                chat_id,
+                message_id,
+                exc,
+            )

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -46,6 +49,7 @@ from app.services.user_service import upsert_user
 
 router = Router(name="create_auction")
 MAX_AUCTION_PHOTOS = 10
+logger = logging.getLogger(__name__)
 
 
 async def _record_create_auction_funnel(
@@ -209,8 +213,13 @@ async def _ensure_auction_state_message(
                     direct_messages_topic_id=expected_dm_topic_id,
                     text="Продолжим создание лота здесь.",
                 )
-            except Exception:
-                pass
+            except (TelegramBadRequest, TelegramForbiddenError, TelegramAPIError) as exc:
+                logger.warning(
+                    "newauction_redirect_dm_failed chat_id=%s topic_id=%s error=%s",
+                    chat_id,
+                    expected_dm_topic_id,
+                    exc,
+                )
         return False
 
     if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
@@ -230,8 +239,13 @@ async def _ensure_auction_state_message(
                 message_thread_id=expected_thread_id,
                 text="Продолжим создание лота здесь.",
             )
-        except Exception:
-            pass
+        except (TelegramBadRequest, TelegramForbiddenError, TelegramAPIError) as exc:
+            logger.warning(
+                "newauction_redirect_topic_failed chat_id=%s thread_id=%s error=%s",
+                message.chat.id,
+                expected_thread_id,
+                exc,
+            )
     return False
 
 
@@ -260,8 +274,13 @@ async def _ensure_auction_state_callback(
                     direct_messages_topic_id=expected_dm_topic_id,
                     text="Продолжим создание лота здесь.",
                 )
-            except Exception:
-                pass
+            except (TelegramBadRequest, TelegramForbiddenError, TelegramAPIError) as exc:
+                logger.warning(
+                    "newauction_callback_redirect_dm_failed chat_id=%s topic_id=%s error=%s",
+                    chat_id,
+                    expected_dm_topic_id,
+                    exc,
+                )
         return False
 
     if not settings.private_topics_enabled or not settings.private_topics_strict_routing:
@@ -281,8 +300,13 @@ async def _ensure_auction_state_callback(
                 message_thread_id=expected_thread_id,
                 text="Продолжим создание лота здесь.",
             )
-        except Exception:
-            pass
+        except (TelegramBadRequest, TelegramForbiddenError, TelegramAPIError) as exc:
+            logger.warning(
+                "newauction_callback_redirect_topic_failed chat_id=%s thread_id=%s error=%s",
+                message.chat.id,
+                expected_thread_id,
+                exc,
+            )
     return False
 
 

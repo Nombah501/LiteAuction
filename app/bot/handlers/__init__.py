@@ -2,6 +2,7 @@ from aiogram import Router
 
 from .bid_actions import router as bid_actions_router
 from .create_auction import router as create_auction_router
+from .error_boundary import router as error_boundary_router
 from .emoji_tools import router as emoji_tools_router
 from .feedback import router as feedback_router
 from .guarantor import router as guarantor_router
@@ -14,6 +15,7 @@ from .suggested_posts import router as suggested_posts_router
 from .trade_feedback import router as trade_feedback_router
 
 router = Router(name="root")
+router.include_router(error_boundary_router)
 router.include_router(start_router)
 router.include_router(emoji_tools_router)
 router.include_router(create_auction_router)
