@@ -26,6 +26,12 @@ from app.services.auction_service import (
     process_bid_action,
     refresh_auction_posts,
 )
+from app.services.bot_funnel_metrics_service import (
+    BotFunnelActorRole,
+    BotFunnelJourney,
+    BotFunnelStep,
+    record_bot_funnel_event,
+)
 from app.services.complaint_service import (
     create_complaint,
     load_complaint_view,
@@ -63,6 +69,22 @@ from app.services.notification_copy_service import (
 from app.services.user_service import upsert_user
 
 router = Router(name="bid_actions")
+
+
+async def _record_bid_funnel(
+    *,
+    journey: BotFunnelJourney,
+    step: BotFunnelStep,
+    context_key: str,
+    failure_reason: str | None = None,
+) -> None:
+    await record_bot_funnel_event(
+        journey=journey,
+        step=step,
+        actor_role=BotFunnelActorRole.BIDDER,
+        context_key=context_key,
+        failure_reason=failure_reason,
+    )
 
 
 def _soft_gate_alert_text() -> str:
@@ -407,12 +429,30 @@ async def handle_bid_action(callback: CallbackQuery, bot: Bot) -> None:
 
     payload = _parse_bid_payload(callback.data)
     if payload is None:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BID,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_bid",
+            failure_reason="invalid_payload",
+        )
         await callback.answer("Некорректная ставка", show_alert=True)
         return
 
     auction_id, multiplier = payload
+    bid_context = f"callback_bid_x{multiplier}"
+    await _record_bid_funnel(
+        journey=BotFunnelJourney.BID,
+        step=BotFunnelStep.START,
+        context_key=bid_context,
+    )
 
     if not await acquire_bid_cooldown(auction_id, callback.from_user.id):
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BID,
+            step=BotFunnelStep.FAIL,
+            context_key=bid_context,
+            failure_reason="cooldown",
+        )
         await callback.answer(
             f"Слишком часто. Подождите {settings.bid_cooldown_seconds} сек.",
             show_alert=True,
@@ -443,13 +483,30 @@ async def handle_bid_action(callback: CallbackQuery, bot: Bot) -> None:
                         bidder.soft_gate_hint_sent_at = hint_ts
 
     if blocked_by_soft_gate:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BID,
+            step=BotFunnelStep.FAIL,
+            context_key=bid_context,
+            failure_reason="soft_gate",
+        )
         await callback.answer(_soft_gate_alert_text(), show_alert=True)
         return
     if result is None:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BID,
+            step=BotFunnelStep.FAIL,
+            context_key=bid_context,
+            failure_reason="service_error",
+        )
         await callback.answer("Не удалось обработать ставку", show_alert=True)
         return
 
     if result.success:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BID,
+            step=BotFunnelStep.COMPLETE,
+            context_key=bid_context,
+        )
         await callback.answer(
             _compose_bid_success_alert(
                 alert_text=result.alert_text,
@@ -459,6 +516,12 @@ async def handle_bid_action(callback: CallbackQuery, bot: Bot) -> None:
             show_alert=True,
         )
     else:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BID,
+            step=BotFunnelStep.FAIL,
+            context_key=bid_context,
+            failure_reason="action_rejected",
+        )
         await callback.answer(result.alert_text, show_alert=True)
 
     if result.should_refresh:
@@ -484,6 +547,12 @@ async def handle_buyout_action(callback: CallbackQuery, bot: Bot) -> None:
 
     auction_id = _parse_buy_payload(callback.data)
     if auction_id is None:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BUYOUT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_buyout",
+            failure_reason="invalid_payload",
+        )
         await callback.answer("Некорректный выкуп", show_alert=True)
         return
 
@@ -499,7 +568,19 @@ async def handle_buyout_action(callback: CallbackQuery, bot: Bot) -> None:
         )
         return
 
+    await _record_bid_funnel(
+        journey=BotFunnelJourney.BUYOUT,
+        step=BotFunnelStep.START,
+        context_key="callback_buyout",
+    )
+
     if not await acquire_bid_cooldown(auction_id, callback.from_user.id):
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BUYOUT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_buyout",
+            failure_reason="cooldown",
+        )
         await callback.answer(
             f"Слишком часто. Подождите {settings.bid_cooldown_seconds} сек.",
             show_alert=True,
@@ -530,11 +611,37 @@ async def handle_buyout_action(callback: CallbackQuery, bot: Bot) -> None:
                         bidder.soft_gate_hint_sent_at = hint_ts
 
     if blocked_by_soft_gate:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BUYOUT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_buyout",
+            failure_reason="soft_gate",
+        )
         await callback.answer(_soft_gate_alert_text(), show_alert=True)
         return
     if result is None:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BUYOUT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_buyout",
+            failure_reason="service_error",
+        )
         await callback.answer("Не удалось обработать выкуп", show_alert=True)
         return
+
+    if result.success:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BUYOUT,
+            step=BotFunnelStep.COMPLETE,
+            context_key="callback_buyout",
+        )
+    else:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.BUYOUT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_buyout",
+            failure_reason="action_rejected",
+        )
 
     if result.success and show_soft_gate_hint:
         await callback.answer(_soft_gate_hint_text("Выкуп принят"), show_alert=True)
@@ -573,6 +680,12 @@ async def handle_report_action(callback: CallbackQuery, bot: Bot) -> None:
 
     auction_id = _parse_report_payload(callback.data)
     if auction_id is None:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.COMPLAINT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_report",
+            failure_reason="invalid_payload",
+        )
         await callback.answer("Некорректная жалоба", show_alert=True)
         return
 
@@ -588,7 +701,19 @@ async def handle_report_action(callback: CallbackQuery, bot: Bot) -> None:
         )
         return
 
+    await _record_bid_funnel(
+        journey=BotFunnelJourney.COMPLAINT,
+        step=BotFunnelStep.START,
+        context_key="callback_report",
+    )
+
     if not await acquire_complaint_cooldown(auction_id, callback.from_user.id):
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.COMPLAINT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_report",
+            failure_reason="cooldown",
+        )
         await callback.answer(
             f"Слишком часто. Повторить можно через {settings.complaint_cooldown_seconds} сек.",
             show_alert=True,
@@ -615,11 +740,23 @@ async def handle_report_action(callback: CallbackQuery, bot: Bot) -> None:
                     reason="Жалоба из аукционного поста",
                 )
                 if not created.ok or created.complaint is None:
+                    await _record_bid_funnel(
+                        journey=BotFunnelJourney.COMPLAINT,
+                        step=BotFunnelStep.FAIL,
+                        context_key="callback_report",
+                        failure_reason="create_rejected",
+                    )
                     await callback.answer(created.message, show_alert=True)
                     return
 
                 view = await load_complaint_view(session, created.complaint.id)
                 if view is None:
+                    await _record_bid_funnel(
+                        journey=BotFunnelJourney.COMPLAINT,
+                        step=BotFunnelStep.FAIL,
+                        context_key="callback_report",
+                        failure_reason="view_unavailable",
+                    )
                     await callback.answer("Не удалось сформировать жалобу", show_alert=True)
                     return
 
@@ -642,10 +779,22 @@ async def handle_report_action(callback: CallbackQuery, bot: Bot) -> None:
                         reporter.soft_gate_hint_sent_at = hint_ts
 
     if blocked_by_soft_gate:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.COMPLAINT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_report",
+            failure_reason="soft_gate",
+        )
         await callback.answer(_soft_gate_alert_text(), show_alert=True)
         return
 
     if complaint_id is None or complaint_text is None:
+        await _record_bid_funnel(
+            journey=BotFunnelJourney.COMPLAINT,
+            step=BotFunnelStep.FAIL,
+            context_key="callback_report",
+            failure_reason="service_error",
+        )
         await callback.answer("Не удалось отправить жалобу", show_alert=True)
         return
 
@@ -673,5 +822,11 @@ async def handle_report_action(callback: CallbackQuery, bot: Bot) -> None:
 
     if show_soft_gate_hint:
         success_text = _soft_gate_hint_text(success_text)
+
+    await _record_bid_funnel(
+        journey=BotFunnelJourney.COMPLAINT,
+        step=BotFunnelStep.COMPLETE,
+        context_key="callback_report_queue_unavailable" if queue_message is None else "callback_report",
+    )
 
     await callback.answer(success_text, show_alert=True)
