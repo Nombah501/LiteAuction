@@ -8,7 +8,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.types import InputMediaPhoto, Message
 
-from app.bot.keyboards.auction import auction_active_keyboard
+from app.bot.keyboards.auction import auction_active_keyboard, open_auction_post_keyboard
 from app.db.enums import AuctionStatus
 from app.db.session import SessionFactory
 from app.services.auction_service import (
@@ -18,7 +18,9 @@ from app.services.auction_service import (
     parse_auction_uuid,
     refresh_auction_posts,
     render_auction_caption,
+    resolve_auction_post_link,
 )
+from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.publish_gate_service import evaluate_seller_publish_gate
 from app.services.user_service import upsert_user
 
@@ -185,6 +187,26 @@ async def publish_auction_to_current_chat(message: Message, bot: Bot) -> None:
         )
         await message.answer("Лот уже был опубликован. Обновите статус в личном чате с ботом.")
         return
+
+    post_username = sent_message.chat.username if isinstance(sent_message.chat.username, str) else None
+    post_url = resolve_auction_post_link(
+        chat_id=sent_message.chat.id,
+        message_id=sent_message.message_id,
+        username=post_username,
+    )
+    moderation_reply_markup = open_auction_post_keyboard(post_url) if post_url else None
+    publisher_label = (
+        f"@{message.from_user.username}" if message.from_user.username else str(message.from_user.id)
+    )
+    await send_section_message(
+        bot,
+        section=ModerationTopicSection.AUCTIONS_ACTIVE,
+        text=(
+            f"Новый активный лот #{str(auction_id)[:8]}.\n"
+            f"Публикатор: {publisher_label}."
+        ),
+        reply_markup=moderation_reply_markup,
+    )
 
     await refresh_auction_posts(bot, auction_id)
     try:

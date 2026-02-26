@@ -105,7 +105,7 @@ async def test_notify_outbid_skips_debounce_gate_when_policy_disables_it(monkeyp
     def _disable_debounce_policy(_event_type: NotificationEventType) -> bool:
         return False
 
-    async def _raise_if_called(_auction_id: UUID, _tg_user_id: int) -> bool:
+    async def _raise_if_called_debounce(_auction_id: UUID, _tg_user_id: int) -> bool:
         raise AssertionError("debounce gate should not run when policy disables it")
 
     async def _capture_send(*_args, **kwargs):
@@ -120,15 +120,15 @@ async def test_notify_outbid_skips_debounce_gate_when_policy_disables_it(monkeyp
     ) -> None:
         return None
 
-    async def _raise_if_called(*, tg_user_id: int, auction_id: UUID) -> OutbidDigestDecision:  # noqa: ARG001
+    async def _raise_if_called_digest(*, tg_user_id: int, auction_id: UUID) -> OutbidDigestDecision:  # noqa: ARG001
         raise AssertionError("digest register should not run when suppression does not happen")
 
     monkeypatch.setattr(bid_actions, "should_apply_notification_debounce", _disable_debounce_policy)
-    monkeypatch.setattr(bid_actions, "acquire_outbid_notification_debounce", _raise_if_called)
+    monkeypatch.setattr(bid_actions, "acquire_outbid_notification_debounce", _raise_if_called_debounce)
     monkeypatch.setattr(bid_actions, "send_user_topic_message", _capture_send)
     monkeypatch.setattr(bid_actions, "record_notification_suppressed", _noop_suppressed)
     monkeypatch.setattr(bid_actions, "record_notification_aggregated", _noop_aggregated)
-    monkeypatch.setattr(bid_actions, "register_outbid_notification_suppression", _raise_if_called)
+    monkeypatch.setattr(bid_actions, "register_outbid_notification_suppression", _raise_if_called_digest)
 
     await bid_actions._notify_outbid(
         cast(Bot, _BotStub()),
@@ -181,3 +181,34 @@ async def test_notify_outbid_sends_digest_message_when_suppression_threshold_rea
     assert "Дайджест по лоту #12345678" in str(sent_calls[0]["text"])
     assert "перебивали 3 раза" in str(sent_calls[0]["text"])
     assert sent_calls[0]["reply_markup"] is not None
+
+
+@pytest.mark.asyncio
+async def test_notify_auction_finish_reports_closed_lot_to_moderation_topic(monkeypatch) -> None:
+    private_notifications: list[dict[str, object]] = []
+    moderation_notifications: list[dict[str, object]] = []
+
+    async def _capture_private(*_args, **kwargs):
+        private_notifications.append(kwargs)
+        return True
+
+    async def _capture_section(*_args, **kwargs):
+        moderation_notifications.append(kwargs)
+        return (700, 55)
+
+    monkeypatch.setattr(bid_actions, "send_user_topic_message", _capture_private)
+    monkeypatch.setattr(bid_actions, "send_section_message", _capture_section)
+
+    auction_id = UUID("12345678-1234-5678-1234-567812345678")
+    await bid_actions._notify_auction_finish(
+        cast(Bot, _BotStub()),
+        winner_tg_id=10,
+        seller_tg_id=20,
+        auction_id=auction_id,
+        post_url="https://t.me/example/10",
+    )
+
+    assert len(private_notifications) == 2
+    assert len(moderation_notifications) == 1
+    assert moderation_notifications[0]["section"] == bid_actions.ModerationTopicSection.AUCTIONS_CLOSED
+    assert "завершен выкупом" in str(moderation_notifications[0]["text"])

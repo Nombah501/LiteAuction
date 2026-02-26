@@ -65,6 +65,7 @@ from app.services.notification_copy_service import (
     auction_buyout_winner_text,
     outbid_digest_text,
     outbid_notification_text,
+    short_auction_ref,
 )
 from app.services.user_service import upsert_user
 
@@ -420,6 +421,19 @@ async def _notify_auction_finish(
             notification_event=NotificationEventType.AUCTION_WIN,
             auction_id=auction_id,
         )
+
+    seller_label = str(seller_tg_id) if seller_tg_id is not None else "нет"
+    winner_label = str(winner_tg_id) if winner_tg_id is not None else "нет"
+    await send_section_message(
+        bot,
+        section=ModerationTopicSection.AUCTIONS_CLOSED,
+        text=(
+            f"Лот {short_auction_ref(auction_id)} завершен выкупом.\n"
+            f"Продавец: {seller_label}\n"
+            f"Победитель: {winner_label}"
+        ),
+        reply_markup=reply_markup,
+    )
 
 
 @router.callback_query(F.data.startswith("bid:"))
