@@ -72,6 +72,7 @@ from app.services.moderation_service import (
     unban_user,
     unfreeze_auction,
 )
+from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.moderation_dashboard_service import get_moderation_dashboard_snapshot
 from app.services.message_draft_service import send_progress_draft
 from app.services.chat_owner_guard_service import confirm_chat_owner_events
@@ -105,6 +106,7 @@ from app.services.notification_copy_service import (
     moderation_frozen_text,
     moderation_unfrozen_text,
     moderation_winner_text,
+    short_auction_ref,
 )
 from app.services.notification_metrics_service import load_notification_metrics_snapshot
 from app.services.bot_funnel_metrics_service import (
@@ -212,6 +214,45 @@ def _format_user_label(user: User | None) -> str:
     if user.username:
         return f"@{user.username}"
     return str(user.tg_user_id)
+
+
+def _format_actor_label(*, tg_user_id: int | None, username: str | None) -> str:
+    normalized_username = (username or "").strip().lstrip("@")
+    if normalized_username:
+        return f"@{normalized_username}"
+    if tg_user_id is None:
+        return "-"
+    return str(tg_user_id)
+
+
+async def _notify_auction_lifecycle_to_moderation(
+    bot: Bot,
+    *,
+    section: ModerationTopicSection,
+    event_text: str,
+    actor_tg_user_id: int | None,
+    actor_username: str | None,
+    reason: str | None = None,
+    winner_tg_user_id: int | None = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    actor_label = _format_actor_label(
+        tg_user_id=actor_tg_user_id,
+        username=actor_username,
+    )
+    lines = [event_text, f"Модератор: {actor_label}"]
+    normalized_reason = (reason or "").strip()
+    if normalized_reason:
+        lines.append(f"Причина: {normalized_reason}")
+    if winner_tg_user_id is not None:
+        lines.append(f"Победитель: {winner_tg_user_id}")
+
+    await send_section_message(
+        bot,
+        section=section,
+        text="\n".join(lines),
+        reply_markup=reply_markup,
+    )
 
 
 def _format_appeal_source(appeal: Appeal) -> str:
@@ -1889,8 +1930,9 @@ async def mod_freeze(message: Message, bot: Bot) -> None:
     await refresh_auction_posts(bot, auction_id)
     await message.answer(result.message)
 
+    reply_markup = await _auction_post_keyboard(bot, auction_id)
+
     if result.seller_tg_user_id:
-        reply_markup = await _auction_post_keyboard(bot, auction_id)
         await send_user_topic_message(
             bot,
             tg_user_id=result.seller_tg_user_id,
@@ -1900,6 +1942,16 @@ async def mod_freeze(message: Message, bot: Bot) -> None:
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
             auction_id=auction_id,
         )
+
+    await _notify_auction_lifecycle_to_moderation(
+        bot,
+        section=ModerationTopicSection.AUCTIONS_FROZEN,
+        event_text=f"Лот {short_auction_ref(auction_id)} заморожен.",
+        actor_tg_user_id=message.from_user.id,
+        actor_username=message.from_user.username,
+        reason=reason,
+        reply_markup=reply_markup,
+    )
 
 
 @router.message(Command("unfreeze"), F.chat.type == ChatType.PRIVATE)
@@ -1941,8 +1993,9 @@ async def mod_unfreeze(message: Message, bot: Bot) -> None:
     await refresh_auction_posts(bot, auction_id)
     await message.answer(result.message)
 
+    reply_markup = await _auction_post_keyboard(bot, auction_id)
+
     if result.seller_tg_user_id:
-        reply_markup = await _auction_post_keyboard(bot, auction_id)
         await send_user_topic_message(
             bot,
             tg_user_id=result.seller_tg_user_id,
@@ -1952,6 +2005,16 @@ async def mod_unfreeze(message: Message, bot: Bot) -> None:
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
             auction_id=auction_id,
         )
+
+    await _notify_auction_lifecycle_to_moderation(
+        bot,
+        section=ModerationTopicSection.AUCTIONS_ACTIVE,
+        event_text=f"Лот {short_auction_ref(auction_id)} разморожен.",
+        actor_tg_user_id=message.from_user.id,
+        actor_username=message.from_user.username,
+        reason=reason,
+        reply_markup=reply_markup,
+    )
 
 
 @router.message(Command("end"), F.chat.type == ChatType.PRIVATE)
@@ -2014,6 +2077,17 @@ async def mod_end(message: Message, bot: Bot) -> None:
             notification_event=NotificationEventType.AUCTION_MOD_ACTION,
             auction_id=auction_id,
         )
+
+    await _notify_auction_lifecycle_to_moderation(
+        bot,
+        section=ModerationTopicSection.AUCTIONS_CLOSED,
+        event_text=f"Лот {short_auction_ref(auction_id)} завершен модератором.",
+        actor_tg_user_id=message.from_user.id,
+        actor_username=message.from_user.username,
+        reason=reason,
+        winner_tg_user_id=result.winner_tg_user_id,
+        reply_markup=reply_markup,
+    )
 
 
 @router.message(Command("bids"), F.chat.type == ChatType.PRIVATE)
@@ -2788,8 +2862,8 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
             return
 
         await refresh_auction_posts(bot, auction_id)
+        reply_markup = await _auction_post_keyboard(bot, auction_id)
         if seller_tg_user_id is not None:
-            reply_markup = await _auction_post_keyboard(bot, auction_id)
             await send_user_topic_message(
                 bot,
                 tg_user_id=seller_tg_user_id,
@@ -2799,6 +2873,16 @@ async def mod_panel_callbacks(callback: CallbackQuery, bot: Bot) -> None:
                 notification_event=NotificationEventType.AUCTION_MOD_ACTION,
                 auction_id=auction_id,
             )
+
+        await _notify_auction_lifecycle_to_moderation(
+            bot,
+            section=ModerationTopicSection.AUCTIONS_ACTIVE,
+            event_text=f"Лот {short_auction_ref(auction_id)} разморожен.",
+            actor_tg_user_id=callback.from_user.id,
+            actor_username=callback.from_user.username,
+            reason="Через modpanel",
+            reply_markup=reply_markup,
+        )
 
         text, keyboard = await _build_frozen_auctions_page(page)
         await callback.message.edit_text(text, reply_markup=keyboard)
@@ -3089,6 +3173,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
     callback_message = "Действие выполнено"
     updated_text: str | None = None
     sanction_note: str | None = None
+    queue_event_reason: str | None = None
 
     async with SessionFactory() as session:
         async with session.begin():
@@ -3134,6 +3219,7 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
                 )
                 callback_message = "Аукцион заморожен"
                 sanction_note = callback_message
+                queue_event_reason = f"Жалоба #{complaint_id}"
 
             elif action == "rm_top":
                 if view.complaint.target_bid_id is None:
@@ -3208,6 +3294,18 @@ async def mod_report_action(callback: CallbackQuery, bot: Bot) -> None:
     if auction_id is not None:
         await refresh_auction_posts(bot, auction_id)
 
+    if auction_id is not None and queue_event_reason is not None:
+        reply_markup = await _auction_post_keyboard(bot, auction_id)
+        await _notify_auction_lifecycle_to_moderation(
+            bot,
+            section=ModerationTopicSection.AUCTIONS_FROZEN,
+            event_text=f"Лот {short_auction_ref(auction_id)} заморожен.",
+            actor_tg_user_id=callback.from_user.id,
+            actor_username=callback.from_user.username,
+            reason=queue_event_reason,
+            reply_markup=reply_markup,
+        )
+
     if notify_target_tg_user_id is not None:
         sanction_label = sanction_note or "Применены санкции"
         appeal_note, appeal_keyboard = _build_appeal_cta(f"complaint_{complaint_id}")
@@ -3265,6 +3363,7 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
     auction_id: uuid.UUID | None = None
     banned_user_tg: int | None = None
     sanction_note: str | None = None
+    queue_event_reason: str | None = None
 
     async with SessionFactory() as session:
         async with session.begin():
@@ -3310,6 +3409,7 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
                 )
                 callback_message = "Аукцион заморожен"
                 sanction_note = callback_message
+                queue_event_reason = f"Фрод-сигнал #{signal_id}"
 
             elif action == "ban":
                 ban_result = await ban_user(
@@ -3345,6 +3445,18 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
 
     if auction_id is not None:
         await refresh_auction_posts(bot, auction_id)
+
+    if auction_id is not None and queue_event_reason is not None:
+        reply_markup = await _auction_post_keyboard(bot, auction_id)
+        await _notify_auction_lifecycle_to_moderation(
+            bot,
+            section=ModerationTopicSection.AUCTIONS_FROZEN,
+            event_text=f"Лот {short_auction_ref(auction_id)} заморожен.",
+            actor_tg_user_id=callback.from_user.id,
+            actor_username=callback.from_user.username,
+            reason=queue_event_reason,
+            reply_markup=reply_markup,
+        )
 
     if banned_user_tg is not None:
         sanction_label = sanction_note or "Применены санкции"

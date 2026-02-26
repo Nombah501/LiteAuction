@@ -18,6 +18,7 @@ from app.bot.handlers.publish_auction import publish_auction_to_current_chat
 from app.db.enums import AuctionStatus
 from app.db.models import Auction, AuctionPhoto, AuctionPost, Bid, Complaint, User
 from app.services.auction_service import create_draft_auction
+from app.services.moderation_topic_router import ModerationTopicSection
 
 
 @pytest_asyncio.fixture
@@ -71,6 +72,7 @@ class _DummyFromUser:
 class _DummyChat:
     def __init__(self, chat_id: int) -> None:
         self.id = chat_id
+        self.username: str | None = None
 
 
 class _DummyMessage:
@@ -106,7 +108,7 @@ class _DummyBot:
         _ = message_thread_id
         self.sent_media_group_calls += 1
         return [
-            SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=message_id)
+            SimpleNamespace(chat=SimpleNamespace(id=chat_id, username=None), message_id=message_id)
             for message_id in self.album_message_ids
         ]
 
@@ -117,10 +119,14 @@ class _DummyBot:
                 method=SendPhoto(chat_id=chat_id, photo=photo),
                 message="Bad Request: cannot send photo",
             )
-        return SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=self.post_message_id)
+        return SimpleNamespace(chat=SimpleNamespace(id=chat_id, username=None), message_id=self.post_message_id)
 
     async def delete_message(self, *, chat_id: int, message_id: int, **_kwargs) -> None:
         self.deleted_messages.append((chat_id, message_id))
+
+    async def send_message(self, *, chat_id: int, text: str, **_kwargs):
+        _ = text
+        return SimpleNamespace(chat=SimpleNamespace(id=chat_id, username=None), message_id=999)
 
 
 async def _seed_draft_auction(
@@ -162,12 +168,24 @@ async def test_publish_command_activates_auction_and_persists_post(
         return SimpleNamespace(allowed=True, block_message=None)
 
     refresh_calls: list[str] = []
+    moderation_calls: list[dict[str, object]] = []
 
     async def _refresh_stub(_bot, auction_id):
         refresh_calls.append(str(auction_id))
 
+    async def _send_section_stub(_bot, *, section, text, reply_markup=None):
+        moderation_calls.append(
+            {
+                "section": section,
+                "text": text,
+                "reply_markup": reply_markup,
+            }
+        )
+        return (999, 111)
+
     monkeypatch.setattr("app.bot.handlers.publish_auction.evaluate_seller_publish_gate", _allow_publish)
     monkeypatch.setattr("app.bot.handlers.publish_auction.refresh_auction_posts", _refresh_stub)
+    monkeypatch.setattr("app.bot.handlers.publish_auction.send_section_message", _send_section_stub)
 
     seller_tg_user_id, auction_id = await _seed_draft_auction(session_factory, seller_tg_user_id=94501)
     chat_id = -10094501
@@ -188,6 +206,9 @@ async def test_publish_command_activates_auction_and_persists_post(
     assert bot.sent_photo_calls == 1
     assert bot.deleted_messages == [(chat_id, command_message_id)]
     assert refresh_calls == [str(auction_id)]
+    assert len(moderation_calls) == 1
+    assert moderation_calls[0]["section"] == ModerationTopicSection.AUCTIONS_ACTIVE
+    assert f"#{str(auction_id)[:8]}" in str(moderation_calls[0]["text"])
 
     async with session_factory() as session:
         auction = await session.scalar(select(Auction).where(Auction.id == auction_id))

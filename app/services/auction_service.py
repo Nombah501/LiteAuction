@@ -31,9 +31,10 @@ from app.services.message_effects_service import (
     AuctionMessageEffectEvent,
     resolve_auction_message_effect_id,
 )
+from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.notification_policy_service import NotificationEventType
-from app.services.notification_copy_service import auction_finished_text, auction_winner_text
+from app.services.notification_copy_service import auction_finished_text, auction_winner_text, short_auction_ref
 
 logger = logging.getLogger(__name__)
 
@@ -850,5 +851,17 @@ async def finalize_expired_auctions(bot: Bot) -> int:
                 notification_event=NotificationEventType.AUCTION_WIN,
                 auction_id=result.auction_id,
             )
+
+        winner_label = str(result.winner_tg_user_id) if result.winner_tg_user_id is not None else "нет"
+        await send_section_message(
+            bot,
+            section=ModerationTopicSection.AUCTIONS_CLOSED,
+            text=(
+                f"Автозавершение: лот {short_auction_ref(result.auction_id)} закрыт по таймеру.\n"
+                f"Продавец: {result.seller_tg_user_id}\n"
+                f"Победитель: {winner_label}"
+            ),
+            reply_markup=reply_markup,
+        )
 
     return len(finalized_results)
