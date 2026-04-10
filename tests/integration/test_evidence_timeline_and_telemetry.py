@@ -6,8 +6,16 @@ from unittest.mock import MagicMock
 
 from sqlalchemy import select
 
-from app.db.models import AdminQueuePresetTelemetryEvent, Complaint, FraudSignal, ModerationLog, User
-from app.services.admin_queue_preset_telemetry_service import load_workflow_preset_telemetry_segments
+from app.db.models import (
+    AdminQueuePresetTelemetryEvent,
+    Complaint,
+    FraudSignal,
+    ModerationLog,
+    User,
+)
+from app.services.admin_queue_preset_telemetry_service import (
+    load_workflow_preset_telemetry_segments,
+)
 from app.web.main import _render_complaint_detail_section, _render_signal_detail_section
 
 
@@ -45,7 +53,16 @@ async def test_complaint_evidence_timeline_rendering(db_session):
         auction_id=None,
         action="RESOLVE_COMPLAINT",
         reason="resolved in test",
-        payload={"rationale_artifact": {"summary": "test rationale artifact", "actor_user_id": actor.id, "actor_tg_user_id": 90003, "source": "web", "recorded_at": datetime.now(UTC).isoformat(), "immutable": True}},
+        payload={
+            "rationale_artifact": {
+                "summary": "test rationale artifact",
+                "actor_user_id": actor.id,
+                "actor_tg_user_id": 90003,
+                "source": "web",
+                "recorded_at": datetime.now(UTC).isoformat(),
+                "immutable": True,
+            }
+        },
     )
     db_session.add(mod_log)
     await db_session.flush()
@@ -145,7 +162,9 @@ async def test_telemetry_trend_aggregation(db_session):
         lookback_hours=24 * 7,
     )
     assert len(segments) > 0
-    matching = [s for s in segments if s.get("preset_id") == 1 and s.get("queue_context") == "moderation"]
+    matching = [
+        s for s in segments if s.get("preset_id") == 1 and s.get("queue_context") == "moderation"
+    ]
     assert len(matching) > 0
     segment = matching[0]
     assert int(segment["events_total"]) == 6
@@ -190,7 +209,16 @@ async def test_rationale_artifact_immutability(db_session):
         auction_id=None,
         action="FREEZE_AUCTION",
         reason="test immutability",
-        payload={"rationale_artifact": {"summary": "original summary", "actor_user_id": actor.id, "actor_tg_user_id": 90061, "source": "web", "recorded_at": datetime.now(UTC).isoformat(), "immutable": True}},
+        payload={
+            "rationale_artifact": {
+                "summary": "original summary",
+                "actor_user_id": actor.id,
+                "actor_tg_user_id": 90061,
+                "source": "web",
+                "recorded_at": datetime.now(UTC).isoformat(),
+                "immutable": True,
+            }
+        },
     )
     db_session.add(log)
     await db_session.flush()

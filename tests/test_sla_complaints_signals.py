@@ -54,7 +54,11 @@ def test_complaint_sla_healthy():
     thresholds = SLA_THRESHOLDS_BY_CONTEXT["moderation"]
     deadline = created + thresholds.warning_window + timedelta(hours=1)
     result = decide_queue_sla_health(
-        queue_context="moderation", status="OPEN", created_at=created, deadline_at=deadline, now=now,
+        queue_context="moderation",
+        status="OPEN",
+        created_at=created,
+        deadline_at=deadline,
+        now=now,
     )
     assert result.health_state == "healthy"
     assert result.aging_bucket == "fresh"
@@ -67,7 +71,11 @@ def test_complaint_sla_warning():
     created = now - timedelta(hours=3)
     deadline = now + thresholds.critical_window + timedelta(minutes=10)
     result = decide_queue_sla_health(
-        queue_context="moderation", status="OPEN", created_at=created, deadline_at=deadline, now=now,
+        queue_context="moderation",
+        status="OPEN",
+        created_at=created,
+        deadline_at=deadline,
+        now=now,
     )
     assert result.health_state == "warning"
     assert result.aging_bucket == "aging"
@@ -78,7 +86,11 @@ def test_complaint_sla_critical():
     created = now - timedelta(hours=5)
     deadline = now + timedelta(minutes=15)
     result = decide_queue_sla_health(
-        queue_context="moderation", status="OPEN", created_at=created, deadline_at=deadline, now=now,
+        queue_context="moderation",
+        status="OPEN",
+        created_at=created,
+        deadline_at=deadline,
+        now=now,
     )
     assert result.health_state == "critical"
     assert result.aging_bucket == "aging"
@@ -89,7 +101,11 @@ def test_complaint_sla_overdue():
     created = now - timedelta(hours=10)
     deadline = now - timedelta(hours=1)
     result = decide_queue_sla_health(
-        queue_context="moderation", status="OPEN", created_at=created, deadline_at=deadline, now=now,
+        queue_context="moderation",
+        status="OPEN",
+        created_at=created,
+        deadline_at=deadline,
+        now=now,
     )
     assert result.health_state == "overdue"
     assert result.aging_bucket == "overdue"
@@ -100,7 +116,11 @@ def test_complaint_sla_closed():
     now = datetime(2026, 4, 11, 12, 0, tzinfo=UTC)
     created = now - timedelta(hours=10)
     result = decide_queue_sla_health(
-        queue_context="moderation", status="RESOLVED", created_at=created, deadline_at=None, now=now,
+        queue_context="moderation",
+        status="RESOLVED",
+        created_at=created,
+        deadline_at=None,
+        now=now,
     )
     assert result.health_state == "closed"
     assert result.aging_bucket == "closed"
@@ -110,7 +130,11 @@ def test_complaint_sla_no_deadline():
     now = datetime(2026, 4, 11, 12, 0, tzinfo=UTC)
     created = now - timedelta(hours=2)
     result = decide_queue_sla_health(
-        queue_context="moderation", status="OPEN", created_at=created, deadline_at=None, now=now,
+        queue_context="moderation",
+        status="OPEN",
+        created_at=created,
+        deadline_at=None,
+        now=now,
     )
     assert result.health_state == "no_sla"
     assert result.aging_bucket == "fresh"
@@ -122,7 +146,11 @@ def test_signal_sla_healthy():
     thresholds = SLA_THRESHOLDS_BY_CONTEXT["risk"]
     deadline = created + thresholds.warning_window + timedelta(hours=1)
     result = decide_queue_sla_health(
-        queue_context="risk", status="OPEN", created_at=created, deadline_at=deadline, now=now,
+        queue_context="risk",
+        status="OPEN",
+        created_at=created,
+        deadline_at=deadline,
+        now=now,
     )
     assert result.health_state == "healthy"
     assert result.aging_bucket == "fresh"
@@ -134,7 +162,11 @@ def test_signal_aging_bucket_stale():
     thresholds = SLA_THRESHOLDS_BY_CONTEXT["risk"]
     created = now - thresholds.aging_aging_max - timedelta(minutes=1)
     result = decide_queue_sla_health(
-        queue_context="risk", status="OPEN", created_at=created, deadline_at=None, now=now,
+        queue_context="risk",
+        status="OPEN",
+        created_at=created,
+        deadline_at=None,
+        now=now,
     )
     assert result.aging_bucket == "stale"
 
@@ -144,7 +176,11 @@ def test_signal_aging_bucket_critical():
     thresholds = SLA_THRESHOLDS_BY_CONTEXT["risk"]
     created = now - thresholds.aging_stale_max - timedelta(hours=1)
     result = decide_queue_sla_health(
-        queue_context="risk", status="OPEN", created_at=created, deadline_at=None, now=now,
+        queue_context="risk",
+        status="OPEN",
+        created_at=created,
+        deadline_at=None,
+        now=now,
     )
     assert result.aging_bucket == "critical"
 
@@ -153,7 +189,11 @@ def test_unknown_queue_context_fallback():
     now = datetime(2026, 4, 11, 12, 0, tzinfo=UTC)
     created = now - timedelta(hours=1)
     result = decide_queue_sla_health(
-        queue_context="nonexistent", status="OPEN", created_at=created, deadline_at=None, now=now,
+        queue_context="nonexistent",
+        status="OPEN",
+        created_at=created,
+        deadline_at=None,
+        now=now,
     )
     assert result.queue_context == "moderation"
     assert result.fallback_applied is True
