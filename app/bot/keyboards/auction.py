@@ -49,7 +49,7 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
     rows: list[list[InlineKeyboardButton]] = [
         [
             styled_button(
-                text="Создать аукцион",
+                text="Создать лот",
                 callback_data="create:new",
                 style="primary",
                 icon_custom_emoji_id=_icon(settings.ui_emoji_create_auction_id),
@@ -57,21 +57,25 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
         ],
         [
             styled_button(
-                text="Мои аукционы",
+                text="Мои лоты",
                 callback_data="dash:my_auctions",
                 style="primary",
             )
         ],
         [
             styled_button(
-                text="Настройки",
-                callback_data="dash:settings",
-            )
+                text="Гарант",
+                callback_data="dash:guarant",
+            ),
+            styled_button(
+                text="Уведомления",
+                callback_data="dash:notifications",
+            ),
         ],
         [
             styled_button(
-                text="Баланс",
-                callback_data="dash:balance",
+                text="Настройки",
+                callback_data="dash:settings",
             )
         ],
     ]
@@ -80,7 +84,7 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
         rows.append(
             [
                 styled_button(
-                    text="Мод-панель",
+                    text="Модерация",
                     callback_data="mod:panel",
                     style="success",
                     icon_custom_emoji_id=_icon(settings.ui_emoji_mod_panel_id),
