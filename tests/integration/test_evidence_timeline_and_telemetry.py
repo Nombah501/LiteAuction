@@ -8,7 +8,6 @@ from sqlalchemy import select
 
 from app.db.models import AdminQueuePresetTelemetryEvent, Complaint, FraudSignal, ModerationLog, User
 from app.services.admin_queue_preset_telemetry_service import load_workflow_preset_telemetry_segments
-from app.web.auth import AdminAuthContext
 from app.web.main import _render_complaint_detail_section, _render_signal_detail_section
 
 

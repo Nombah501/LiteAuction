@@ -1,8 +1,14 @@
+from datetime import UTC, datetime, timedelta
+
+from app.services.queue_sla_health_service import (
+    SLA_THRESHOLDS_BY_CONTEXT,
+    decide_queue_sla_health,
+)
 from app.web.main import (
-    _parse_complaint_sla_health_filter,
     _parse_complaint_aging_bucket_filter,
-    _parse_signal_sla_health_filter,
+    _parse_complaint_sla_health_filter,
     _parse_signal_aging_bucket_filter,
+    _parse_signal_sla_health_filter,
 )
 
 
@@ -42,13 +48,6 @@ def test_parse_signal_aging_bucket_filter_valid_values():
         assert _parse_signal_aging_bucket_filter(value) == value
 
 
-from datetime import timedelta, UTC, datetime
-from app.services.queue_sla_health_service import (
-    SLA_THRESHOLDS_BY_CONTEXT,
-    decide_queue_sla_health,
-)
-
-
 def test_complaint_sla_healthy():
     now = datetime(2026, 4, 11, 12, 0, tzinfo=UTC)
     created = now - timedelta(minutes=30)
@@ -76,7 +75,6 @@ def test_complaint_sla_warning():
 
 def test_complaint_sla_critical():
     now = datetime(2026, 4, 11, 12, 0, tzinfo=UTC)
-    thresholds = SLA_THRESHOLDS_BY_CONTEXT["moderation"]
     created = now - timedelta(hours=5)
     deadline = now + timedelta(minutes=15)
     result = decide_queue_sla_health(
