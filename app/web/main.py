@@ -770,6 +770,118 @@ async def _render_complaint_detail_section(
     return {"ok": True, "html": html}
 
 
+async def _render_signal_detail_section(
+    session: AsyncSession,
+    *,
+    row_id: int,
+    section: str,
+    request: Request,
+) -> dict[str, object]:
+    signal = await session.scalar(select(FraudSignal).where(FraudSignal.id == row_id))
+    if signal is None:
+        return {"ok": False, "message": "Signal not found"}
+
+    signal_user = await session.scalar(select(User).where(User.id == signal.user_id))
+    resolver = None
+    if signal.resolved_by_user_id is not None:
+        resolver = await session.scalar(select(User).where(User.id == signal.resolved_by_user_id))
+
+    mod_logs = (
+        await session.execute(
+            select(ModerationLog)
+            .where(
+                ModerationLog.auction_id == signal.auction_id,
+                ModerationLog.created_at >= signal.created_at,
+            )
+            .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
+        )
+    ).scalars().all()
+
+    actor_ids = {log_row.actor_user_id for log_row in mod_logs}
+    actors_by_id: dict[int, User] = {}
+    if actor_ids:
+        actors = (await session.execute(select(User).where(User.id.in_(actor_ids)))).scalars().all()
+        actors_by_id = {item.id: item for item in actors}
+
+    if section == "primary":
+        timeline_events: list[tuple[datetime, str, str]] = []
+        _append_timeline_event(
+            timeline_events,
+            happened_at=signal.created_at,
+            title="Fraud signal created",
+            details=f"user={_user_label(signal_user, signal.user_id)}, score={signal.score}, status={signal.status}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=signal.resolved_at,
+            title=f"Signal finalized: {signal.status}",
+            details=f"resolver={_user_label(resolver, signal.resolved_by_user_id)}, note={signal.resolution_note or '-'}",
+        )
+        for log_row in mod_logs:
+            _append_timeline_event(
+                timeline_events,
+                happened_at=log_row.created_at,
+                title=f"Moderation action: {str(log_row.action)}",
+                details=f"actor={_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)}",
+            )
+
+        timeline_events.sort(key=lambda item: item[0])
+        timeline_html = _render_inline_timeline_html(timeline_events)
+        source_line = f"<p><b>Evidence timeline:</b> fraud signal #{signal.id}</p>"
+        auction_link = f"<p class='section-note'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{signal.auction_id}'))}'>Open full auction timeline</a></p>"
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{source_line}{timeline_html}{auction_link}</div>",
+        }
+
+    if section == "secondary":
+        source_bits: list[str] = [
+            f"<p><b>Source evidence:</b> signal #{signal.id}, score={signal.score}, status={escape(str(signal.status))}</p>",
+            f"<p class='section-note'>auction={escape(str(signal.auction_id))}, user={escape(_user_label(signal_user, signal.user_id))}</p>",
+        ]
+        if signal.resolution_note:
+            source_bits.append(f"<p class='section-note'>resolution={escape(signal.resolution_note[:200])}</p>")
+
+        artifact_items: list[str] = []
+        for log_row in mod_logs:
+            payload = log_row.payload or {}
+            artifact = payload.get("rationale_artifact") if isinstance(payload, dict) else None
+            if not isinstance(artifact, dict):
+                continue
+            actor_label = _user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)
+            summary = str(artifact.get("summary") or "-")
+            recorded_at = str(artifact.get("recorded_at") or _fmt_ts(log_row.created_at))
+            source_value = str(artifact.get("source") or "web")
+            artifact_items.append(
+                f"<li><b>{escape(str(log_row.action))}</b> - {escape(summary)}"
+                f"<div class='section-note'>actor={escape(actor_label)}, recorded_at={escape(recorded_at)}, source={escape(source_value)}</div></li>"
+            )
+        if artifact_items:
+            source_bits.append(f"<p><b>Rationale artifacts:</b></p><ul>{''.join(artifact_items)}</ul>")
+        else:
+            source_bits.append("<p class='section-note'>No rationale artifacts yet.</p>")
+
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{''.join(source_bits)}</div>",
+        }
+
+    audit_items = [
+        f"<li>signal_id={signal.id}</li>",
+        f"<li>created_at={escape(_fmt_ts(signal.created_at))}</li>",
+        f"<li>score={signal.score}</li>",
+        f"<li>status={escape(str(signal.status))}</li>",
+        f"<li>resolver={escape(_user_label(resolver, signal.resolved_by_user_id))}</li>",
+        "<li>record_policy=append_only</li>",
+    ]
+    for log_row in mod_logs:
+        audit_items.append(
+            f"<li>log#{log_row.id} {escape(str(log_row.action))} at {escape(_fmt_ts(log_row.created_at))} by {escape(_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id))}</li>"
+        )
+    html = f"<div data-detail-state='loaded'><p><b>Audit trail (immutable)</b></p><ul>{''.join(audit_items)}</ul></div>"
+    return {"ok": True, "html": html}
+
+
 async def _load_user_risk_snapshot_map(
     session,
     *,
@@ -4864,6 +4976,16 @@ async def action_triage_detail_section(
             "</div>"
         )
         return {"ok": True, "html": collapsed_html, **metadata}
+
+    if queue_value == "signals":
+        async with SessionFactory() as session:
+            detail_payload = await _render_signal_detail_section(
+                session,
+                row_id=row_id,
+                section=section_value,
+                request=request,
+            )
+        return {**detail_payload, **metadata}
 
     if queue_value == "complaints":
         async with SessionFactory() as session:
