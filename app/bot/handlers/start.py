@@ -1019,6 +1019,36 @@ async def callback_dashboard_guarant(callback: CallbackQuery, state: FSMContext,
     await callback.message.answer("Опишите запрос на гаранта одним сообщением. Для отмены используйте /cancel")
 
 
+@router.callback_query(F.data == "dash:notifications")
+async def callback_dashboard_notifications(callback: CallbackQuery) -> None:
+    if callback.from_user is None:
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть уведомления", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            snapshot = await load_notification_settings(session, user_id=user.id)
+            snoozes = await list_active_auction_notification_snoozes(session, user_id=user.id)
+
+    if snapshot is None:
+        await callback.answer("Настройки уведомлений недоступны", show_alert=True)
+        return
+
+    text = _render_settings_text(snapshot, snoozes=snoozes)
+    keyboard = _settings_keyboard(snapshot, snoozes=snoozes)
+    await callback.answer()
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    except TelegramBadRequest:
+        pass
+
+    await callback.message.answer(text, reply_markup=keyboard, disable_web_page_preview=True)
+
+
 @router.callback_query(F.data.startswith("dash:settings:"))
 async def callback_dashboard_settings_action(callback: CallbackQuery) -> None:
     if callback.from_user is None or callback.data is None:
