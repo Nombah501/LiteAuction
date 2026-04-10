@@ -656,6 +656,120 @@ async def _render_appeal_detail_section(
     return {"ok": True, "html": html}
 
 
+async def _render_complaint_detail_section(
+    session: AsyncSession,
+    *,
+    row_id: int,
+    section: str,
+    request: Request,
+) -> dict[str, object]:
+    complaint = await session.scalar(select(Complaint).where(Complaint.id == row_id))
+    if complaint is None:
+        return {"ok": False, "message": "Complaint not found"}
+
+    reporter = await session.scalar(select(User).where(User.id == complaint.reporter_user_id))
+    target = None
+    if complaint.target_user_id is not None:
+        target = await session.scalar(select(User).where(User.id == complaint.target_user_id))
+    resolver = None
+    if complaint.resolved_by_user_id is not None:
+        resolver = await session.scalar(select(User).where(User.id == complaint.resolved_by_user_id))
+
+    mod_logs = (
+        await session.execute(
+            select(ModerationLog)
+            .where(
+                ModerationLog.auction_id == complaint.auction_id,
+                ModerationLog.created_at >= complaint.created_at,
+            )
+            .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
+        )
+    ).scalars().all()
+
+    actor_ids = {log_row.actor_user_id for log_row in mod_logs}
+    actors_by_id: dict[int, User] = {}
+    if actor_ids:
+        actors = (await session.execute(select(User).where(User.id.in_(actor_ids)))).scalars().all()
+        actors_by_id = {item.id: item for item in actors}
+
+    if section == "primary":
+        timeline_events: list[tuple[datetime, str, str]] = []
+        _append_timeline_event(
+            timeline_events,
+            happened_at=complaint.created_at,
+            title="Complaint created",
+            details=f"reporter={_user_label(reporter, complaint.reporter_user_id)}, target={_user_label(target, complaint.target_user_id)}, reason={complaint.reason[:120]}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=complaint.resolved_at,
+            title=f"Complaint finalized: {complaint.status}",
+            details=f"resolver={_user_label(resolver, complaint.resolved_by_user_id)}, note={complaint.resolution_note or '-'}",
+        )
+        for log_row in mod_logs:
+            _append_timeline_event(
+                timeline_events,
+                happened_at=log_row.created_at,
+                title=f"Moderation action: {str(log_row.action)}",
+                details=f"actor={_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)}",
+            )
+
+        timeline_events.sort(key=lambda item: item[0])
+        timeline_html = _render_inline_timeline_html(timeline_events)
+        source_line = f"<p><b>Evidence timeline:</b> complaint #{complaint.id}</p>"
+        auction_link = f"<p class='section-note'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{complaint.auction_id}'))}'>Open full auction timeline</a></p>"
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{source_line}{timeline_html}{auction_link}</div>",
+        }
+
+    if section == "secondary":
+        source_bits: list[str] = [
+            f"<p><b>Source evidence:</b> complaint #{complaint.id}, status={escape(str(complaint.status))}</p>",
+            f"<p class='section-note'>auction={escape(str(complaint.auction_id))}, reporter={escape(_user_label(reporter, complaint.reporter_user_id))}, target={escape(_user_label(target, complaint.target_user_id))}</p>",
+        ]
+        if complaint.resolution_note:
+            source_bits.append(f"<p class='section-note'>resolution={escape(complaint.resolution_note[:200])}</p>")
+
+        artifact_items: list[str] = []
+        for log_row in mod_logs:
+            payload = log_row.payload or {}
+            artifact = payload.get("rationale_artifact") if isinstance(payload, dict) else None
+            if not isinstance(artifact, dict):
+                continue
+            actor_label = _user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)
+            summary = str(artifact.get("summary") or "-")
+            recorded_at = str(artifact.get("recorded_at") or _fmt_ts(log_row.created_at))
+            source_value = str(artifact.get("source") or "web")
+            artifact_items.append(
+                f"<li><b>{escape(str(log_row.action))}</b> - {escape(summary)}"
+                f"<div class='section-note'>actor={escape(actor_label)}, recorded_at={escape(recorded_at)}, source={escape(source_value)}</div></li>"
+            )
+        if artifact_items:
+            source_bits.append(f"<p><b>Rationale artifacts:</b></p><ul>{''.join(artifact_items)}</ul>")
+        else:
+            source_bits.append("<p class='section-note'>No rationale artifacts yet.</p>")
+
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{''.join(source_bits)}</div>",
+        }
+
+    audit_items = [
+        f"<li>complaint_id={complaint.id}</li>",
+        f"<li>created_at={escape(_fmt_ts(complaint.created_at))}</li>",
+        f"<li>status={escape(str(complaint.status))}</li>",
+        f"<li>resolver={escape(_user_label(resolver, complaint.resolved_by_user_id))}</li>",
+        "<li>record_policy=append_only</li>",
+    ]
+    for log_row in mod_logs:
+        audit_items.append(
+            f"<li>log#{log_row.id} {escape(str(log_row.action))} at {escape(_fmt_ts(log_row.created_at))} by {escape(_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id))}</li>"
+        )
+    html = f"<div data-detail-state='loaded'><p><b>Audit trail (immutable)</b></p><ul>{''.join(audit_items)}</ul></div>"
+    return {"ok": True, "html": html}
+
+
 async def _load_user_risk_snapshot_map(
     session,
     *,
@@ -4750,6 +4864,16 @@ async def action_triage_detail_section(
             "</div>"
         )
         return {"ok": True, "html": collapsed_html, **metadata}
+
+    if queue_value == "complaints":
+        async with SessionFactory() as session:
+            detail_payload = await _render_complaint_detail_section(
+                session,
+                row_id=row_id,
+                section=section_value,
+                request=request,
+            )
+        return {**detail_payload, **metadata}
 
     if queue_value == "appeals":
         async with SessionFactory() as session:
