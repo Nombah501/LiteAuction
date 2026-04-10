@@ -255,6 +255,34 @@ def _parse_appeal_aging_bucket_filter(raw: str) -> str:
     raise HTTPException(status_code=400, detail="Invalid appeals aging filter")
 
 
+def _parse_complaint_sla_health_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "healthy", "warning", "critical", "overdue", "no_sla"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid complaints SLA health filter")
+
+
+def _parse_complaint_aging_bucket_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "fresh", "aging", "stale", "critical", "overdue", "unknown"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid complaints aging filter")
+
+
+def _parse_signal_sla_health_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "healthy", "warning", "critical", "overdue", "no_sla"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid signals SLA health filter")
+
+
+def _parse_signal_aging_bucket_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "fresh", "aging", "stale", "critical", "overdue", "unknown"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid signals aging filter")
+
+
 def _parse_trade_feedback_status(raw: str) -> str:
     value = raw.strip().lower()
     if value in {"all", "visible", "hidden"}:
