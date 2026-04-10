@@ -132,7 +132,7 @@ logger = logging.getLogger(__name__)
 
 _DENSE_ALLOWED_DENSITIES = frozenset({"compact", "standard", "comfortable"})
 _QUEUE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
-    "complaints": ("id", "auction", "reporter", "status", "reason", "created"),
+    "complaints": ("id", "auction", "reporter", "status", "reason", "created", "sla", "deadline"),
     "signals": ("id", "auction", "user", "risk", "score", "status", "created"),
     "trade_feedback": (
         "id",
@@ -2128,11 +2128,17 @@ async def complaints(
     page: int = 0,
     density: str | None = None,
     telemetry_preset_id: int | None = None,
+    sla_health: str = "all",
+    aging: str = "all",
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
     page = max(page, 0)
+    sla_health_value = _parse_complaint_sla_health_filter(sla_health)
+    aging_value = _parse_complaint_aging_bucket_filter(aging)
+    now = datetime.now(UTC)
+    complaint_sla_thresholds = SLA_THRESHOLDS_BY_CONTEXT["moderation"]
     page_size = 30
     offset = page * page_size
 
@@ -2168,11 +2174,15 @@ async def complaints(
         status_value: str,
         density_value: str | None = None,
         telemetry_preset_id_value: int | None = telemetry_preset_id,
+        sla_health_value: str | None = sla_health_value,
+        aging_value: str | None = aging_value,
     ) -> str:
         query = {
             "status": status_value,
             "page": str(page_value),
             "density": density_value or dense_config.density,
+            "sla_health": sla_health_value or "all",
+            "aging": aging_value or "all",
         }
         if telemetry_preset_id_value is not None and telemetry_preset_id_value > 0:
             query["telemetry_preset_id"] = str(telemetry_preset_id_value)
@@ -2181,6 +2191,17 @@ async def complaints(
     table_rows = ""
     for item in rows:
         complaint_priority = "high" if str(item.status).upper() == "OPEN" else "normal"
+        complaint_deadline = item.created_at + complaint_sla_thresholds.warning_window if item.created_at else None
+        sla_decision = decide_queue_sla_health(
+            queue_context="moderation",
+            status=item.status,
+            created_at=item.created_at,
+            deadline_at=complaint_deadline,
+            now=now,
+        )
+        if sla_decision.health_state in ("critical", "overdue"):
+            complaint_priority = "urgent"
+        sla_hint = f"SLA:{sla_decision.health_state} | age:{sla_decision.aging_bucket}"
         row_context_attrs = _triage_row_context_attrs(risk_level="low", priority_level=complaint_priority)
         table_rows += (
             f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.reporter_user_id} {item.status} {item.reason}')}' "
@@ -2192,16 +2213,18 @@ async def complaints(
             f"<td data-col='status' data-status-cell='1'>{escape(item.status)}</td>"
             f"<td data-col='reason'>{escape(item.reason[:120])}</td>"
             f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
+            f"<td data-col='sla' data-sla-health='{escape(sla_decision.health_state)}' data-aging-bucket='{escape(sla_decision.aging_bucket)}'><small>{escape(sla_hint)}</small></td>"
+            f"<td data-col='deadline'>{escape(_fmt_ts(complaint_deadline))}</td>"
             "</tr>"
         )
         table_rows += _triage_detail_row(
             item.id,
-            col_count=7,
+            col_count=9,
             title=f"Complaint #{item.id}",
             subtitle=f"Auction {item.auction_id} / reporter {item.reporter_user_id}",
         )
     if not table_rows:
-        table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='9'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
         f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
@@ -2245,7 +2268,20 @@ async def complaints(
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='reporter'>Reporter UID</th><th data-col='status'>Status</th><th data-col='reason'>Reason</th><th data-col='created'>Created</th></tr></thead>"
+        "<div class='toolbar'><span>SLA health:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='healthy')))}'>В норме</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='warning')))}'>Внимание</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='critical')))}'>Критично</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='overdue')))}'>Просрочена</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='no_sla')))}'>Без SLA</a></div>"
+        "<div class='toolbar'><span>Возраст:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='fresh')))}'>Свежие</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='aging')))}'>Aging</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='stale')))}'>Stale</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='critical')))}'>Critical</a></div>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='reporter'>Reporter UID</th><th data-col='status'>Status</th><th data-col='reason'>Reason</th><th data-col='created'>Created</th><th data-col='sla'>SLA</th><th data-col='deadline'>Deadline</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
