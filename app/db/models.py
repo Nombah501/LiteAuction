@@ -32,8 +32,6 @@ from app.db.enums import (
     IntegrationOutboxStatus,
     ModerationAction,
     PointsEventType,
-    ReputationEventReason,
-    ReputationTier,
     UserRole,
 )
 
