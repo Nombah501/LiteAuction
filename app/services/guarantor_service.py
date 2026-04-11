@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,6 +75,7 @@ async def create_guarantor_request(
     *,
     submitter_user_id: int,
     details: str,
+    auction_id: UUID | None = None,
 ) -> GuarantorRequestCreateResult:
     normalized = _normalize_details(details)
     min_length = max(settings.guarantor_intake_min_length, 1)
@@ -99,6 +101,7 @@ async def create_guarantor_request(
         status=GuarantorRequestStatus.NEW,
         submitter_user_id=submitter_user_id,
         details=normalized,
+        auction_id=auction_id,
         updated_at=now,
     )
     session.add(item)
