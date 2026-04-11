@@ -87,3 +87,26 @@ class PointsEventType(StrEnum):
     FEEDBACK_PRIORITY_BOOST = "FEEDBACK_PRIORITY_BOOST"
     GUARANTOR_PRIORITY_BOOST = "GUARANTOR_PRIORITY_BOOST"
     APPEAL_PRIORITY_BOOST = "APPEAL_PRIORITY_BOOST"
+
+
+class ReputationTier(StrEnum):
+    NEW = "NEW"
+    BRONZE = "BRONZE"
+    SILVER = "SILVER"
+    GOLD = "GOLD"
+    PLATINUM = "PLATINUM"
+
+
+class ReputationEventReason(StrEnum):
+    AUCTION_COMPLETED = "auction_completed"
+    BID_WON = "bid_won"
+    GUARANTOR_ASSIGNED = "guarantor_assigned"
+    USER_VERIFIED = "user_verified"
+    COMPLAINT_FILED = "complaint_filed"
+    FRAUD_SIGNAL = "fraud_signal"
+    FRAUD_CONFIRMED = "fraud_confirmed"
+    BID_REMOVED = "bid_removed"
+    TEMP_BAN = "temp_ban"
+    PERM_BAN = "perm_ban"
+    MOD_ADJUST = "mod_adjust"
+    DECAY = "decay"
