@@ -63,9 +63,15 @@ from app.services.notification_metrics_service import (
 from app.services.notification_copy_service import (
     auction_buyout_finished_text,
     auction_buyout_winner_text,
+    auction_finished_text,
+    auction_winner_text,
+    format_user_mention,
     outbid_digest_text,
     outbid_notification_text,
-    short_auction_ref,
+    seller_completion_text,
+    seller_no_bids_text,
+    winner_completion_text,
+    moderation_completion_text,
 )
 from app.services.user_service import upsert_user
 
@@ -391,48 +397,132 @@ async def _notify_auction_finish(
     seller_tg_id: int | None,
     auction_id: uuid.UUID,
     post_url: str | None,
+    final_price: int | None = None,
+    description: str | None = None,
+    winner_mention: str | None = None,
+    seller_mention: str | None = None,
+    is_buyout: bool = True,
+    had_bids: bool = True,
 ) -> None:
     resolved_post_url = post_url or await resolve_auction_post_url(bot, auction_id=auction_id)
-    reply_markup = open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
+    short_id = str(auction_id)[:8]
 
-    if seller_tg_id is not None:
+    if seller_tg_id is not None and had_bids and final_price is not None and winner_mention is not None:
+        from app.bot.keyboards.auction import deal_completion_keyboard
+
+        seller_text = seller_completion_text(
+            auction_id=auction_id,
+            description=description or "",
+            final_price=final_price,
+            counterparty_mention=winner_mention,
+            counterparty_role="победитель",
+            is_buyout=is_buyout,
+        )
+        seller_kb = deal_completion_keyboard(auction_id=short_id, post_url=resolved_post_url, is_seller=True)
+
         await send_user_topic_message(
             bot,
             tg_user_id=seller_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
-            text=auction_buyout_finished_text(auction_id),
-            reply_markup=reply_markup,
-            message_effect_id=resolve_auction_message_effect_id(
-                AuctionMessageEffectEvent.BUYOUT_SELLER
-            ),
+            text=seller_text,
+            reply_markup=seller_kb,
+            message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.BUYOUT_SELLER),
             notification_event=NotificationEventType.AUCTION_FINISH,
             auction_id=auction_id,
         )
-    if winner_tg_id is not None:
+    elif seller_tg_id is not None and not had_bids:
+        from app.bot.keyboards.auction import no_bids_keyboard
+
+        seller_text = seller_no_bids_text(
+            auction_id=auction_id,
+            description=description or "",
+            start_price=final_price or 0,
+        )
+        seller_kb = no_bids_keyboard(auction_id=short_id, post_url=resolved_post_url)
+
+        await send_user_topic_message(
+            bot,
+            tg_user_id=seller_tg_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=seller_text,
+            reply_markup=seller_kb,
+            notification_event=NotificationEventType.AUCTION_FINISH,
+            auction_id=auction_id,
+        )
+    elif seller_tg_id is not None:
+        reply_markup = open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
+        await send_user_topic_message(
+            bot,
+            tg_user_id=seller_tg_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=auction_buyout_finished_text(auction_id) if is_buyout else auction_finished_text(auction_id),
+            reply_markup=reply_markup,
+            message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.BUYOUT_SELLER),
+            notification_event=NotificationEventType.AUCTION_FINISH,
+            auction_id=auction_id,
+        )
+
+    if winner_tg_id is not None and had_bids and final_price is not None and seller_mention is not None:
+        from app.bot.keyboards.auction import deal_completion_keyboard
+
+        winner_text = winner_completion_text(
+            auction_id=auction_id,
+            description=description or "",
+            final_price=final_price,
+            counterparty_mention=seller_mention,
+            counterparty_role="продавец",
+            is_buyout=is_buyout,
+        )
+        winner_kb = deal_completion_keyboard(auction_id=short_id, post_url=resolved_post_url, is_seller=False)
+
         await send_user_topic_message(
             bot,
             tg_user_id=winner_tg_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
-            text=auction_buyout_winner_text(auction_id),
+            text=winner_text,
+            reply_markup=winner_kb,
+            message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.BUYOUT_WINNER),
+            notification_event=NotificationEventType.AUCTION_WIN,
+            auction_id=auction_id,
+        )
+    elif winner_tg_id is not None:
+        reply_markup = open_auction_post_keyboard(resolved_post_url) if resolved_post_url else None
+        await send_user_topic_message(
+            bot,
+            tg_user_id=winner_tg_id,
+            purpose=PrivateTopicPurpose.AUCTIONS,
+            text=auction_buyout_winner_text(auction_id) if is_buyout else auction_winner_text(auction_id),
             reply_markup=reply_markup,
-            message_effect_id=resolve_auction_message_effect_id(
-                AuctionMessageEffectEvent.BUYOUT_WINNER
-            ),
+            message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.BUYOUT_WINNER),
             notification_event=NotificationEventType.AUCTION_WIN,
             auction_id=auction_id,
         )
 
-    seller_label = str(seller_tg_id) if seller_tg_id is not None else "нет"
-    winner_label = str(winner_tg_id) if winner_tg_id is not None else "нет"
+    from app.bot.keyboards.auction import moderation_completion_keyboard
+
+    seller_label = seller_mention or (str(seller_tg_id) if seller_tg_id is not None else "нет")
+    winner_label = winner_mention or (str(winner_tg_id) if winner_tg_id is not None else "нет")
+
+    mod_text = moderation_completion_text(
+        auction_id=auction_id,
+        description=description or "",
+        final_price=final_price or 0,
+        bid_count=0,
+        seller_mention=seller_label,
+        winner_mention=winner_label,
+        seller_reputation=0,
+        winner_reputation=0,
+        has_deal_topic=False,
+        has_guarantor=False,
+        reason="выкупом" if is_buyout else "по таймеру",
+    )
+    mod_kb = moderation_completion_keyboard(auction_id=short_id, post_url=resolved_post_url)
+
     await send_section_message(
         bot,
         section=ModerationTopicSection.AUCTIONS_CLOSED,
-        text=(
-            f"Лот {short_auction_ref(auction_id)} завершен выкупом.\n"
-            f"Продавец: {seller_label}\n"
-            f"Победитель: {winner_label}"
-        ),
-        reply_markup=reply_markup,
+        text=mod_text,
+        reply_markup=mod_kb,
     )
 
 
@@ -678,12 +768,36 @@ async def handle_buyout_action(callback: CallbackQuery, bot: Bot) -> None:
         await _maybe_send_fraud_alert(bot, result.fraud_signal_id)
 
     if result.auction_finished:
+        winner_mention_val = (
+            format_user_mention(
+                username=result.winner_username,
+                first_name=result.winner_first_name,
+                tg_user_id=result.winner_tg_user_id,
+            )
+            if result.winner_tg_user_id
+            else None
+        )
+        seller_mention_val = (
+            format_user_mention(
+                username=result.seller_username,
+                first_name=result.seller_first_name,
+                tg_user_id=result.seller_tg_user_id,
+            )
+            if result.seller_tg_user_id
+            else None
+        )
         await _notify_auction_finish(
             bot,
             winner_tg_id=result.winner_tg_user_id,
             seller_tg_id=result.seller_tg_user_id,
             auction_id=auction_id,
             post_url=post_url,
+            final_price=result.final_price,
+            description=result.description,
+            winner_mention=winner_mention_val,
+            seller_mention=seller_mention_val,
+            is_buyout=True,
+            had_bids=result.had_bids,
         )
 
 

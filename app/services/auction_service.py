@@ -84,6 +84,13 @@ class BidActionResult:
     placed_bid_amount: int | None = None
     created_bid_id: uuid.UUID | None = None
     fraud_signal_id: int | None = None
+    final_price: int | None = None
+    description: str | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
+    seller_username: str | None = None
+    seller_first_name: str | None = None
+    had_bids: bool = True
 
 
 @dataclass(slots=True)
@@ -652,6 +659,13 @@ async def process_bid_action(
 
     winner_tg_user_id: int | None = None
     seller_tg_user_id: int | None = None
+    final_price: int | None = None
+    description: str | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
+    seller_username: str | None = None
+    seller_first_name: str | None = None
+    had_bids: bool = True
 
     if buyout_triggered:
         finalized = await _finalize_auction_locked(
@@ -663,6 +677,13 @@ async def process_bid_action(
         if finalized is not None:
             winner_tg_user_id = finalized.winner_tg_user_id
             seller_tg_user_id = finalized.seller_tg_user_id
+            final_price = finalized.final_price
+            description = finalized.description
+            winner_username = finalized.winner_username
+            winner_first_name = finalized.winner_first_name
+            seller_username = finalized.seller_username
+            seller_first_name = finalized.seller_first_name
+            had_bids = finalized.had_bids
         return BidActionResult(
             success=True,
             should_refresh=True,
@@ -674,6 +695,13 @@ async def process_bid_action(
             outbid_tg_user_id=outbid_tg_user_id,
             created_bid_id=created_bid.id,
             fraud_signal_id=fraud_signal_id,
+            final_price=final_price,
+            description=description,
+            winner_username=winner_username,
+            winner_first_name=winner_first_name,
+            seller_username=seller_username,
+            seller_first_name=seller_first_name,
+            had_bids=had_bids,
         )
 
     if (
