@@ -81,6 +81,13 @@ class FinalizeResult:
     auction_id: uuid.UUID
     winner_tg_user_id: int | None
     seller_tg_user_id: int
+    final_price: int | None = None
+    description: str | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
+    seller_username: str | None = None
+    seller_first_name: str | None = None
+    had_bids: bool = True
 
 
 def parse_auction_uuid(value: str) -> uuid.UUID | None:
@@ -507,9 +514,14 @@ async def _finalize_auction_locked(
 
     seller = await session.scalar(select(User).where(User.id == auction.seller_user_id))
     winner_tg_user_id: int | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
     if winner_user_id is not None:
         winner = await session.scalar(select(User).where(User.id == winner_user_id))
         winner_tg_user_id = winner.tg_user_id if winner is not None else None
+        if winner is not None:
+            winner_username = winner.username
+            winner_first_name = winner.first_name
 
     if seller is None:
         return None
@@ -518,10 +530,21 @@ async def _finalize_auction_locked(
     if winner_user_id is not None:
         await adjust_reputation(session, winner_user_id, 2, ReputationEventReason.BID_WON)
 
+    top_bids = await _top_bids_for_auction(session, auction.id, limit=1)
+    final_price = top_bids[0].amount if top_bids else None
+    had_bids = len(top_bids) > 0
+
     return FinalizeResult(
         auction_id=auction.id,
         winner_tg_user_id=winner_tg_user_id,
         seller_tg_user_id=seller.tg_user_id,
+        final_price=final_price,
+        description=auction.description,
+        winner_username=winner_username,
+        winner_first_name=winner_first_name,
+        seller_username=seller.username,
+        seller_first_name=seller.first_name,
+        had_bids=had_bids,
     )
 
 
