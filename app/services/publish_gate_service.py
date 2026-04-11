@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Bid, BlacklistEntry, Complaint, FraudSignal, User
+from app.db.enums import AuctionStatus, ReputationTier
+from app.db.models import Auction
 from app.services.guarantor_service import has_assigned_guarantor_request
-from app.services.risk_eval_service import evaluate_user_risk_snapshot, format_risk_reason_label
+from app.services.reputation_service import get_or_create_reputation
 from app.services.runtime_settings_service import resolve_runtime_setting_value
-from app.services.verification_service import is_user_verified
 
 
 @dataclass(slots=True, frozen=True)
@@ -21,103 +21,96 @@ class SellerPublishGateResult:
     block_message: str | None = None
 
 
-def _build_block_message(*, risk_score: int, risk_reasons: tuple[str, ...]) -> str:
-    factors = ", ".join(format_risk_reason_label(code) for code in risk_reasons) if risk_reasons else "без детализации"
-    return (
-        "Публикация лота временно ограничена: высокий риск-профиль продавца "
-        f"(score={risk_score}). Факторы: {factors}.\n"
-        "Для публикации нужен назначенный гарант. Отправьте /guarant в личном чате с ботом."
-    )
-
-
 async def evaluate_seller_publish_gate(
     session: AsyncSession,
     *,
     seller_user_id: int,
 ) -> SellerPublishGateResult:
-    complaints_against = int(
-        await session.scalar(select(func.count(Complaint.id)).where(Complaint.target_user_id == seller_user_id))
-        or 0
-    )
-    open_fraud_signals = int(
-        await session.scalar(
-            select(func.count(FraudSignal.id)).where(
-                FraudSignal.user_id == seller_user_id,
-                FraudSignal.status == "OPEN",
-            )
-        )
-        or 0
-    )
-    has_active_blacklist = (
-        await session.scalar(
-            select(BlacklistEntry.id).where(
-                BlacklistEntry.user_id == seller_user_id,
-                BlacklistEntry.is_active.is_(True),
-            )
-        )
-        is not None
-    )
-    removed_bids = int(
-        await session.scalar(
-            select(func.count(Bid.id)).where(
-                Bid.user_id == seller_user_id,
-                Bid.is_removed.is_(True),
-            )
-        )
-        or 0
-    )
-    seller = await session.scalar(select(User).where(User.id == seller_user_id))
-    seller_verified = False
-    if seller is not None:
-        seller_verified = await is_user_verified(session, tg_user_id=seller.tg_user_id)
+    reputation = await get_or_create_reputation(session, seller_user_id)
+    tier = reputation.tier
+    score = reputation.score
 
-    risk = evaluate_user_risk_snapshot(
-        complaints_against=complaints_against,
-        open_fraud_signals=open_fraud_signals,
-        has_active_blacklist=has_active_blacklist,
-        removed_bids=removed_bids,
-        is_verified_user=seller_verified,
-    )
-
-    publish_requires_guarantor = bool(
-        await resolve_runtime_setting_value(session, "publish_high_risk_requires_guarantor")
-    )
-    if not publish_requires_guarantor:
+    if tier in {ReputationTier.PLATINUM, ReputationTier.GOLD, ReputationTier.SILVER}:
         return SellerPublishGateResult(
             allowed=True,
-            risk_level=risk.level,
-            risk_score=risk.score,
-            risk_reasons=risk.reasons,
+            risk_level=tier,
+            risk_score=score,
+            risk_reasons=(),
         )
 
-    if risk.level != "HIGH":
+    if tier == ReputationTier.BRONZE:
+        has_assigned = await has_assigned_guarantor_request(
+            session,
+            submitter_user_id=seller_user_id,
+            max_age_days=max(
+                int(await resolve_runtime_setting_value(session, "publish_guarantor_assignment_max_age_days")),
+                0,
+            ),
+        )
+        if has_assigned:
+            return SellerPublishGateResult(
+                allowed=True,
+                risk_level=tier,
+                risk_score=score,
+                risk_reasons=(),
+            )
         return SellerPublishGateResult(
-            allowed=True,
-            risk_level=risk.level,
-            risk_score=risk.score,
-            risk_reasons=risk.reasons,
+            allowed=False,
+            risk_level=tier,
+            risk_score=score,
+            risk_reasons=("no_guarantor",),
+            block_message=(
+                f"Публикация ограничена. Ваш уровень: BRONZE (score: {score}).\n"
+                "Для публикации нужен назначенный гарант → /guarant\n"
+                "Повысить уровень: завершите сделки без жалоб."
+            ),
         )
 
     has_assigned = await has_assigned_guarantor_request(
         session,
         submitter_user_id=seller_user_id,
-        max_age_days=max(
-            int(await resolve_runtime_setting_value(session, "publish_guarantor_assignment_max_age_days")),
-            0,
-        ),
+        max_age_days=365,
     )
-    if has_assigned:
+    completed_statuses = (AuctionStatus.ENDED, AuctionStatus.BOUGHT_OUT)
+    completed_count = int(
+        await session.scalar(
+            select(func.count(Auction.id)).where(
+                Auction.seller_user_id == seller_user_id,
+                Auction.status.in_(completed_statuses),
+            )
+        )
+        or 0
+    )
+    won_count = int(
+        await session.scalar(
+            select(func.count(Auction.id)).where(
+                Auction.winner_user_id == seller_user_id,
+                Auction.status.in_(completed_statuses),
+            )
+        )
+        or 0
+    )
+    total_deals = completed_count + won_count
+
+    if has_assigned and total_deals >= 1:
         return SellerPublishGateResult(
             allowed=True,
-            risk_level=risk.level,
-            risk_score=risk.score,
-            risk_reasons=risk.reasons,
+            risk_level=tier,
+            risk_score=score,
+            risk_reasons=(),
         )
+
+    parts = [f"Публикация ограничена. Ваш уровень: NEW (score: {score})."]
+    if not has_assigned:
+        parts.append("Для публикации нужен гарант → /guarant")
+    if total_deals < 1:
+        parts.append("Нужна хотя бы 1 завершённая сделка (проданный или выигранный аукцион).")
+    parts.append("Повысить уровень: завершите сделки без жалоб.")
 
     return SellerPublishGateResult(
         allowed=False,
-        risk_level=risk.level,
-        risk_score=risk.score,
-        risk_reasons=risk.reasons,
-        block_message=_build_block_message(risk_score=risk.score, risk_reasons=risk.reasons),
+        risk_level=tier,
+        risk_score=score,
+        risk_reasons=("new_tier",),
+        block_message="\n".join(parts),
     )
