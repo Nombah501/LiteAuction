@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.auction import auction_active_keyboard, open_auction_post_keyboard
 from app.config import settings
-from app.db.enums import AuctionStatus
+from app.db.enums import AuctionStatus, ReputationEventReason
 from app.db.models import Auction, AuctionPhoto, AuctionPost, Bid, BlacklistEntry, Complaint, User
 from app.db.session import SessionFactory
 from app.services.fraud_service import evaluate_and_store_bid_fraud_signal
@@ -35,6 +35,7 @@ from app.services.moderation_topic_router import ModerationTopicSection, send_se
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.notification_policy_service import NotificationEventType
 from app.services.notification_copy_service import auction_finished_text, auction_winner_text, short_auction_ref
+from app.services.reputation_service import adjust_reputation
 
 logger = logging.getLogger(__name__)
 
@@ -512,6 +513,10 @@ async def _finalize_auction_locked(
 
     if seller is None:
         return None
+
+    await adjust_reputation(session, auction.seller_user_id, 3, ReputationEventReason.AUCTION_COMPLETED)
+    if winner_user_id is not None:
+        await adjust_reputation(session, winner_user_id, 2, ReputationEventReason.BID_WON)
 
     return FinalizeResult(
         auction_id=auction.id,

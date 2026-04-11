@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.enums import GuarantorRequestStatus, PointsEventType
+from app.db.enums import GuarantorRequestStatus, PointsEventType, ReputationEventReason
 from app.db.models import GuarantorRequest, User
 from app.services.points_service import (
     get_points_redemption_account_age_remaining_seconds,
@@ -201,6 +201,17 @@ async def assign_guarantor_request(
     item.resolution_note = note.strip() or "Назначен гарант"
     item.resolved_at = now
     item.updated_at = now
+
+    from app.services.reputation_service import adjust_reputation
+
+    await adjust_reputation(
+        session,
+        item.submitter_user_id,
+        10,
+        ReputationEventReason.GUARANTOR_ASSIGNED,
+        source_id=item.id,
+    )
+
     return GuarantorRequestModerationResult(True, "Гарант назначен", item=item, changed=True)
 
 
