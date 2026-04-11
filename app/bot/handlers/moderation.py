@@ -27,7 +27,7 @@ from app.bot.keyboards.moderation import (
 )
 from app.bot.keyboards.auction import open_auction_post_keyboard
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType, ReputationEventReason
 from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
 from app.services.bot_profile_photo_service import (
@@ -123,6 +123,7 @@ from app.services.rbac_service import (
     SCOPE_USER_BAN,
 )
 from app.services.user_service import upsert_user
+from app.services.reputation_service import adjust_reputation, get_or_create_reputation, get_reputation_history
 from app.services.verification_service import (
     get_user_verification_status,
     load_verified_tg_user_ids,
@@ -3480,3 +3481,84 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
             pass
 
     await callback.answer(callback_message)
+
+
+@router.message(Command("reputation"), F.chat.type == ChatType.PRIVATE)
+async def command_reputation(message: Message, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+    if not await _ensure_moderation_topic(message, bot, "/reputation"):
+        return
+
+    target_text = (message.text or "").strip().split(maxsplit=1)
+    if len(target_text) < 2:
+        await message.answer("Формат: /reputation <user_id>")
+        return
+
+    try:
+        target_user_id = int(target_text[1].strip())
+    except ValueError:
+        await message.answer("user_id должен быть числом")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            reputation = await get_or_create_reputation(session, target_user_id)
+            history = await get_reputation_history(session, target_user_id, limit=10)
+            user = await session.scalar(select(User).where(User.id == target_user_id))
+
+    tier_labels = {
+        "NEW": "🆕 NEW",
+        "BRONZE": "🥉 BRONZE",
+        "SILVER": "🥈 SILVER",
+        "GOLD": "🥇 GOLD",
+        "PLATINUM": "💎 PLATINUM",
+    }
+    user_label = f"@{user.username}" if user and user.username else str(target_user_id)
+    tier_display = tier_labels.get(reputation.tier, reputation.tier)
+
+    lines = [
+        f"Пользователь: {user_label}",
+        f"Уровень: {tier_display} (score: {reputation.score})",
+        "",
+        "Последние события:",
+    ]
+    for event in history:
+        sign = "+" if event.delta > 0 else ""
+        lines.append(f"  {sign}{event.delta} — {event.reason}")
+
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("modrepadjust"), F.chat.type == ChatType.PRIVATE)
+async def command_mod_reputation_adjust(message: Message, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+    if not await _ensure_moderation_topic(message, bot, "/modrepadjust"):
+        return
+
+    parts = (message.text or "").strip().split(maxsplit=3)
+    if len(parts) < 3:
+        await message.answer("Формат: /modrepadjust <user_id> <delta> [reason]")
+        return
+
+    try:
+        target_user_id = int(parts[1])
+        delta = int(parts[2])
+    except ValueError:
+        await message.answer("user_id и delta должны быть числами")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            reputation = await adjust_reputation(
+                session, target_user_id, delta, ReputationEventReason.MOD_ADJUST
+            )
+
+    if reputation is None:
+        await message.answer("Пользователь не найден или нет записи репутации")
+        return
+
+    await message.answer(
+        f"Репутация обновлена: score={reputation.score}, tier={reputation.tier}"
+    )
