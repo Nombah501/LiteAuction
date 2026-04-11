@@ -30,8 +30,17 @@ async def startup_checks() -> None:
 async def configure_bot_commands(bot: Bot) -> None:
     private_commands = [
         BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="help", description="Справка"),
         BotCommand(command="newauction", description="Создать лот"),
+        BotCommand(command="mybids", description="Мои ставки"),
+        BotCommand(command="myrep", description="Моя репутация"),
         BotCommand(command="guarant", description="Запрос гаранта"),
+        BotCommand(command="settings", description="Настройки уведомлений"),
+        BotCommand(command="points", description="Баланс и бонусы"),
+        BotCommand(command="tradefeedback", description="Оставить отзыв о сделке"),
+        BotCommand(command="boostfeedback", description="Повысить приоритет отзыва"),
+        BotCommand(command="bug", description="Сообщить о баге"),
+        BotCommand(command="suggest", description="Предложить улучшение"),
         BotCommand(command="cancel", description="Отменить действие"),
     ]
     await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())

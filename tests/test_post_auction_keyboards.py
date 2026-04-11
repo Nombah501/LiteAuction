@@ -63,11 +63,12 @@ def test_no_bids_keyboard_no_post_url() -> None:
 def test_deal_topic_keyboard() -> None:
     kb = deal_topic_keyboard(auction_id="a1b2c3d4")
     buttons = kb.inline_keyboard
-    assert len(buttons) == 2
+    assert len(buttons) == 3
     all_callbacks = [b.callback_data for row in buttons for b in row]
     assert "deal:guarant:a1b2c3d4" in all_callbacks
     assert "deal:feedback:a1b2c3d4" in all_callbacks
     assert "deal:complaint:a1b2c3d4" in all_callbacks
+    assert any("deal:closerequest:" in cb for cb in all_callbacks)
 
 
 def test_moderation_completion_keyboard() -> None:

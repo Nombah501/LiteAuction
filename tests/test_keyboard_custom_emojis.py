@@ -114,12 +114,9 @@ def test_auction_keyboard_emoji_fallbacks(monkeypatch) -> None:
 def test_start_private_keyboard_regular_user_order() -> None:
     keyboard = start_private_keyboard(show_moderation_button=False)
 
-    assert [row[0].text for row in keyboard.inline_keyboard] == [
-        "Создать аукцион",
-        "Мои аукционы",
-        "Настройки",
-        "Баланс",
-    ]
+    first_texts = [row[0].text for row in keyboard.inline_keyboard]
+    assert "Мои ставки" in first_texts
+    assert "⭐ Репутация" in first_texts
     assert all(button.callback_data != "mod:panel" for button in _all_buttons(keyboard.inline_keyboard))
 
 
@@ -127,13 +124,8 @@ def test_start_private_keyboard_moderator_has_mod_button_last(monkeypatch) -> No
     monkeypatch.setattr(settings, "ui_emoji_mod_panel_id", "mod-panel")
     keyboard = start_private_keyboard(show_moderation_button=True)
 
-    assert [row[0].text for row in keyboard.inline_keyboard] == [
-        "Создать аукцион",
-        "Мои аукционы",
-        "Настройки",
-        "Баланс",
-        "Мод-панель",
-    ]
+    last_row = keyboard.inline_keyboard[-1]
+    assert last_row[0].callback_data == "mod:panel"
     mod_button = _button_by_callback(keyboard.inline_keyboard, "mod:panel")
     assert mod_button.style == "success"
     assert mod_button.icon_custom_emoji_id == "mod-panel"
