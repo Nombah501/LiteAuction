@@ -249,7 +249,18 @@ async def handle_gallery_action(callback: CallbackQuery, bot: Bot) -> None:
                 ]
                 await bot.send_media_group(chat_id=callback.from_user.id, media=media)
     except TelegramForbiddenError:
-        await callback.answer(_soft_gate_alert_text(), show_alert=True)
+        from aiogram.types import InlineKeyboardMarkup as IKM, InlineKeyboardButton as IKB
+        bot_info = await bot.get_me()
+        deep_link = f"https://t.me/{bot_info.username}?start=gallery_{auction_id}"
+        await callback.message.answer(
+            "📸 Для просмотра фото откройте бота:",
+            reply_markup=IKM(
+                inline_keyboard=[
+                    [IKB(text="📸 Смотреть все фото", url=deep_link)]
+                ]
+            ),
+        )
+        await callback.answer()
         return
     except TelegramBadRequest:
         await callback.answer("Не удалось отправить фото. Попробуйте еще раз.", show_alert=True)

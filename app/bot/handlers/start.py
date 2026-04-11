@@ -132,6 +132,18 @@ def _extract_report_auction_id(payload: str | None) -> uuid.UUID | None:
         return None
 
 
+def _extract_gallery_auction_id(payload: str | None) -> uuid.UUID | None:
+    if payload is None or not payload.startswith("gallery_"):
+        return None
+    auction_raw = payload[len("gallery_"):].strip()
+    if not auction_raw:
+        return None
+    try:
+        return uuid.UUID(auction_raw)
+    except ValueError:
+        return None
+
+
 def _appeal_acceptance_text(appeal_id: int) -> str:
     return (
         f"Апелляция #{appeal_id} принята. "
@@ -521,6 +533,43 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
 
         await message.answer(
             f"Лот #{short_id} не найден или уже удален. Проверьте ссылку и попробуйте снова.",
+            reply_markup=dashboard_keyboard,
+        )
+        return
+
+    gallery_auction_id = _extract_gallery_auction_id(payload)
+    if gallery_auction_id is not None:
+        from aiogram.types import InputMediaPhoto
+        from app.services.auction_service import load_auction_photo_ids
+        async with SessionFactory() as g_session:
+            g_view = await load_auction_view(g_session, gallery_auction_id)
+            if g_view is not None:
+                g_photos = await load_auction_photo_ids(g_session, gallery_auction_id)
+                if not g_photos:
+                    g_photos = [g_view.auction.photo_file_id]
+                caption = f"📸 Фото лота #{str(gallery_auction_id)[:8]}"
+                if len(g_photos) == 1:
+                    await bot.send_photo(
+                        chat_id=message.from_user.id,
+                        photo=g_photos[0],
+                        caption=caption,
+                    )
+                else:
+                    for chunk_start in range(0, len(g_photos), 10):
+                        chunk = g_photos[chunk_start:chunk_start + 10]
+                        media = [
+                            InputMediaPhoto(
+                                media=file_id,
+                                caption=caption if chunk_start == 0 and idx == 0 else None,
+                            )
+                            for idx, file_id in enumerate(chunk)
+                        ]
+                        await bot.send_media_group(
+                            chat_id=message.from_user.id,
+                            media=media,
+                        )
+        await message.answer(
+            "📸 Фото отправлены выше.",
             reply_markup=dashboard_keyboard,
         )
         return
