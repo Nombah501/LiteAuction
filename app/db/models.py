@@ -19,7 +19,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 from app.db.enums import (
@@ -32,6 +32,8 @@ from app.db.enums import (
     IntegrationOutboxStatus,
     ModerationAction,
     PointsEventType,
+    ReputationEventReason,
+    ReputationTier,
     UserRole,
 )
 
@@ -905,4 +907,49 @@ class FraudSignal(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False, index=True
+    )
+
+
+class UserReputationEvent(Base):
+    __tablename__ = "user_reputation_events"
+    __table_args__ = (
+        Index("ix_reputation_events_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
+    )
+
+    reputation: Mapped[UserReputation] = relationship(back_populates="events")
+
+
+class UserReputation(Base):
+    __tablename__ = "user_reputations"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_reputations_user_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    score: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    tier: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'NEW'")
+    )
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
+    )
+
+    events: Mapped[list[UserReputationEvent]] = relationship(
+        back_populates="reputation", order_by="UserReputationEvent.created_at.desc()"
     )
