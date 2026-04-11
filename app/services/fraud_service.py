@@ -310,6 +310,11 @@ async def evaluate_and_store_bid_fraud_signal(
     )
     session.add(signal)
     await session.flush()
+
+    from app.services.reputation_service import adjust_reputation
+
+    await adjust_reputation(session, user_id, -15, "fraud_signal", source_id=signal.id)
+
     return signal.id
 
 
@@ -410,6 +415,12 @@ async def resolve_fraud_signal(
     signal.resolved_by_user_id = resolver_user_id
     signal.resolution_note = note
     signal.resolved_at = datetime.now(UTC)
+
+    if status == "CONFIRMED":
+        from app.services.reputation_service import adjust_reputation
+
+        await adjust_reputation(session, signal.user_id, -10, "fraud_confirmed", source_id=signal.id)
+
     return signal
 
 

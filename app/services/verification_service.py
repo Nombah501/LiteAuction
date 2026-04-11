@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.enums import ReputationEventReason
 from app.db.models import TelegramChatVerification, TelegramUserVerification, User
 
 
@@ -113,6 +114,13 @@ async def set_user_verification(
     row.custom_description = description if verify else None
     row.updated_by_user_id = actor_user_id
     row.updated_at = now
+
+    if verify:
+        from app.services.reputation_service import adjust_reputation
+
+        target_user = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id))
+        if target_user is not None:
+            await adjust_reputation(session, target_user.id, 15, ReputationEventReason.USER_VERIFIED)
 
     return VerificationUpdateResult(
         True,

@@ -12,6 +12,7 @@ from .points import router as points_router
 from .publish_auction import router as publish_auction_router
 from .start import router as start_router
 from .suggested_posts import router as suggested_posts_router
+from .post_auction import router as post_auction_router
 from .trade_feedback import router as trade_feedback_router
 
 router = Router(name="root")
@@ -26,6 +27,7 @@ router.include_router(guarantor_router)
 router.include_router(points_router)
 router.include_router(publish_auction_router)
 router.include_router(trade_feedback_router)
+router.include_router(post_auction_router)
 router.include_router(suggested_posts_router)
 router.include_router(moderation_router)
 

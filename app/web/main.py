@@ -22,7 +22,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType, UserRole
+from app.db.enums import (
+    AppealSourceType,
+    AppealStatus,
+    AuctionStatus,
+    ModerationAction,
+    PointsEventType,
+    UserRole,
+)
 from app.db.models import (
     Appeal,
     Auction,
@@ -103,7 +110,11 @@ from app.services.points_service import (
     list_user_points_entries,
 )
 from app.services.queue_sla_health_service import SLA_THRESHOLDS_BY_CONTEXT, decide_queue_sla_health
-from app.services.risk_eval_service import UserRiskSnapshot, evaluate_user_risk_snapshot, format_risk_reason_label
+from app.services.risk_eval_service import (
+    UserRiskSnapshot,
+    evaluate_user_risk_snapshot,
+    format_risk_reason_label,
+)
 from app.services.runtime_settings_service import (
     build_runtime_settings_snapshot,
     delete_runtime_setting_override,
@@ -132,8 +143,8 @@ logger = logging.getLogger(__name__)
 
 _DENSE_ALLOWED_DENSITIES = frozenset({"compact", "standard", "comfortable"})
 _QUEUE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
-    "complaints": ("id", "auction", "reporter", "status", "reason", "created"),
-    "signals": ("id", "auction", "user", "risk", "score", "status", "created"),
+    "complaints": ("id", "auction", "reporter", "status", "reason", "created", "sla", "deadline"),
+    "signals": ("id", "auction", "user", "risk", "score", "status", "created", "sla"),
     "trade_feedback": (
         "id",
         "auction",
@@ -160,7 +171,17 @@ _QUEUE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
         "created",
         "manage",
     ),
-    "violators": ("id", "tg_user_id", "username", "status", "reason", "actor", "created", "expires", "actions"),
+    "violators": (
+        "id",
+        "tg_user_id",
+        "username",
+        "status",
+        "reason",
+        "actor",
+        "created",
+        "expires",
+        "actions",
+    ),
     "appeals": (
         "id",
         "reference",
@@ -253,6 +274,34 @@ def _parse_appeal_aging_bucket_filter(raw: str) -> str:
     if value in {"all", "fresh", "aging", "stale", "critical", "overdue", "unknown"}:
         return value
     raise HTTPException(status_code=400, detail="Invalid appeals aging filter")
+
+
+def _parse_complaint_sla_health_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "healthy", "warning", "critical", "overdue", "no_sla"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid complaints SLA health filter")
+
+
+def _parse_complaint_aging_bucket_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "fresh", "aging", "stale", "critical", "overdue", "unknown"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid complaints aging filter")
+
+
+def _parse_signal_sla_health_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "healthy", "warning", "critical", "overdue", "no_sla"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid signals SLA health filter")
+
+
+def _parse_signal_aging_bucket_filter(raw: str) -> str:
+    value = raw.strip().lower()
+    if value in {"all", "fresh", "aging", "stale", "critical", "overdue", "unknown"}:
+        return value
+    raise HTTPException(status_code=400, detail="Invalid signals aging filter")
 
 
 def _parse_trade_feedback_status(raw: str) -> str:
@@ -445,18 +494,22 @@ async def _render_appeal_detail_section(
         signal = await session.scalar(select(FraudSignal).where(FraudSignal.id == appeal.source_id))
 
     moderation_logs = (
-        await session.execute(
-            select(ModerationLog)
-            .where(
-                ModerationLog.action.in_(
-                    (ModerationAction.RESOLVE_APPEAL, ModerationAction.REJECT_APPEAL)
-                ),
-                ModerationLog.target_user_id == appeal.appellant_user_id,
-                ModerationLog.created_at >= appeal.created_at,
+        (
+            await session.execute(
+                select(ModerationLog)
+                .where(
+                    ModerationLog.action.in_(
+                        (ModerationAction.RESOLVE_APPEAL, ModerationAction.REJECT_APPEAL)
+                    ),
+                    ModerationLog.target_user_id == appeal.appellant_user_id,
+                    ModerationLog.created_at >= appeal.created_at,
+                )
+                .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
             )
-            .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     filtered_logs: list[ModerationLog] = []
     for log_row in moderation_logs:
@@ -474,9 +527,7 @@ async def _render_appeal_detail_section(
     actor_ids = {item.actor_user_id for item in filtered_logs}
     actors_by_id: dict[int, User] = {}
     if actor_ids:
-        actors = (
-            await session.execute(select(User).where(User.id.in_(actor_ids)))
-        ).scalars().all()
+        actors = (await session.execute(select(User).where(User.id.in_(actor_ids)))).scalars().all()
         actors_by_id = {item.id: item for item in actors}
 
     if section == "primary":
@@ -530,15 +581,11 @@ async def _render_appeal_detail_section(
         auction_link = ""
         if related_auction_id is not None:
             auction_path = _path_with_auth(request, f"/timeline/auction/{related_auction_id}")
-            auction_link = (
-                f"<p class='section-note'><a href='{escape(auction_path)}'>Open full auction timeline</a></p>"
-            )
+            auction_link = f"<p class='section-note'><a href='{escape(auction_path)}'>Open full auction timeline</a></p>"
         return {
             "ok": True,
             "html": (
-                "<div data-detail-state='loaded'>"
-                f"{source_line}{timeline_html}{auction_link}"
-                "</div>"
+                f"<div data-detail-state='loaded'>{source_line}{timeline_html}{auction_link}</div>"
             ),
         }
 
@@ -578,7 +625,9 @@ async def _render_appeal_detail_section(
             artifact = payload.get("rationale_artifact") if isinstance(payload, dict) else None
             if not isinstance(artifact, dict):
                 continue
-            actor_label = _user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)
+            actor_label = _user_label(
+                actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id
+            )
             summary = str(artifact.get("summary") or "-")
             recorded_at = str(artifact.get("recorded_at") or _fmt_ts(log_row.created_at))
             source_value = str(artifact.get("source") or "web")
@@ -625,6 +674,254 @@ async def _render_appeal_detail_section(
         "<div data-detail-state='loaded'><p><b>Audit trail (immutable)</b></p>"
         f"<ul>{''.join(audit_items)}</ul></div>"
     )
+    return {"ok": True, "html": html}
+
+
+async def _render_complaint_detail_section(
+    session: AsyncSession,
+    *,
+    row_id: int,
+    section: str,
+    request: Request,
+) -> dict[str, object]:
+    complaint = await session.scalar(select(Complaint).where(Complaint.id == row_id))
+    if complaint is None:
+        return {"ok": False, "message": "Complaint not found"}
+
+    reporter = await session.scalar(select(User).where(User.id == complaint.reporter_user_id))
+    target = None
+    if complaint.target_user_id is not None:
+        target = await session.scalar(select(User).where(User.id == complaint.target_user_id))
+    resolver = None
+    if complaint.resolved_by_user_id is not None:
+        resolver = await session.scalar(
+            select(User).where(User.id == complaint.resolved_by_user_id)
+        )
+
+    mod_logs = (
+        (
+            await session.execute(
+                select(ModerationLog)
+                .where(
+                    ModerationLog.auction_id == complaint.auction_id,
+                    ModerationLog.created_at >= complaint.created_at,
+                )
+                .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    actor_ids = {log_row.actor_user_id for log_row in mod_logs}
+    actors_by_id: dict[int, User] = {}
+    if actor_ids:
+        actors = (await session.execute(select(User).where(User.id.in_(actor_ids)))).scalars().all()
+        actors_by_id = {item.id: item for item in actors}
+
+    if section == "primary":
+        timeline_events: list[tuple[datetime, str, str]] = []
+        _append_timeline_event(
+            timeline_events,
+            happened_at=complaint.created_at,
+            title="Complaint created",
+            details=f"reporter={_user_label(reporter, complaint.reporter_user_id)}, target={_user_label(target, complaint.target_user_id)}, reason={complaint.reason[:120]}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=complaint.resolved_at,
+            title=f"Complaint finalized: {complaint.status}",
+            details=f"resolver={_user_label(resolver, complaint.resolved_by_user_id)}, note={complaint.resolution_note or '-'}",
+        )
+        for log_row in mod_logs:
+            _append_timeline_event(
+                timeline_events,
+                happened_at=log_row.created_at,
+                title=f"Moderation action: {str(log_row.action)}",
+                details=f"actor={_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)}",
+            )
+
+        timeline_events.sort(key=lambda item: item[0])
+        timeline_html = _render_inline_timeline_html(timeline_events)
+        source_line = f"<p><b>Evidence timeline:</b> complaint #{complaint.id}</p>"
+        auction_link = f"<p class='section-note'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{complaint.auction_id}'))}'>Open full auction timeline</a></p>"
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{source_line}{timeline_html}{auction_link}</div>",
+        }
+
+    if section == "secondary":
+        source_bits: list[str] = [
+            f"<p><b>Source evidence:</b> complaint #{complaint.id}, status={escape(str(complaint.status))}</p>",
+            f"<p class='section-note'>auction={escape(str(complaint.auction_id))}, reporter={escape(_user_label(reporter, complaint.reporter_user_id))}, target={escape(_user_label(target, complaint.target_user_id))}</p>",
+        ]
+        if complaint.resolution_note:
+            source_bits.append(
+                f"<p class='section-note'>resolution={escape(complaint.resolution_note[:200])}</p>"
+            )
+
+        artifact_items: list[str] = []
+        for log_row in mod_logs:
+            payload = log_row.payload or {}
+            artifact = payload.get("rationale_artifact") if isinstance(payload, dict) else None
+            if not isinstance(artifact, dict):
+                continue
+            actor_label = _user_label(
+                actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id
+            )
+            summary = str(artifact.get("summary") or "-")
+            recorded_at = str(artifact.get("recorded_at") or _fmt_ts(log_row.created_at))
+            source_value = str(artifact.get("source") or "web")
+            artifact_items.append(
+                f"<li><b>{escape(str(log_row.action))}</b> - {escape(summary)}"
+                f"<div class='section-note'>actor={escape(actor_label)}, recorded_at={escape(recorded_at)}, source={escape(source_value)}</div></li>"
+            )
+        if artifact_items:
+            source_bits.append(
+                f"<p><b>Rationale artifacts:</b></p><ul>{''.join(artifact_items)}</ul>"
+            )
+        else:
+            source_bits.append("<p class='section-note'>No rationale artifacts yet.</p>")
+
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{''.join(source_bits)}</div>",
+        }
+
+    audit_items = [
+        f"<li>complaint_id={complaint.id}</li>",
+        f"<li>created_at={escape(_fmt_ts(complaint.created_at))}</li>",
+        f"<li>status={escape(str(complaint.status))}</li>",
+        f"<li>resolver={escape(_user_label(resolver, complaint.resolved_by_user_id))}</li>",
+        "<li>record_policy=append_only</li>",
+    ]
+    for log_row in mod_logs:
+        audit_items.append(
+            f"<li>log#{log_row.id} {escape(str(log_row.action))} at {escape(_fmt_ts(log_row.created_at))} by {escape(_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id))}</li>"
+        )
+    html = f"<div data-detail-state='loaded'><p><b>Audit trail (immutable)</b></p><ul>{''.join(audit_items)}</ul></div>"
+    return {"ok": True, "html": html}
+
+
+async def _render_signal_detail_section(
+    session: AsyncSession,
+    *,
+    row_id: int,
+    section: str,
+    request: Request,
+) -> dict[str, object]:
+    signal = await session.scalar(select(FraudSignal).where(FraudSignal.id == row_id))
+    if signal is None:
+        return {"ok": False, "message": "Signal not found"}
+
+    signal_user = await session.scalar(select(User).where(User.id == signal.user_id))
+    resolver = None
+    if signal.resolved_by_user_id is not None:
+        resolver = await session.scalar(select(User).where(User.id == signal.resolved_by_user_id))
+
+    mod_logs = (
+        (
+            await session.execute(
+                select(ModerationLog)
+                .where(
+                    ModerationLog.auction_id == signal.auction_id,
+                    ModerationLog.created_at >= signal.created_at,
+                )
+                .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    actor_ids = {log_row.actor_user_id for log_row in mod_logs}
+    actors_by_id: dict[int, User] = {}
+    if actor_ids:
+        actors = (await session.execute(select(User).where(User.id.in_(actor_ids)))).scalars().all()
+        actors_by_id = {item.id: item for item in actors}
+
+    if section == "primary":
+        timeline_events: list[tuple[datetime, str, str]] = []
+        _append_timeline_event(
+            timeline_events,
+            happened_at=signal.created_at,
+            title="Fraud signal created",
+            details=f"user={_user_label(signal_user, signal.user_id)}, score={signal.score}, status={signal.status}",
+        )
+        _append_timeline_event(
+            timeline_events,
+            happened_at=signal.resolved_at,
+            title=f"Signal finalized: {signal.status}",
+            details=f"resolver={_user_label(resolver, signal.resolved_by_user_id)}, note={signal.resolution_note or '-'}",
+        )
+        for log_row in mod_logs:
+            _append_timeline_event(
+                timeline_events,
+                happened_at=log_row.created_at,
+                title=f"Moderation action: {str(log_row.action)}",
+                details=f"actor={_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id)}",
+            )
+
+        timeline_events.sort(key=lambda item: item[0])
+        timeline_html = _render_inline_timeline_html(timeline_events)
+        source_line = f"<p><b>Evidence timeline:</b> fraud signal #{signal.id}</p>"
+        auction_link = f"<p class='section-note'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{signal.auction_id}'))}'>Open full auction timeline</a></p>"
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{source_line}{timeline_html}{auction_link}</div>",
+        }
+
+    if section == "secondary":
+        source_bits: list[str] = [
+            f"<p><b>Source evidence:</b> signal #{signal.id}, score={signal.score}, status={escape(str(signal.status))}</p>",
+            f"<p class='section-note'>auction={escape(str(signal.auction_id))}, user={escape(_user_label(signal_user, signal.user_id))}</p>",
+        ]
+        if signal.resolution_note:
+            source_bits.append(
+                f"<p class='section-note'>resolution={escape(signal.resolution_note[:200])}</p>"
+            )
+
+        artifact_items: list[str] = []
+        for log_row in mod_logs:
+            payload = log_row.payload or {}
+            artifact = payload.get("rationale_artifact") if isinstance(payload, dict) else None
+            if not isinstance(artifact, dict):
+                continue
+            actor_label = _user_label(
+                actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id
+            )
+            summary = str(artifact.get("summary") or "-")
+            recorded_at = str(artifact.get("recorded_at") or _fmt_ts(log_row.created_at))
+            source_value = str(artifact.get("source") or "web")
+            artifact_items.append(
+                f"<li><b>{escape(str(log_row.action))}</b> - {escape(summary)}"
+                f"<div class='section-note'>actor={escape(actor_label)}, recorded_at={escape(recorded_at)}, source={escape(source_value)}</div></li>"
+            )
+        if artifact_items:
+            source_bits.append(
+                f"<p><b>Rationale artifacts:</b></p><ul>{''.join(artifact_items)}</ul>"
+            )
+        else:
+            source_bits.append("<p class='section-note'>No rationale artifacts yet.</p>")
+
+        return {
+            "ok": True,
+            "html": f"<div data-detail-state='loaded'>{''.join(source_bits)}</div>",
+        }
+
+    audit_items = [
+        f"<li>signal_id={signal.id}</li>",
+        f"<li>created_at={escape(_fmt_ts(signal.created_at))}</li>",
+        f"<li>score={signal.score}</li>",
+        f"<li>status={escape(str(signal.status))}</li>",
+        f"<li>resolver={escape(_user_label(resolver, signal.resolved_by_user_id))}</li>",
+        "<li>record_policy=append_only</li>",
+    ]
+    for log_row in mod_logs:
+        audit_items.append(
+            f"<li>log#{log_row.id} {escape(str(log_row.action))} at {escape(_fmt_ts(log_row.created_at))} by {escape(_user_label(actors_by_id.get(log_row.actor_user_id), log_row.actor_user_id))}</li>"
+        )
+    html = f"<div data-detail-state='loaded'><p><b>Audit trail (immutable)</b></p><ul>{''.join(audit_items)}</ul></div>"
     return {"ok": True, "html": html}
 
 
@@ -682,10 +979,15 @@ async def _load_user_risk_snapshot_map(
                 select(BlacklistEntry.user_id).where(
                     BlacklistEntry.user_id.in_(unique_user_ids),
                     BlacklistEntry.is_active.is_(True),
-                    (BlacklistEntry.expires_at.is_(None) | (BlacklistEntry.expires_at > current_time)),
+                    (
+                        BlacklistEntry.expires_at.is_(None)
+                        | (BlacklistEntry.expires_at > current_time)
+                    ),
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     verified_user_ids = await load_verified_user_ids(session, user_ids=unique_user_ids)
 
@@ -1094,12 +1396,7 @@ def _dashboard_preset_toolbar(request: Request, active_preset: str) -> str:
             f"href='{escape(_path_with_auth(request, f'/?preset={preset_key}'))}' "
             f"title='{escape(hint)}'>{escape(label)}</a>"
         )
-    return (
-        "<div class='toolbar'>"
-        "<b>Режим экрана:</b>"
-        f"{''.join(chips)}"
-        "</div>"
-    )
+    return f"<div class='toolbar'><b>Режим экрана:</b>{''.join(chips)}</div>"
 
 
 def _dashboard_preset_script(default_preset: str = "incident") -> str:
@@ -1257,20 +1554,28 @@ def _render_workflow_preset_telemetry_panel(
             avg_time = item.get("avg_time_to_action_ms")
             avg_time_value = float(avg_time) if isinstance(avg_time, (int, float)) else None
             reopen_rate_raw = item.get("reopen_rate")
-            reopen_rate = float(reopen_rate_raw) if isinstance(reopen_rate_raw, (int, float)) else 0.0
+            reopen_rate = (
+                float(reopen_rate_raw) if isinstance(reopen_rate_raw, (int, float)) else 0.0
+            )
             avg_churn_raw = item.get("avg_filter_churn_count")
             avg_churn = float(avg_churn_raw) if isinstance(avg_churn_raw, (int, float)) else 0.0
             trend_guardrail = bool(item.get("trend_low_sample_guardrail"))
             trend_min_sample_raw = item.get("trend_min_sample_size")
-            trend_min_sample = int(trend_min_sample_raw) if isinstance(trend_min_sample_raw, int) else 0
+            trend_min_sample = (
+                int(trend_min_sample_raw) if isinstance(trend_min_sample_raw, int) else 0
+            )
             prev_events_raw = item.get("trend_previous_events_total")
             prev_events = int(prev_events_raw) if isinstance(prev_events_raw, int) else 0
             time_delta_raw = item.get("time_to_action_delta_ms")
             time_delta = float(time_delta_raw) if isinstance(time_delta_raw, (int, float)) else None
             reopen_delta_raw = item.get("reopen_rate_delta")
-            reopen_delta = float(reopen_delta_raw) if isinstance(reopen_delta_raw, (int, float)) else None
+            reopen_delta = (
+                float(reopen_delta_raw) if isinstance(reopen_delta_raw, (int, float)) else None
+            )
             churn_delta_raw = item.get("filter_churn_delta")
-            churn_delta = float(churn_delta_raw) if isinstance(churn_delta_raw, (int, float)) else None
+            churn_delta = (
+                float(churn_delta_raw) if isinstance(churn_delta_raw, (int, float)) else None
+            )
 
             trend_time = _format_preset_telemetry_time_delta(time_delta)
             trend_reopen = _format_preset_telemetry_rate_delta(reopen_delta)
@@ -1378,7 +1683,9 @@ async def _load_dense_list_config(
             active_preset_id = int(active["id"])
             active_preset_name = str(active["name"])
         preset_notice = str(preset_state.get("notice") or "")
-        preset_items = tuple((str(item["id"]), str(item["name"])) for item in preset_state["presets"])
+        preset_items = tuple(
+            (str(item["id"]), str(item["name"])) for item in preset_state["presets"]
+        )
     else:
         preference = await load_admin_list_preference(
             session,
@@ -1392,7 +1699,9 @@ async def _load_dense_list_config(
 
     return DenseListConfig(
         queue_key=queue_key,
-        density=_resolve_dense_density(requested=requested_density, persisted=preference["density"]),
+        density=_resolve_dense_density(
+            requested=requested_density, persisted=preference["density"]
+        ),
         table_id=table_id,
         quick_filter_placeholder=quick_filter_placeholder,
         columns_order=tuple(columns["order"]),
@@ -1439,7 +1748,9 @@ def _normalize_workflow_preset_telemetry_payload(payload: object) -> dict[str, o
     return normalized
 
 
-def _resolve_workflow_preset_telemetry_preset_id(*, action: str, payload: dict[str, object], result: dict[str, object]) -> int | None:
+def _resolve_workflow_preset_telemetry_preset_id(
+    *, action: str, payload: dict[str, object], result: dict[str, object]
+) -> int | None:
     if action in {"save", "update", "select"}:
         preset_meta = result.get("preset")
         if isinstance(preset_meta, dict):
@@ -1606,7 +1917,9 @@ def _triage_shortcut_hint() -> str:
     )
 
 
-def _require_scope_permission(request: Request, scope: str) -> tuple[Response | None, AdminAuthContext]:
+def _require_scope_permission(
+    request: Request, scope: str
+) -> tuple[Response | None, AdminAuthContext]:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response, auth
@@ -1646,7 +1959,9 @@ async def _resolve_actor_user_id(auth: AdminAuthContext) -> int:
     if tg_user_id is None:
         admin_ids = settings.parsed_admin_user_ids()
         if not admin_ids:
-            raise HTTPException(status_code=500, detail="ADMIN_USER_IDS is required for web actions")
+            raise HTTPException(
+                status_code=500, detail="ADMIN_USER_IDS is required for web actions"
+            )
         tg_user_id = admin_ids[0]
 
     async with SessionFactory() as session:
@@ -1700,10 +2015,7 @@ async def login_page(request: Request) -> Response:
 
     fallback = ""
     if settings.admin_panel_token.strip():
-        fallback = (
-            "<p>Также можно открыть панель по ссылке с токеном: "
-            "<code>/?token=...</code></p>"
-        )
+        fallback = "<p>Также можно открыть панель по ссылке с токеном: <code>/?token=...</code></p>"
 
     body = (
         "<h1>LiteAuction Admin Login</h1>"
@@ -1768,29 +2080,35 @@ async def dashboard(request: Request) -> Response:
         snapshot.users_with_engagement - snapshot.users_engaged_without_private_start,
         0,
     )
-    global_daily_limit_line = "<div class='kpi'><b>Global redemption daily limit:</b> unlimited</div>"
+    global_daily_limit_line = (
+        "<div class='kpi'><b>Global redemption daily limit:</b> unlimited</div>"
+    )
     if settings.points_redemption_daily_limit > 0:
-        global_daily_limit_line = (
-            f"<div class='kpi'><b>Global redemption daily limit:</b> {settings.points_redemption_daily_limit}/day</div>"
-        )
-    global_weekly_limit_line = "<div class='kpi'><b>Global redemption weekly limit:</b> unlimited</div>"
+        global_daily_limit_line = f"<div class='kpi'><b>Global redemption daily limit:</b> {settings.points_redemption_daily_limit}/day</div>"
+    global_weekly_limit_line = (
+        "<div class='kpi'><b>Global redemption weekly limit:</b> unlimited</div>"
+    )
     if settings.points_redemption_weekly_limit > 0:
-        global_weekly_limit_line = (
-            f"<div class='kpi'><b>Global redemption weekly limit:</b> {settings.points_redemption_weekly_limit}/week</div>"
-        )
-    global_daily_spend_cap_line = "<div class='kpi'><b>Global redemption daily spend cap:</b> unlimited</div>"
+        global_weekly_limit_line = f"<div class='kpi'><b>Global redemption weekly limit:</b> {settings.points_redemption_weekly_limit}/week</div>"
+    global_daily_spend_cap_line = (
+        "<div class='kpi'><b>Global redemption daily spend cap:</b> unlimited</div>"
+    )
     if settings.points_redemption_daily_spend_cap > 0:
         global_daily_spend_cap_line = (
             "<div class='kpi'><b>Global redemption daily spend cap:</b> "
             f"{settings.points_redemption_daily_spend_cap} points/day</div>"
         )
-    global_weekly_spend_cap_line = "<div class='kpi'><b>Global redemption weekly spend cap:</b> unlimited</div>"
+    global_weekly_spend_cap_line = (
+        "<div class='kpi'><b>Global redemption weekly spend cap:</b> unlimited</div>"
+    )
     if settings.points_redemption_weekly_spend_cap > 0:
         global_weekly_spend_cap_line = (
             "<div class='kpi'><b>Global redemption weekly spend cap:</b> "
             f"{settings.points_redemption_weekly_spend_cap} points/week</div>"
         )
-    global_monthly_spend_cap_line = "<div class='kpi'><b>Global redemption monthly spend cap:</b> unlimited</div>"
+    global_monthly_spend_cap_line = (
+        "<div class='kpi'><b>Global redemption monthly spend cap:</b> unlimited</div>"
+    )
     if settings.points_redemption_monthly_spend_cap > 0:
         global_monthly_spend_cap_line = (
             "<div class='kpi'><b>Global redemption monthly spend cap:</b> "
@@ -1799,9 +2117,7 @@ async def dashboard(request: Request) -> Response:
 
     owner_settings_link = ""
     if auth.role == "owner":
-        owner_settings_link = (
-            f"<a class='link-tile' href='{escape(_path_with_auth(request, '/settings'))}'>Runtime settings</a>"
-        )
+        owner_settings_link = f"<a class='link-tile' href='{escape(_path_with_auth(request, '/settings'))}'>Runtime settings</a>"
 
     overview_cards = _kpi_grid(
         [
@@ -1832,7 +2148,9 @@ async def dashboard(request: Request) -> Response:
             _kpi_card("Пользователи со ставками", str(snapshot.users_with_bid_activity)),
             _kpi_card("Пользователи с жалобами", str(snapshot.users_with_report_activity)),
             _kpi_card("Уникально вовлеченные", str(snapshot.users_with_engagement)),
-            _kpi_card("Вовлеченные без private /start", str(snapshot.users_engaged_without_private_start)),
+            _kpi_card(
+                "Вовлеченные без private /start", str(snapshot.users_engaged_without_private_start)
+            ),
             _kpi_card(
                 "Вовлеченные с private /start",
                 f"{engaged_with_private} ({_pct(engaged_with_private, snapshot.users_with_engagement)})",
@@ -1842,14 +2160,23 @@ async def dashboard(request: Request) -> Response:
     points_core_cards = _kpi_grid(
         [
             _kpi_card("Активные points-пользователи (7д)", str(snapshot.points_active_users_7d)),
-            _kpi_card("Пользователи с положительным балансом", str(snapshot.points_users_with_positive_balance)),
+            _kpi_card(
+                "Пользователи с положительным балансом",
+                str(snapshot.points_users_with_positive_balance),
+            ),
             _kpi_card(
                 "Редимеры points (7д)",
                 f"{snapshot.points_redeemers_7d} ({_pct(snapshot.points_redeemers_7d, snapshot.points_users_with_positive_balance)})",
             ),
-            _kpi_card("Редимеры фидбек-буста (7д)", str(snapshot.points_feedback_boost_redeemers_7d)),
-            _kpi_card("Редимеры буста гаранта (7д)", str(snapshot.points_guarantor_boost_redeemers_7d)),
-            _kpi_card("Редимеры буста апелляции (7д)", str(snapshot.points_appeal_boost_redeemers_7d)),
+            _kpi_card(
+                "Редимеры фидбек-буста (7д)", str(snapshot.points_feedback_boost_redeemers_7d)
+            ),
+            _kpi_card(
+                "Редимеры буста гаранта (7д)", str(snapshot.points_guarantor_boost_redeemers_7d)
+            ),
+            _kpi_card(
+                "Редимеры буста апелляции (7д)", str(snapshot.points_appeal_boost_redeemers_7d)
+            ),
         ]
     )
     points_24h_cards = _kpi_grid(
@@ -1896,7 +2223,10 @@ async def dashboard(request: Request) -> Response:
             global_daily_spend_cap_line,
             global_weekly_spend_cap_line,
             global_monthly_spend_cap_line,
-            _kpi_card("Min balance after redemption", f"{max(settings.points_redemption_min_balance, 0)} points"),
+            _kpi_card(
+                "Min balance after redemption",
+                f"{max(settings.points_redemption_min_balance, 0)} points",
+            ),
             _kpi_card(
                 "Min account age for redemption",
                 f"{max(settings.points_redemption_min_account_age_seconds, 0)}s",
@@ -1905,7 +2235,10 @@ async def dashboard(request: Request) -> Response:
                 "Min earned points for redemption",
                 f"{max(settings.points_redemption_min_earned_points, 0)} points",
             ),
-            _kpi_card("Global redemption cooldown", f"{max(settings.points_redemption_cooldown_seconds, 0)}s"),
+            _kpi_card(
+                "Global redemption cooldown",
+                f"{max(settings.points_redemption_cooldown_seconds, 0)}s",
+            ),
         ]
     )
     points_summary = (
@@ -1963,7 +2296,7 @@ async def dashboard(request: Request) -> Response:
         f"{_panel('Быстрые действия', quick_actions, eyebrow='navigation', note='Основные сценарии оператора')}"
         f"{_panel('Воронка онбординга / soft-gate', onboarding_collapsed, eyebrow='growth')}"
         f"{_panel('Активность пользователей', activity_collapsed, eyebrow='engagement')}"
-        f"{_panel('Points utility', points_cards, eyebrow='rewards') }"
+        f"{_panel('Points utility', points_cards, eyebrow='rewards')}"
         f"{_dashboard_preset_script()}"
     )
     return HTMLResponse(_render_page("LiteAuction Admin", body))
@@ -2100,11 +2433,17 @@ async def complaints(
     page: int = 0,
     density: str | None = None,
     telemetry_preset_id: int | None = None,
+    sla_health: str = "all",
+    aging: str = "all",
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
     page = max(page, 0)
+    sla_health_value = _parse_complaint_sla_health_filter(sla_health)
+    aging_value = _parse_complaint_aging_bucket_filter(aging)
+    now = datetime.now(UTC)
+    complaint_sla_thresholds = SLA_THRESHOLDS_BY_CONTEXT["moderation"]
     page_size = 30
     offset = page * page_size
 
@@ -2140,11 +2479,15 @@ async def complaints(
         status_value: str,
         density_value: str | None = None,
         telemetry_preset_id_value: int | None = telemetry_preset_id,
+        sla_health_value: str | None = sla_health_value,
+        aging_value: str | None = aging_value,
     ) -> str:
         query = {
             "status": status_value,
             "page": str(page_value),
             "density": density_value or dense_config.density,
+            "sla_health": sla_health_value or "all",
+            "aging": aging_value or "all",
         }
         if telemetry_preset_id_value is not None and telemetry_preset_id_value > 0:
             query["telemetry_preset_id"] = str(telemetry_preset_id_value)
@@ -2153,7 +2496,22 @@ async def complaints(
     table_rows = ""
     for item in rows:
         complaint_priority = "high" if str(item.status).upper() == "OPEN" else "normal"
-        row_context_attrs = _triage_row_context_attrs(risk_level="low", priority_level=complaint_priority)
+        complaint_deadline = (
+            item.created_at + complaint_sla_thresholds.warning_window if item.created_at else None
+        )
+        sla_decision = decide_queue_sla_health(
+            queue_context="moderation",
+            status=item.status,
+            created_at=item.created_at,
+            deadline_at=complaint_deadline,
+            now=now,
+        )
+        if sla_decision.health_state in ("critical", "overdue"):
+            complaint_priority = "urgent"
+        sla_hint = f"SLA:{sla_decision.health_state} | age:{sla_decision.aging_bucket}"
+        row_context_attrs = _triage_row_context_attrs(
+            risk_level="low", priority_level=complaint_priority
+        )
         table_rows += (
             f"<tr data-row='{escape(f'{item.id} {item.auction_id} {item.reporter_user_id} {item.status} {item.reason}')}' "
             f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'{row_context_attrs}>"
@@ -2164,24 +2522,26 @@ async def complaints(
             f"<td data-col='status' data-status-cell='1'>{escape(item.status)}</td>"
             f"<td data-col='reason'>{escape(item.reason[:120])}</td>"
             f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
+            f"<td data-col='sla' data-sla-health='{escape(sla_decision.health_state)}' data-aging-bucket='{escape(sla_decision.aging_bucket)}'><small>{escape(sla_hint)}</small></td>"
+            f"<td data-col='deadline'>{escape(_fmt_ts(complaint_deadline))}</td>"
             "</tr>"
         )
         table_rows += _triage_detail_row(
             item.id,
-            col_count=7,
+            col_count=9,
             title=f"Complaint #{item.id}",
             subtitle=f"Auction {item.auction_id} / reporter {item.reporter_user_id}",
         )
     if not table_rows:
-        table_rows = "<tr><td colspan='7'><span class='empty-state'>Нет записей</span></td></tr>"
+        table_rows = "<tr><td colspan='9'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page - 1, status_value=status)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page+1, status_value=status)))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _complaints_path(page_value=page + 1, status_value=status)))}'>Вперед →</a>"
         if has_next
         else ""
     )
@@ -2207,7 +2567,7 @@ async def complaints(
     )
 
     body = (
-        f"{_render_app_header('Жалобы', auth, f'Статус: {status}') }"
+        f"{_render_app_header('Жалобы', auth, f'Статус: {status}')}"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
@@ -2217,7 +2577,20 @@ async def complaints(
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='reporter'>Reporter UID</th><th data-col='status'>Status</th><th data-col='reason'>Reason</th><th data-col='created'>Created</th></tr></thead>"
+        "<div class='toolbar'><span>SLA health:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='healthy')))}'>В норме</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='warning')))}'>Внимание</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='critical')))}'>Критично</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='overdue')))}'>Просрочена</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, sla_health_value='no_sla')))}'>Без SLA</a></div>"
+        "<div class='toolbar'><span>Возраст:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='fresh')))}'>Свежие</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='aging')))}'>Aging</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='stale')))}'>Stale</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _complaints_path(page_value=0, status_value=status, aging_value='critical')))}'>Critical</a></div>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='reporter'>Reporter UID</th><th data-col='status'>Status</th><th data-col='reason'>Reason</th><th data-col='created'>Created</th><th data-col='sla'>SLA</th><th data-col='deadline'>Deadline</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -2233,11 +2606,17 @@ async def signals(
     page: int = 0,
     density: str | None = None,
     telemetry_preset_id: int | None = None,
+    sla_health: str = "all",
+    aging: str = "all",
 ) -> Response:
     response, auth = _auth_context_or_unauthorized(request)
     if response is not None:
         return response
     page = max(page, 0)
+    sla_health_value = _parse_signal_sla_health_filter(sla_health)
+    aging_value = _parse_signal_aging_bucket_filter(aging)
+    now = datetime.now(UTC)
+    signal_sla_thresholds = SLA_THRESHOLDS_BY_CONTEXT["risk"]
     page_size = 30
     offset = page * page_size
 
@@ -2283,11 +2662,15 @@ async def signals(
         status_value: str,
         density_value: str | None = None,
         telemetry_preset_id_value: int | None = telemetry_preset_id,
+        sla_health_value: str | None = sla_health_value,
+        aging_value: str | None = aging_value,
     ) -> str:
         query = {
             "status": status_value,
             "page": str(page_value),
             "density": density_value or dense_config.density,
+            "sla_health": sla_health_value or "all",
+            "aging": aging_value or "all",
         }
         if telemetry_preset_id_value is not None and telemetry_preset_id_value > 0:
             query["telemetry_preset_id"] = str(telemetry_preset_id_value)
@@ -2302,6 +2685,19 @@ async def signals(
             signal_priority = "urgent"
         elif int(item.score) >= 50:
             signal_priority = "high"
+        signal_deadline = (
+            item.created_at + signal_sla_thresholds.warning_window if item.created_at else None
+        )
+        sla_decision = decide_queue_sla_health(
+            queue_context="risk",
+            status=item.status,
+            created_at=item.created_at,
+            deadline_at=signal_deadline,
+            now=now,
+        )
+        if sla_decision.health_state in ("critical", "overdue"):
+            signal_priority = "urgent"
+        sla_hint = f"SLA:{sla_decision.health_state} | age:{sla_decision.aging_bucket}"
         row_context_attrs = _triage_row_context_attrs(
             risk_level=signal_risk_level,
             priority_level=signal_priority,
@@ -2317,11 +2713,12 @@ async def signals(
             f"<td data-col='score'>{item.score}</td>"
             f"<td data-col='status' data-status-cell='1'>{escape(item.status)}</td>"
             f"<td data-col='created'>{escape(_fmt_ts(item.created_at))}</td>"
+            f"<td data-col='sla' data-sla-health='{escape(sla_decision.health_state)}' data-aging-bucket='{escape(sla_decision.aging_bucket)}'><small>{escape(sla_hint)}</small></td>"
             "</tr>"
         )
         table_rows += _triage_detail_row(
             item.id,
-            col_count=8,
+            col_count=9,
             title=f"Signal #{item.id}",
             subtitle=f"Auction {item.auction_id} / user {item.user_id} / score {item.score}",
         )
@@ -2329,12 +2726,12 @@ async def signals(
         table_rows = "<tr><td colspan='8'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, _signals_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _signals_path(page_value=page - 1, status_value=status)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, _signals_path(page_value=page+1, status_value=status)))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _signals_path(page_value=page + 1, status_value=status)))}'>Вперед →</a>"
         if has_next
         else ""
     )
@@ -2360,7 +2757,7 @@ async def signals(
     )
 
     body = (
-        f"{_render_app_header('Фрод-сигналы', auth, f'Статус: {status}') }"
+        f"{_render_app_header('Фрод-сигналы', auth, f'Статус: {status}')}"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
@@ -2370,7 +2767,20 @@ async def signals(
         f"<a class='chip' href='{escape(_path_with_auth(request, status_open_path))}'>OPEN</a>"
         f"<a class='chip' href='{escape(_path_with_auth(request, status_resolved_path))}'>RESOLVED</a>"
         "</div>"
-        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='user'>User ID</th><th data-col='risk'>User Risk</th><th data-col='score'>Score</th><th data-col='status'>Status</th><th data-col='created'>Created</th></tr></thead>"
+        "<div class='toolbar'><span>SLA health:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, sla_health_value='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, sla_health_value='healthy')))}'>В норме</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, sla_health_value='warning')))}'>Внимание</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, sla_health_value='critical')))}'>Критично</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, sla_health_value='overdue')))}'>Просрочена</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, sla_health_value='no_sla')))}'>Без SLA</a></div>"
+        "<div class='toolbar'><span>Возраст:</span>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, aging_value='all')))}'>Все</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, aging_value='fresh')))}'>Свежие</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, aging_value='aging')))}'>Aging</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, aging_value='stale')))}'>Stale</a>"
+        f"<a class='chip' href='{escape(_path_with_auth(request, _signals_path(page_value=0, status_value=status, aging_value='critical')))}'>Critical</a></div>"
+        f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th>Pick</th><th data-col='id'>ID</th><th data-col='auction'>Auction</th><th data-col='user'>User ID</th><th data-col='risk'>User Risk</th><th data-col='score'>Score</th><th data-col='status'>Status</th><th data-col='created'>Created</th><th data-col='sla'>SLA</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
@@ -2529,7 +2939,9 @@ async def trade_feedback(
         moderator_label = "-"
         moderator_cell = "-"
         if moderator is not None:
-            moderator_label = f"@{moderator.username}" if moderator.username else str(moderator.tg_user_id)
+            moderator_label = (
+                f"@{moderator.username}" if moderator.username else str(moderator.tg_user_id)
+            )
             moderator_cell = (
                 f"<a href='{escape(_path_with_auth(request, _trade_feedback_path(page_value=0, moderator_tg=str(moderator.tg_user_id))))}'>"
                 f"{escape(moderator_label)}</a>"
@@ -2577,7 +2989,7 @@ async def trade_feedback(
             )
 
         table_rows += (
-            f"<tr data-row='{escape(f"{item.id} {auction.id} {author_label} {target_label} {item.status} {item.rating} {item.comment or ''} {item.moderation_note or ''}")}' "
+            f"<tr data-row='{escape(f'{item.id} {auction.id} {author_label} {target_label} {item.status} {item.rating} {item.comment or ""} {item.moderation_note or ""}')}' "
             f"data-triage-row='1' data-row-id='{item.id}' tabindex='0'{row_context_attrs}>"
             f"<td>{_triage_controls_cell(item.id)}</td>"
             f"<td data-col='id'>{item.id}</td>"
@@ -2703,14 +3115,18 @@ async def auctions(
 
     async with SessionFactory() as session:
         rows = (
-            await session.execute(
-                select(Auction)
-                .where(Auction.status == status)
-                .order_by(Auction.created_at.desc())
-                .offset(offset)
-                .limit(page_size + 1)
+            (
+                await session.execute(
+                    select(Auction)
+                    .where(Auction.status == status)
+                    .order_by(Auction.created_at.desc())
+                    .offset(offset)
+                    .limit(page_size + 1)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         has_next = len(rows) > page_size
         rows = rows[:page_size]
@@ -2734,7 +3150,10 @@ async def auctions(
         has_active_blacklist=False,
         removed_bids=0,
     )
-    def _auctions_path(*, page_value: int, status_value: str, density_value: str | None = None) -> str:
+
+    def _auctions_path(
+        *, page_value: int, status_value: str, density_value: str | None = None
+    ) -> str:
         query = {
             "status": status_value,
             "page": str(page_value),
@@ -2746,7 +3165,7 @@ async def auctions(
     for item in rows:
         seller_risk = seller_risk_map.get(item.seller_user_id, default_risk_snapshot)
         table_rows += (
-            f"<tr data-row='{escape(f"{item.id} {item.seller_user_id} {item.status} {item.start_price} {item.buyout_price or ''}")}'>"
+            f"<tr data-row='{escape(f'{item.id} {item.seller_user_id} {item.status} {item.start_price} {item.buyout_price or ""}')}'>"
             f"<td data-col='id'><a href='{escape(_path_with_auth(request, f'/timeline/auction/{item.id}'))}'>{escape(str(item.id))}</a></td>"
             f"<td data-col='seller'>{item.seller_user_id}</td>"
             f"<td data-col='risk'>{_risk_snapshot_inline_html(seller_risk)}</td>"
@@ -2761,12 +3180,12 @@ async def auctions(
         table_rows = "<tr><td colspan='8'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, _auctions_path(page_value=page-1, status_value=status)))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _auctions_path(page_value=page - 1, status_value=status)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, _auctions_path(page_value=page+1, status_value=status)))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _auctions_path(page_value=page + 1, status_value=status)))}'>Вперед →</a>"
         if has_next
         else ""
     )
@@ -2785,7 +3204,7 @@ async def auctions(
     )
 
     body = (
-        f"{_render_app_header('Аукционы', auth, f'Статус: {status}') }"
+        f"{_render_app_header('Аукционы', auth, f'Статус: {status}')}"
         "<div class='section-card'>"
         f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
         f"{dense_toolbar}"
@@ -2938,7 +3357,9 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
 
     timeline_page = _parse_non_negative_int(request.query_params.get("timeline_page"))
     timeline_limit = _parse_non_negative_int(request.query_params.get("timeline_limit"))
-    _, timeline_source = _normalize_timeline_source_query(request.query_params.get("timeline_source"))
+    _, timeline_source = _normalize_timeline_source_query(
+        request.query_params.get("timeline_source")
+    )
 
     async with SessionFactory() as session:
         auction = await session.scalar(select(Auction).where(Auction.id == auction_uuid))
@@ -3012,7 +3433,7 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
 
     bids_table = (
         "<table><thead><tr><th>Bid ID</th><th>Amount</th><th>TG UID</th><th>Username</th><th>Created</th><th>Removed</th><th>Action</th></tr></thead>"
-        f"<tbody>{''.join(bid_rows) if bid_rows else '<tr><td colspan=7><span class=\"empty-state\">Нет ставок</span></td></tr>'}</tbody></table>"
+        f"<tbody>{''.join(bid_rows) if bid_rows else '<tr><td colspan=7><span class="empty-state">Нет ставок</span></td></tr>'}</tbody></table>"
     )
 
     body = (
@@ -3087,7 +3508,9 @@ async def manage_user(
             or 0
         )
         fraud_total = int(
-            await session.scalar(select(func.count(FraudSignal.id)).where(FraudSignal.user_id == user.id))
+            await session.scalar(
+                select(func.count(FraudSignal.id)).where(FraudSignal.user_id == user.id)
+            )
             or 0
         )
         fraud_open = int(
@@ -3101,21 +3524,29 @@ async def manage_user(
         )
 
         recent_complaints_against = (
-            await session.execute(
-                select(Complaint)
-                .where(Complaint.target_user_id == user.id)
-                .order_by(Complaint.created_at.desc())
-                .limit(10)
+            (
+                await session.execute(
+                    select(Complaint)
+                    .where(Complaint.target_user_id == user.id)
+                    .order_by(Complaint.created_at.desc())
+                    .limit(10)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         recent_fraud_signals = (
-            await session.execute(
-                select(FraudSignal)
-                .where(FraudSignal.user_id == user.id)
-                .order_by(FraudSignal.created_at.desc())
-                .limit(10)
+            (
+                await session.execute(
+                    select(FraudSignal)
+                    .where(FraudSignal.user_id == user.id)
+                    .order_by(FraudSignal.created_at.desc())
+                    .limit(10)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         points_summary = await get_user_points_summary(session, user_id=user.id)
         points_total_items = await count_user_points_entries(
@@ -3163,7 +3594,9 @@ async def manage_user(
         )
         boost_guarantor_points_spent_total = int(
             await session.scalar(
-                select(func.coalesce(func.sum(GuarantorRequest.priority_boost_points_spent), 0)).where(
+                select(
+                    func.coalesce(func.sum(GuarantorRequest.priority_boost_points_spent), 0)
+                ).where(
                     GuarantorRequest.submitter_user_id == user.id,
                     GuarantorRequest.priority_boosted_at.is_not(None),
                 )
@@ -3226,8 +3659,12 @@ async def manage_user(
         )
 
         trade_feedback_summary = await get_trade_feedback_summary(session, target_user_id=user.id)
-        trade_feedback_received = await list_received_trade_feedback(session, target_user_id=user.id, limit=10)
-        verification_status = await get_user_verification_status(session, tg_user_id=user.tg_user_id)
+        trade_feedback_received = await list_received_trade_feedback(
+            session, target_user_id=user.id, limit=10
+        )
+        verification_status = await get_user_verification_status(
+            session, tg_user_id=user.tg_user_id
+        )
 
     can_ban_users = auth.can(SCOPE_USER_BAN)
     can_manage_roles = auth.can(SCOPE_ROLE_MANAGE)
@@ -3308,7 +3745,9 @@ async def manage_user(
     )
     risk_reasons_text = "-"
     if risk_snapshot.reasons:
-        risk_reasons_text = ", ".join(format_risk_reason_label(code) for code in risk_snapshot.reasons)
+        risk_reasons_text = ", ".join(
+            format_risk_reason_label(code) for code in risk_snapshot.reasons
+        )
 
     complaints_rows = "".join(
         "<tr>"
@@ -3321,7 +3760,9 @@ async def manage_user(
         for item in recent_complaints_against
     )
     if not complaints_rows:
-        complaints_rows = "<tr><td colspan='5'><span class='empty-state'>Нет записей</span></td></tr>"
+        complaints_rows = (
+            "<tr><td colspan='5'><span class='empty-state'>Нет записей</span></td></tr>"
+        )
 
     signal_rows = "".join(
         "<tr>"
@@ -3361,7 +3802,9 @@ async def manage_user(
         for view in trade_feedback_received
     )
     if not trade_feedback_rows:
-        trade_feedback_rows = "<tr><td colspan='7'><span class='empty-state'>Нет отзывов</span></td></tr>"
+        trade_feedback_rows = (
+            "<tr><td colspan='7'><span class='empty-state'>Нет отзывов</span></td></tr>"
+        )
 
     average_trade_rating_text = "-"
     if trade_feedback_summary.average_visible_rating is not None:
@@ -3428,14 +3871,14 @@ async def manage_user(
     global_daily_remaining = max(global_daily_limit - redemptions_used_today, 0)
     global_daily_limit_text = "без ограничений"
     if global_daily_limit > 0:
-        global_daily_limit_text = f"{redemptions_used_today}/{global_daily_limit} (осталось {global_daily_remaining})"
+        global_daily_limit_text = (
+            f"{redemptions_used_today}/{global_daily_limit} (осталось {global_daily_remaining})"
+        )
     global_weekly_limit = max(settings.points_redemption_weekly_limit, 0)
     global_weekly_remaining = max(global_weekly_limit - redemptions_used_this_week, 0)
     global_weekly_limit_text = "без ограничений"
     if global_weekly_limit > 0:
-        global_weekly_limit_text = (
-            f"{redemptions_used_this_week}/{global_weekly_limit} (осталось {global_weekly_remaining})"
-        )
+        global_weekly_limit_text = f"{redemptions_used_this_week}/{global_weekly_limit} (осталось {global_weekly_remaining})"
     global_daily_spend_cap = max(settings.points_redemption_daily_spend_cap, 0)
     global_daily_spend_remaining = max(global_daily_spend_cap - redemptions_spent_today, 0)
     global_daily_spend_text = "без ограничений"
@@ -3486,9 +3929,15 @@ async def manage_user(
             _kpi_card("Ставок", str(bids_total)),
             _kpi_card("Снято ставок", str(bids_removed), tone="warn" if bids_removed > 0 else ""),
             _kpi_card("Жалоб создано", str(complaints_created)),
-            _kpi_card("Жалоб на пользователя", str(complaints_against), tone="warn" if complaints_against > 0 else ""),
+            _kpi_card(
+                "Жалоб на пользователя",
+                str(complaints_against),
+                tone="warn" if complaints_against > 0 else "",
+            ),
             _kpi_card("Фрод-сигналов", str(fraud_total)),
-            _kpi_card("Открытых сигналов", str(fraud_open), tone="critical" if fraud_open > 0 else ""),
+            _kpi_card(
+                "Открытых сигналов", str(fraud_open), tone="critical" if fraud_open > 0 else ""
+            ),
             _kpi_card("Риск-уровень", risk_snapshot.level, tone=risk_tone),
             _kpi_card("Риск-скор", str(risk_snapshot.score)),
         ]
@@ -3531,16 +3980,25 @@ async def manage_user(
                     f"cooldown {max(settings.appeal_priority_boost_cooldown_seconds, 0)}s"
                 ),
             ),
-            _kpi_card("Глобальная политика редимпшенов", "on" if settings.points_redemption_enabled else "off"),
+            _kpi_card(
+                "Глобальная политика редимпшенов",
+                "on" if settings.points_redemption_enabled else "off",
+            ),
             _kpi_card("Глобальный дневной лимит редимпшена", global_daily_limit_text),
             _kpi_card("Глобальный недельный лимит редимпшена", global_weekly_limit_text),
             _kpi_card("Глобальный лимит списания на бусты", global_daily_spend_text),
             _kpi_card("Глобальный недельный лимит списания на бусты", global_weekly_spend_text),
             _kpi_card("Глобальный месячный лимит списания на бусты", global_monthly_spend_text),
-            _kpi_card("Минимальный остаток после буста", f"{max(settings.points_redemption_min_balance, 0)} points"),
+            _kpi_card(
+                "Минимальный остаток после буста",
+                f"{max(settings.points_redemption_min_balance, 0)} points",
+            ),
             _kpi_card("Мин. возраст аккаунта для буста", min_account_age_text),
             _kpi_card("Мин. начислено points для буста", min_earned_points_text),
-            _kpi_card("Глобальный кулдаун редимпшена", f"{max(settings.points_redemption_cooldown_seconds, 0)} сек"),
+            _kpi_card(
+                "Глобальный кулдаун редимпшена",
+                f"{max(settings.points_redemption_cooldown_seconds, 0)} сек",
+            ),
         ]
     )
     trade_cards = _kpi_grid(
@@ -3618,7 +4076,9 @@ async def manage_users(
     now = datetime.now(UTC)
     admin_ids = set(settings.parsed_admin_user_ids())
 
-    def _manage_users_path(*, page_value: int, q_value: str | None = None, density_value: str | None = None) -> str:
+    def _manage_users_path(
+        *, page_value: int, q_value: str | None = None, density_value: str | None = None
+    ) -> str:
         query = {
             "page": str(page_value),
             "q": q_value if q_value is not None else query_value,
@@ -3649,10 +4109,14 @@ async def manage_users(
             quick_filter_placeholder="id / tg / username",
         )
         users = (
-            await session.execute(
-                stmt.offset(offset).limit(page_size + 1),
+            (
+                await session.execute(
+                    stmt.offset(offset).limit(page_size + 1),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         has_next = len(users) > page_size
         users = users[:page_size]
@@ -3674,7 +4138,9 @@ async def manage_users(
                             ),
                         )
                     )
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             )
             banned_user_ids = set(
                 (
@@ -3682,10 +4148,15 @@ async def manage_users(
                         select(BlacklistEntry.user_id).where(
                             BlacklistEntry.user_id.in_(user_ids),
                             BlacklistEntry.is_active.is_(True),
-                            (BlacklistEntry.expires_at.is_(None) | (BlacklistEntry.expires_at > now)),
+                            (
+                                BlacklistEntry.expires_at.is_(None)
+                                | (BlacklistEntry.expires_at > now)
+                            ),
                         )
                     )
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             )
 
     rows = []
@@ -3698,13 +4169,15 @@ async def manage_users(
     for user in users:
         is_allowlist_mod = user.tg_user_id in admin_ids
         is_dynamic_mod = user.id in role_user_ids
-        moderator_text = "yes (allowlist)" if is_allowlist_mod else ("yes" if is_dynamic_mod else "no")
+        moderator_text = (
+            "yes (allowlist)" if is_allowlist_mod else ("yes" if is_dynamic_mod else "no")
+        )
         banned_text = "yes" if user.id in banned_user_ids else "no"
         verified_text = "yes" if user.id in verified_user_ids else "no"
         risk_snapshot = risk_by_user_id.get(user.id, default_risk_snapshot)
 
         rows.append(
-            f"<tr data-row='{escape(f"{user.id} {user.tg_user_id} {user.username or ''} {moderator_text} {banned_text} {verified_text}")}'>"
+            f"<tr data-row='{escape(f'{user.id} {user.tg_user_id} {user.username or ""} {moderator_text} {banned_text} {verified_text}')}'>"
             f"<td data-col='id'>{user.id}</td>"
             f"<td data-col='tg_user_id'>{user.tg_user_id}</td>"
             f"<td data-col='username'>{escape(user.username or '-')}</td>"
@@ -3718,12 +4191,12 @@ async def manage_users(
         )
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, _manage_users_path(page_value=page-1)))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _manage_users_path(page_value=page - 1)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, _manage_users_path(page_value=page+1)))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _manage_users_path(page_value=page + 1)))}'>Вперед →</a>"
         if has_next
         else ""
     )
@@ -3760,10 +4233,10 @@ async def manage_users(
         "<button type='submit'>Поиск</button>"
         "</form>"
         "</div>"
-        f"{_kpi_grid([_kpi_card('Пользователей на странице', str(len(users))), _kpi_card('Страница', str(page + 1)), _kpi_card('Поисковый запрос', escape(query_value) if query_value else '-')] )}"
+        f"{_kpi_grid([_kpi_card('Пользователей на странице', str(len(users))), _kpi_card('Страница', str(page + 1)), _kpi_card('Поисковый запрос', escape(query_value) if query_value else '-')])}"
         f"{moderator_grant_form}"
         f"<div class='table-wrap dense-list-shell' data-dense-list='{escape(dense_config.table_id)}' data-density='{escape(dense_config.density)}'><table id='{escape(dense_config.table_id)}'><thead><tr><th data-col='id'>ID</th><th data-col='tg_user_id'>TG User ID</th><th data-col='username'>Username</th><th data-col='moderator'>Moderator</th><th data-col='banned'>Banned</th><th data-col='verified'>Verified</th><th data-col='risk'>Risk</th><th data-col='created'>Created</th><th data-col='manage'>Manage</th></tr></thead>"
-        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=9><span class=\"empty-state\">Нет записей</span></td></tr>'}</tbody></table></div>"
+        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=9><span class="empty-state">Нет записей</span></td></tr>'}</tbody></table></div>"
         f"{_pager_html(prev_link, next_link)}"
         f"{render_dense_list_script(dense_config)}"
         "</div>"
@@ -3800,7 +4273,11 @@ async def violators(
     created_from_dt = _parse_ymd_filter(created_from_value, field_name="created_from")
     created_to_dt = _parse_ymd_filter(created_to_value, field_name="created_to")
     created_to_exclusive = created_to_dt + timedelta(days=1) if created_to_dt is not None else None
-    if created_from_dt is not None and created_to_exclusive is not None and created_from_dt >= created_to_exclusive:
+    if (
+        created_from_dt is not None
+        and created_to_exclusive is not None
+        and created_from_dt >= created_to_exclusive
+    ):
         raise HTTPException(status_code=400, detail="Invalid violators date range")
 
     actor_user = aliased(User)
@@ -3848,11 +4325,7 @@ async def violators(
         else:
             stmt = stmt.where(actor_user.username.ilike(f"%{moderator_value}%"))
 
-    stmt = (
-        stmt.order_by(BlacklistEntry.created_at.desc())
-        .offset(offset)
-        .limit(page_size + 1)
-    )
+    stmt = stmt.order_by(BlacklistEntry.created_at.desc()).offset(offset).limit(page_size + 1)
 
     async with SessionFactory() as session:
         dense_config = await _load_dense_list_config(
@@ -3914,7 +4387,7 @@ async def violators(
             )
 
         table_rows += (
-            f"<tr data-row='{escape(f"{entry.id} {target_user.tg_user_id} {target_user.username or ''} {entry.reason} {actor_label}")}'>"
+            f"<tr data-row='{escape(f'{entry.id} {target_user.tg_user_id} {target_user.username or ""} {entry.reason} {actor_label}')}'>"
             f"<td data-col='id'>{entry.id}</td>"
             f"<td data-col='tg_user_id'><a href='{escape(_path_with_auth(request, f'/manage/user/{target_user.id}'))}'>{target_user.tg_user_id}</a></td>"
             f"<td data-col='username'>{escape(target_label)}</td>"
@@ -4081,9 +4554,17 @@ async def appeals(
     if aging_value == "fresh":
         stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at >= fresh_cutoff)
     elif aging_value == "aging":
-        stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at < fresh_cutoff, Appeal.created_at >= aging_cutoff)
+        stmt = stmt.where(
+            Appeal.created_at.is_not(None),
+            Appeal.created_at < fresh_cutoff,
+            Appeal.created_at >= aging_cutoff,
+        )
     elif aging_value == "stale":
-        stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at < aging_cutoff, Appeal.created_at >= stale_cutoff)
+        stmt = stmt.where(
+            Appeal.created_at.is_not(None),
+            Appeal.created_at < aging_cutoff,
+            Appeal.created_at >= stale_cutoff,
+        )
     elif aging_value == "critical":
         stmt = stmt.where(Appeal.created_at.is_not(None), Appeal.created_at < stale_cutoff)
     elif aging_value == "overdue":
@@ -4119,7 +4600,11 @@ async def appeals(
             )
 
     stmt = (
-        stmt.order_by(Appeal.priority_boosted_at.desc().nullslast(), Appeal.created_at.desc(), Appeal.id.desc())
+        stmt.order_by(
+            Appeal.priority_boosted_at.desc().nullslast(),
+            Appeal.created_at.desc(),
+            Appeal.id.desc(),
+        )
         .offset(offset)
         .limit(page_size + 1)
     )
@@ -4206,11 +4691,15 @@ async def appeals(
 
     for appeal, appellant, resolver in rows:
         source_label = _appeal_source_label(AppealSourceType(appeal.source_type), appeal.source_id)
-        appellant_label = f"@{appellant.username}" if appellant.username else str(appellant.tg_user_id)
+        appellant_label = (
+            f"@{appellant.username}" if appellant.username else str(appellant.tg_user_id)
+        )
         appellant_risk = appellant_risk_map.get(appellant.id, default_risk_snapshot)
         resolver_label = "-"
         if resolver is not None:
-            resolver_label = f"@{resolver.username}" if resolver.username else str(resolver.tg_user_id)
+            resolver_label = (
+                f"@{resolver.username}" if resolver.username else str(resolver.tg_user_id)
+            )
 
         actions = "-"
         appeal_status = AppealStatus(appeal.status)
@@ -4274,7 +4763,7 @@ async def appeals(
             actions = "".join(action_forms)
 
         table_rows += (
-            f"<tr data-row='{escape(f"{appeal.id} {appeal.appeal_ref} {source_label} {appellant_label} {appeal.status} {appeal.resolution_note or ''}")}' "
+            f"<tr data-row='{escape(f'{appeal.id} {appeal.appeal_ref} {source_label} {appellant_label} {appeal.status} {appeal.resolution_note or ""}')}' "
             f"data-triage-row='1' data-row-id='{appeal.id}' tabindex='0'{row_context_attrs}>"
             f"<td>{_triage_controls_cell(appeal.id)}</td>"
             f"<td data-col='id'>{appeal.id}</td>"
@@ -4304,12 +4793,12 @@ async def appeals(
         table_rows = "<tr><td colspan='15'><span class='empty-state'>Нет записей</span></td></tr>"
 
     prev_link = (
-        f"<a href='{escape(_path_with_auth(request, _appeals_path(page_value=page-1)))}'>← Назад</a>"
+        f"<a href='{escape(_path_with_auth(request, _appeals_path(page_value=page - 1)))}'>← Назад</a>"
         if page > 0
         else ""
     )
     next_link = (
-        f"<a href='{escape(_path_with_auth(request, _appeals_path(page_value=page+1)))}'>Вперед →</a>"
+        f"<a href='{escape(_path_with_auth(request, _appeals_path(page_value=page + 1)))}'>Вперед →</a>"
         if has_next
         else ""
     )
@@ -4493,8 +4982,12 @@ async def action_workflow_presets(request: Request) -> dict[str, object]:
                         density=str(payload.get("density") or ""),
                         columns_payload=payload.get("columns") or {},
                         allowed_columns=allowed_columns,
-                        filters_payload=payload.get("filters") if isinstance(payload.get("filters"), dict) else {},
-                        sort_payload=payload.get("sort") if isinstance(payload.get("sort"), dict) else {},
+                        filters_payload=payload.get("filters")
+                        if isinstance(payload.get("filters"), dict)
+                        else {},
+                        sort_payload=payload.get("sort")
+                        if isinstance(payload.get("sort"), dict)
+                        else {},
                         admin_token=token,
                         overwrite=bool(payload.get("overwrite")),
                     )
@@ -4510,8 +5003,12 @@ async def action_workflow_presets(request: Request) -> dict[str, object]:
                         density=str(payload.get("density") or ""),
                         columns_payload=payload.get("columns") or {},
                         allowed_columns=allowed_columns,
-                        filters_payload=payload.get("filters") if isinstance(payload.get("filters"), dict) else {},
-                        sort_payload=payload.get("sort") if isinstance(payload.get("sort"), dict) else {},
+                        filters_payload=payload.get("filters")
+                        if isinstance(payload.get("filters"), dict)
+                        else {},
+                        sort_payload=payload.get("sort")
+                        if isinstance(payload.get("sort"), dict)
+                        else {},
                         admin_token=token,
                     )
                 elif action == "select":
@@ -4652,6 +5149,26 @@ async def action_triage_detail_section(
         )
         return {"ok": True, "html": collapsed_html, **metadata}
 
+    if queue_value == "signals":
+        async with SessionFactory() as session:
+            detail_payload = await _render_signal_detail_section(
+                session,
+                row_id=row_id,
+                section=section_value,
+                request=request,
+            )
+        return {**detail_payload, **metadata}
+
+    if queue_value == "complaints":
+        async with SessionFactory() as session:
+            detail_payload = await _render_complaint_detail_section(
+                session,
+                row_id=row_id,
+                section=section_value,
+                request=request,
+            )
+        return {**detail_payload, **metadata}
+
     if queue_value == "appeals":
         async with SessionFactory() as session:
             detail_payload = await _render_appeal_detail_section(
@@ -4733,7 +5250,14 @@ async def action_triage_bulk(request: Request) -> dict[str, object]:
                 if queue_key == "complaints":
                     item = await session.scalar(select(Complaint).where(Complaint.id == row_id))
                     if item is None:
-                        results.append({"id": row_id, "ok": False, "reason_code": "missing", "message": "not found"})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "missing",
+                                "message": "not found",
+                            }
+                        )
                         continue
                     if bulk_action == "resolve":
                         item.status = "RESOLVED"
@@ -4748,11 +5272,25 @@ async def action_triage_bulk(request: Request) -> dict[str, object]:
                         item.resolved_at = now
                         results.append({"id": row_id, "ok": True, "next_status": "DISMISSED"})
                     else:
-                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "unsupported",
+                                "message": "unsupported action",
+                            }
+                        )
                 elif queue_key == "signals":
                     item = await session.scalar(select(FraudSignal).where(FraudSignal.id == row_id))
                     if item is None:
-                        results.append({"id": row_id, "ok": False, "reason_code": "missing", "message": "not found"})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "missing",
+                                "message": "not found",
+                            }
+                        )
                         continue
                     if bulk_action == "confirm":
                         item.status = "CONFIRMED"
@@ -4767,10 +5305,24 @@ async def action_triage_bulk(request: Request) -> dict[str, object]:
                         item.resolved_at = now
                         results.append({"id": row_id, "ok": True, "next_status": "DISMISSED"})
                     else:
-                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "unsupported",
+                                "message": "unsupported action",
+                            }
+                        )
                 elif queue_key == "trade_feedback":
                     if bulk_action not in {"hide", "unhide"}:
-                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "unsupported",
+                                "message": "unsupported action",
+                            }
+                        )
                         continue
                     action_result = await set_trade_feedback_visibility(
                         session,
@@ -4783,10 +5335,24 @@ async def action_triage_bulk(request: Request) -> dict[str, object]:
                         next_status = "VISIBLE" if bulk_action == "unhide" else "HIDDEN"
                         results.append({"id": row_id, "ok": True, "next_status": next_status})
                     else:
-                        results.append({"id": row_id, "ok": False, "reason_code": "service_error", "message": action_result.message})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "service_error",
+                                "message": action_result.message,
+                            }
+                        )
                 else:
                     if bulk_action not in {"in_review", "resolve", "reject"}:
-                        results.append({"id": row_id, "ok": False, "reason_code": "unsupported", "message": "unsupported action"})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "unsupported",
+                                "message": "unsupported action",
+                            }
+                        )
                         continue
                     if bulk_action == "in_review":
                         action_result = await mark_appeal_in_review(
@@ -4818,7 +5384,14 @@ async def action_triage_bulk(request: Request) -> dict[str, object]:
                             }
                         )
                     else:
-                        results.append({"id": row_id, "ok": False, "reason_code": "service_error", "message": action_result.message})
+                        results.append(
+                            {
+                                "id": row_id,
+                                "ok": False,
+                                "reason_code": "service_error",
+                                "message": action_result.message,
+                            }
+                        )
 
     return {"ok": True, "results": results}
 
@@ -5565,7 +6138,9 @@ async def action_adjust_user_points(
     dedupe_key = ""
     async with SessionFactory() as session:
         async with session.begin():
-            target_user = await session.scalar(select(User).where(User.tg_user_id == target_tg_user_id).with_for_update())
+            target_user = await session.scalar(
+                select(User).where(User.tg_user_id == target_tg_user_id).with_for_update()
+            )
             if target_user is None:
                 return _action_error_page(request, "User not found", back_to=target)
 

@@ -7,6 +7,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.auction import (
@@ -70,6 +71,7 @@ from app.services.seller_dashboard_service import (
 )
 from app.services.points_service import UserPointsSummary, get_user_points_summary, list_user_points_entries
 from app.services.user_service import upsert_user
+from app.bot.states.guarantor_intake import GuarantorIntakeStates
 from app.bot.handlers.start_auction_views import (
     MY_AUCTIONS_PAGE_SIZE,
     _auction_list_button_label,
@@ -986,6 +988,65 @@ async def callback_dashboard_settings(callback: CallbackQuery) -> None:
 async def callback_dashboard_home(callback: CallbackQuery) -> None:
     await callback.answer()
     await _show_dashboard_home(callback, edit_message=True)
+
+
+@router.callback_query(F.data == "dash:guarant")
+async def callback_dashboard_guarant(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    if callback.from_user is None:
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть раздел «Гарант»", show_alert=True)
+        return
+
+    await callback.answer()
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            if not await enforce_callback_topic(
+                callback,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.SUPPORT,
+                command_hint="/guarant",
+            ):
+                return
+
+    await state.set_state(GuarantorIntakeStates.waiting_request_text)
+    if isinstance(callback.message.message_thread_id, int):
+        await state.update_data(expected_thread_id=callback.message.message_thread_id)
+    await callback.message.answer("Опишите запрос на гаранта одним сообщением. Для отмены используйте /cancel")
+
+
+@router.callback_query(F.data == "dash:notifications")
+async def callback_dashboard_notifications(callback: CallbackQuery) -> None:
+    if callback.from_user is None:
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть уведомления", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            snapshot = await load_notification_settings(session, user_id=user.id)
+            snoozes = await list_active_auction_notification_snoozes(session, user_id=user.id)
+
+    if snapshot is None:
+        await callback.answer("Настройки уведомлений недоступны", show_alert=True)
+        return
+
+    text = _render_settings_text(snapshot, snoozes=snoozes)
+    keyboard = _settings_keyboard(snapshot, snoozes=snoozes)
+    await callback.answer()
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    except TelegramBadRequest:
+        pass
+
+    await callback.message.answer(text, reply_markup=keyboard, disable_web_page_preview=True)
 
 
 @router.callback_query(F.data.startswith("dash:settings:"))
