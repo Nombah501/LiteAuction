@@ -925,8 +925,6 @@ class UserReputationEvent(Base):
         DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
     )
 
-    reputation: Mapped[UserReputation] = relationship(back_populates="events")
-
 
 class UserReputation(Base):
     __tablename__ = "user_reputations"
@@ -946,8 +944,4 @@ class UserReputation(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
-    )
-
-    events: Mapped[list[UserReputationEvent]] = relationship(
-        back_populates="reputation", order_by="UserReputationEvent.created_at.desc()"
     )
