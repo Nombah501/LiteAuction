@@ -81,6 +81,11 @@ class GuarantorRequestStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class DealTopicStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+
+
 class PointsEventType(StrEnum):
     FEEDBACK_APPROVED = "FEEDBACK_APPROVED"
     MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT"
