@@ -655,6 +655,9 @@ def deal_topic_keyboard(
             [
                 styled_button(text="⚠ Жалоба", callback_data=f"deal:complaint:{auction_id}"),
             ],
+            [
+                styled_button(text="🔒 Закрыть сделку", callback_data=f"deal:closerequest:{auction_id}"),
+            ],
         ]
     )
 
