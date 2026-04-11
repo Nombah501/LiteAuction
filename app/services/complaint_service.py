@@ -65,6 +65,14 @@ async def create_complaint(
     )
     session.add(complaint)
     await session.flush()
+
+    if complaint.target_user_id is not None:
+        from app.services.reputation_service import adjust_reputation
+
+        await adjust_reputation(
+            session, complaint.target_user_id, -8, "complaint_filed", source_id=complaint.id
+        )
+
     return ComplaintCreateResult(True, "Жалоба отправлена модераторам", complaint=complaint)
 
 

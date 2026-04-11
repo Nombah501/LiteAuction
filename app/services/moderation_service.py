@@ -412,6 +412,10 @@ async def remove_bid(
         payload={"amount": bid.amount},
     )
 
+    from app.services.reputation_service import adjust_reputation
+
+    await adjust_reputation(session, bid.user_id, -5, "bid_removed", source_id=bid.id)
+
     target_user = await session.scalar(select(User).where(User.id == bid.user_id))
     return ModerationResult(
         True,
@@ -466,6 +470,11 @@ async def ban_user(
         target_user_id=target_user.id,
         auction_id=auction_id,
     )
+
+    from app.services.reputation_service import adjust_reputation
+
+    await adjust_reputation(session, target_user.id, 0, "perm_ban")
+
     return ModerationResult(True, "Пользователь заблокирован", target_tg_user_id=target_tg_user_id)
 
 
