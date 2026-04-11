@@ -608,3 +608,64 @@ def open_auction_post_keyboard(post_url: str) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def deal_completion_keyboard(
+    *,
+    auction_id: str,
+    post_url: str | None,
+    is_seller: bool,
+) -> InlineKeyboardMarkup:
+    write_label = "💬 Написать победителю" if is_seller else "💬 Написать продавцу"
+    rows: list[list[InlineKeyboardButton]] = [
+        [styled_button(text=write_label, callback_data=f"deal:write:{auction_id}", style="primary")],
+        [
+            styled_button(text="🛡 Запросить гаранта", callback_data=f"deal:guarant:{auction_id}", style="success"),
+            styled_button(text="⭐ Оставить отзыв", callback_data=f"deal:feedback:{auction_id}"),
+        ],
+    ]
+    if post_url:
+        rows.append([styled_button(text="📄 Открыть пост лота", url=post_url)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def no_bids_keyboard(
+    *,
+    auction_id: str,
+    post_url: str | None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [styled_button(text="🔄 Опубликовать заново", callback_data=f"deal:republish:{auction_id}", style="primary")],
+    ]
+    if post_url:
+        rows.append([styled_button(text="📄 Открыть пост лота", url=post_url)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def deal_topic_keyboard(
+    *,
+    auction_id: str,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(text="🛡 Запросить гаранта", callback_data=f"deal:guarant:{auction_id}", style="success"),
+                styled_button(text="⭐ Оставить отзыв", callback_data=f"deal:feedback:{auction_id}"),
+            ],
+            [
+                styled_button(text="⚠ Жалоба", callback_data=f"deal:complaint:{auction_id}"),
+            ],
+        ]
+    )
+
+
+def moderation_completion_keyboard(
+    *,
+    auction_id: str,
+    post_url: str | None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if post_url:
+        rows.append([styled_button(text="📄 Открыть пост лота", url=post_url)])
+    rows.append([styled_button(text="⚠ Заморозить", callback_data=f"mod:freeze:{auction_id}", style="danger")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
