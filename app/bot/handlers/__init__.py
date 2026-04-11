@@ -7,6 +7,7 @@ from .emoji_tools import router as emoji_tools_router
 from .feedback import router as feedback_router
 from .guarantor import router as guarantor_router
 from .help import router as help_router
+from .my_bids import router as my_bids_router
 from .inline_auction import router as inline_auction_router
 from .moderation import router as moderation_router
 from .points import router as points_router
@@ -16,11 +17,14 @@ from .suggested_posts import router as suggested_posts_router
 from .deal_topic_chat import router as deal_topic_chat_router
 from .post_auction import router as post_auction_router
 from .trade_feedback import router as trade_feedback_router
+from .my_reputation import router as my_reputation_router
 
 router = Router(name="root")
 router.include_router(error_boundary_router)
 router.include_router(start_router)
 router.include_router(help_router)
+router.include_router(my_bids_router)
+router.include_router(my_reputation_router)
 router.include_router(emoji_tools_router)
 router.include_router(create_auction_router)
 router.include_router(bid_actions_router)

@@ -64,6 +64,12 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
         ],
         [
             styled_button(
+                text="Мои ставки",
+                callback_data="dash:my_bids",
+            ),
+        ],
+        [
+            styled_button(
                 text="Гарант",
                 callback_data="dash:guarant",
             ),
@@ -74,9 +80,13 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
         ],
         [
             styled_button(
+                text="⭐ Репутация",
+                callback_data="dash:reputation",
+            ),
+            styled_button(
                 text="Настройки",
                 callback_data="dash:settings",
-            )
+            ),
         ],
     ]
 
