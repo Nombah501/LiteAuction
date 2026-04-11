@@ -6,6 +6,7 @@ from .error_boundary import router as error_boundary_router
 from .emoji_tools import router as emoji_tools_router
 from .feedback import router as feedback_router
 from .guarantor import router as guarantor_router
+from .help import router as help_router
 from .inline_auction import router as inline_auction_router
 from .moderation import router as moderation_router
 from .points import router as points_router
@@ -19,6 +20,7 @@ from .trade_feedback import router as trade_feedback_router
 router = Router(name="root")
 router.include_router(error_boundary_router)
 router.include_router(start_router)
+router.include_router(help_router)
 router.include_router(emoji_tools_router)
 router.include_router(create_auction_router)
 router.include_router(bid_actions_router)

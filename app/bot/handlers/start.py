@@ -19,7 +19,10 @@ from app.bot.keyboards.auction import (
     start_private_keyboard,
 )
 from app.config import settings
+from sqlalchemy import func, select
+
 from app.db.enums import AuctionStatus, PointsEventType
+from app.db.models import Auction, Bid
 from app.db.session import SessionFactory
 from app.services.appeal_service import (
     AppealPriorityBoostPolicy,
@@ -435,6 +438,8 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
     auctions_thread_id: int | None = None
     show_moderation_button = False
     notification_snapshot: NotificationSettingsSnapshot | None = None
+    bid_count: int = 0
+    auction_count: int = 0
 
     async with SessionFactory() as session:
         async with session.begin():
@@ -468,6 +473,13 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
                 appeal_id = appeal.id
             if report_auction_id is not None:
                 report_auction_found = (await load_auction_view(session, report_auction_id)) is not None
+
+            bid_count = await session.scalar(
+                select(func.count()).select_from(Bid).where(Bid.user_id == user.id)
+            )
+            auction_count = await session.scalar(
+                select(func.count()).select_from(Auction).where(Auction.seller_user_id == user.id)
+            )
 
     dashboard_keyboard = start_private_keyboard(show_moderation_button=show_moderation_button)
 
@@ -554,6 +566,17 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
             )
         if not sent_onboarding:
             await message.answer(onboarding_text, reply_markup=onboarding_keyboard)
+
+    if bid_count == 0 and auction_count == 0:
+        await message.answer(
+            "👋 <b>Добро пожаловать!</b>\n\n"
+            "Вы можете:\n"
+            "• Искать лоты в подключённых чатах и каналах\n"
+            "• Делать ставки кнопками под лотом\n"
+            "• Следить за своими ставками — /mybids\n\n"
+            "Начните с просмотра активных аукционов в чате!",
+            parse_mode="HTML",
+        )
 
 
 @router.message(Command("topics"), F.chat.type == ChatType.PRIVATE)
