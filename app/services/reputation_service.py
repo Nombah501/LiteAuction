@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
+from aiogram import Bot
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +17,10 @@ from app.db.models import (
     UserReputationEvent,
 )
 from app.services.guarantor_service import has_assigned_guarantor_request
+from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.verification_service import is_user_verified
+
+logger = logging.getLogger(__name__)
 
 _INITIAL_BASE_NEW = 10
 _INITIAL_BASE_ESTABLISHED = 25
@@ -353,3 +358,40 @@ async def run_reputation_decay(session: AsyncSession) -> int:
 
     await session.flush()
     return affected
+
+
+TIER_LABELS = {
+    ReputationTier.NEW: "NEW 🆕",
+    ReputationTier.BRONZE: "BRONZE 🥉",
+    ReputationTier.SILVER: "SILVER 🥈",
+    ReputationTier.GOLD: "GOLD 🥇",
+    ReputationTier.PLATINUM: "PLATINUM 💎",
+}
+
+_TIER_RANK = {
+    ReputationTier.NEW: 0,
+    ReputationTier.BRONZE: 1,
+    ReputationTier.SILVER: 2,
+    ReputationTier.GOLD: 3,
+    ReputationTier.PLATINUM: 4,
+}
+
+
+async def notify_tier_change(
+    bot: Bot, tg_user_id: int, old_tier: str, new_tier: str, score: int
+) -> None:
+    old_label = TIER_LABELS.get(old_tier, old_tier)
+    new_label = TIER_LABELS.get(new_tier, new_tier)
+    if _TIER_RANK.get(old_tier, 0) < _TIER_RANK.get(new_tier, 0):
+        text = f"🎉 Ваш уровень повышен: {old_label} → {new_label} (score: {score})"
+    else:
+        text = f"⚠️ Ваш уровень понижен: {old_label} → {new_label} (score: {score})"
+    try:
+        await send_user_topic_message(
+            bot,
+            tg_user_id=tg_user_id,
+            purpose=PrivateTopicPurpose.NOTIFICATIONS,
+            text=text,
+        )
+    except Exception:
+        logger.warning("Failed to send tier change notification to tg_user_id=%s", tg_user_id)
