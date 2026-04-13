@@ -6,15 +6,15 @@ import pytest
 from starlette.requests import Request
 
 from app.web.auth import build_admin_session_cookie, get_admin_auth_context
-from app.web.main import (
+from app.web.deps import (
     _build_csrf_token,
     _require_scope_permission,
-    _safe_return_to,
     _validate_csrf_token,
-    action_ban_user,
-    action_end_auction,
-    login_page,
 )
+from app.web.components import _safe_return_to
+from app.web.routers.users import action_ban_user
+from app.web.routers.auctions import action_end_auction
+from app.web.routers.auth_routes import login_page
 from app.services.rbac_service import SCOPE_AUCTION_MANAGE, SCOPE_USER_BAN
 
 

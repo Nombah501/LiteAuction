@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.models import User
 from app.services.runtime_settings_service import resolve_runtime_setting_value
 from app.web.auth import AdminAuthContext
-from app.web.main import action_delete_runtime_setting, action_set_runtime_setting
+from app.web.routers.dashboard import action_delete_runtime_setting, action_set_runtime_setting
 
 
 def _make_request(path: str) -> Request:
@@ -65,14 +65,14 @@ async def test_owner_can_set_and_delete_runtime_override(monkeypatch, integratio
             await session.flush()
             actor_id = actor.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_owner_permission", lambda _req: (None, _stub_owner_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _csrf: True)
+    monkeypatch.setattr("app.web.routers.dashboard.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.dashboard._require_owner_permission", lambda _req: (None, _stub_owner_auth()))
+    monkeypatch.setattr("app.web.routers.dashboard._validate_csrf_token", lambda _req, _auth, _csrf: True)
 
     async def _resolve_actor(_auth):  # noqa: ANN001
         return actor_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.dashboard._resolve_actor_user_id", _resolve_actor)
 
     set_response = await action_set_runtime_setting(
         _make_request("/actions/settings/runtime/set"),
@@ -104,7 +104,7 @@ async def test_owner_can_set_and_delete_runtime_override(monkeypatch, integratio
 async def test_non_owner_cannot_set_runtime_override(monkeypatch) -> None:
     forbidden = HTMLResponse("forbidden", status_code=403)
     monkeypatch.setattr(
-        "app.web.main._require_owner_permission",
+        "app.web.routers.dashboard._require_owner_permission",
         lambda _req: (forbidden, _stub_operator_auth()),
     )
 

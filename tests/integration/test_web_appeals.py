@@ -13,13 +13,13 @@ from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, Moderati
 from app.db.models import Appeal, Auction, Complaint, FraudSignal, ModerationLog, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import (
+from app.web.routers.appeals import (
     action_reject_appeal,
     action_resolve_appeal,
     action_review_appeal,
-    action_triage_detail_section,
     appeals,
 )
+from app.web.routers.triage import action_triage_detail_section
 
 
 def _make_request(path: str, *, method: str = "GET") -> Request:
@@ -90,8 +90,8 @@ async def test_appeals_page_filters_status_and_source(monkeypatch, integration_e
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/appeals")
     response = await appeals(request, status="open", source="risk", page=0, q="")
@@ -171,8 +171,8 @@ async def test_appeals_page_shows_appellant_risk_indicator(monkeypatch, integrat
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/appeals")
     response = await appeals(request, status="open", source="all", overdue="all", escalated="all", page=0, q="manual_")
@@ -187,7 +187,7 @@ async def test_appeals_page_shows_appellant_risk_indicator(monkeypatch, integrat
 
 @pytest.mark.asyncio
 async def test_appeals_page_rejects_invalid_status(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
     request = _make_request("/appeals")
 
     with pytest.raises(HTTPException) as exc:
@@ -198,7 +198,7 @@ async def test_appeals_page_rejects_invalid_status(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_appeals_page_rejects_invalid_overdue_filter(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
     request = _make_request("/appeals")
 
     with pytest.raises(HTTPException) as exc:
@@ -209,7 +209,7 @@ async def test_appeals_page_rejects_invalid_overdue_filter(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_appeals_page_rejects_invalid_escalated_filter(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
     request = _make_request("/appeals")
 
     with pytest.raises(HTTPException) as exc:
@@ -221,7 +221,7 @@ async def test_appeals_page_rejects_invalid_escalated_filter(monkeypatch) -> Non
 @pytest.mark.asyncio
 async def test_appeals_page_requires_user_ban_scope(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.appeals._require_scope_permission",
         lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
     )
     request = _make_request("/appeals")
@@ -234,7 +234,7 @@ async def test_appeals_page_requires_user_ban_scope(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_action_resolve_appeal_requires_user_ban_scope(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.appeals._require_scope_permission",
         lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
     )
 
@@ -254,7 +254,7 @@ async def test_action_resolve_appeal_requires_user_ban_scope(monkeypatch) -> Non
 @pytest.mark.asyncio
 async def test_action_review_appeal_requires_user_ban_scope(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.appeals._require_scope_permission",
         lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
     )
 
@@ -272,8 +272,8 @@ async def test_action_review_appeal_requires_user_ban_scope(monkeypatch) -> None
 
 @pytest.mark.asyncio
 async def test_action_resolve_appeal_rejects_invalid_csrf(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._validate_csrf_token", lambda *_args, **_kwargs: False)
 
     response = await action_resolve_appeal(
         _make_request("/actions/appeal/resolve", method="POST"),
@@ -290,8 +290,8 @@ async def test_action_resolve_appeal_rejects_invalid_csrf(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_action_review_appeal_rejects_invalid_csrf(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._validate_csrf_token", lambda *_args, **_kwargs: False)
 
     response = await action_review_appeal(
         _make_request("/actions/appeal/review", method="POST"),
@@ -307,8 +307,8 @@ async def test_action_review_appeal_rejects_invalid_csrf(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_action_reject_appeal_rejects_invalid_csrf(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._validate_csrf_token", lambda *_args, **_kwargs: False)
 
     response = await action_reject_appeal(
         _make_request("/actions/appeal/reject", method="POST"),
@@ -346,14 +346,14 @@ async def test_action_review_appeal_updates_status(monkeypatch, integration_engi
             appeal_id = appeal.id
             actor_user_id = actor.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return actor_user_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.appeals._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/appeal/review", method="POST")
     response = await action_review_appeal(
@@ -412,8 +412,8 @@ async def test_appeals_page_overdue_filter_and_pagination_context(monkeypatch, i
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/appeals")
     response_page_0 = await appeals(request, status="open", source="all", overdue="only", page=0, q="manual_due")
@@ -469,8 +469,8 @@ async def test_appeals_page_sla_health_and_aging_filters_render_metadata(monkeyp
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/appeals")
     response = await appeals(
@@ -531,8 +531,8 @@ async def test_appeals_page_escalated_filter_and_sla_markers(monkeypatch, integr
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/appeals")
     response_escalated = await appeals(
@@ -619,14 +619,14 @@ async def test_action_resolve_appeal_updates_status(monkeypatch, integration_eng
             appellant_user_id = appellant.id
             auction_id = auction.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return actor_user_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.appeals._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/appeal/resolve", method="POST")
     response = await action_resolve_appeal(
@@ -715,15 +715,16 @@ async def test_triage_detail_section_renders_appeal_evidence_and_audit(monkeypat
             appeal_id = appeal.id
             actor_user_id = actor.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.triage.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.triage._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return actor_user_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.appeals._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/appeal/resolve", method="POST")
     resolve_response = await action_resolve_appeal(
@@ -777,8 +778,8 @@ async def test_triage_detail_section_renders_appeal_evidence_and_audit(monkeypat
 
 @pytest.mark.asyncio
 async def test_action_reject_appeal_renders_confirmation(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     request = _make_request("/actions/appeal/reject", method="POST")
     response = await action_reject_appeal(

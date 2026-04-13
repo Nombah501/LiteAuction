@@ -8,7 +8,7 @@ from app.db.models import User
 from app.services.rbac_service import SCOPE_TRUST_MANAGE
 from app.services.verification_service import get_user_verification_status
 from app.web.auth import AdminAuthContext
-from app.web.main import action_unverify_user, action_verify_user
+from app.web.routers.users import action_unverify_user, action_verify_user
 
 
 def _make_request(path: str) -> Request:
@@ -74,16 +74,16 @@ async def test_web_verify_and_unverify_user_actions(monkeypatch, integration_eng
             actor_id = actor.id
             target_tg_id = target.tg_user_id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _csrf: True)
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._validate_csrf_token", lambda _req, _auth, _csrf: True)
 
     async def _resolve_actor(_auth):  # noqa: ANN001
         return actor_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
-    monkeypatch.setattr("app.web.main.Bot", _BotStub)
-    monkeypatch.setattr("app.web.main.settings.bot_token", "test-token")
+    monkeypatch.setattr("app.web.routers.users._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.users.Bot", _BotStub)
+    monkeypatch.setattr("app.web.routers.users.settings.bot_token", "test-token")
 
     verify_response = await action_verify_user(
         _make_request("/actions/user/verify"),

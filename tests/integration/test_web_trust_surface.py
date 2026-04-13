@@ -8,7 +8,8 @@ from app.db.enums import AuctionStatus
 from app.db.models import Auction, Complaint, FraudSignal, TelegramUserVerification, User
 from app.services.rbac_service import SCOPE_AUCTION_MANAGE, SCOPE_BID_MANAGE, SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import auctions, manage_users
+from app.web.routers.auctions import auctions
+from app.web.routers.users import manage_users
 
 
 def _make_request(path: str) -> Request:
@@ -97,8 +98,8 @@ async def test_manage_users_shows_risk_column(monkeypatch, integration_engine) -
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     request = _make_request("/manage/users")
     response = await manage_users(request, page=0, q="")
@@ -170,8 +171,8 @@ async def test_auctions_shows_seller_risk_column(monkeypatch, integration_engine
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     request = _make_request("/auctions")
     response = await auctions(request, status="ACTIVE", page=0)

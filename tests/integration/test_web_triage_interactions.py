@@ -9,14 +9,11 @@ from starlette.requests import Request
 
 from app.web.auth import AdminAuthContext
 from app.web.dense_list import DenseListConfig
-from app.web.main import (
-    action_triage_bulk,
-    action_triage_detail_section,
-    appeals,
-    complaints,
-    signals,
-    trade_feedback,
-)
+from app.web.routers.appeals import appeals
+from app.web.routers.complaints import complaints
+from app.web.routers.signals import signals
+from app.web.routers.trade_feedback import trade_feedback
+from app.web.routers.triage import action_triage_bulk, action_triage_detail_section
 
 
 def _telegram_auth() -> AdminAuthContext:
@@ -218,12 +215,16 @@ async def test_triage_markup_renders_for_primary_queues(monkeypatch) -> None:
     async def _risk_map(*_args, **_kwargs):
         return {}
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main.list_complaints", _list_complaints)
-    monkeypatch.setattr("app.web.main.list_fraud_signals", _list_signals)
-    monkeypatch.setattr("app.web.main._load_dense_list_config", _dense)
-    monkeypatch.setattr("app.web.main._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.complaints._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.signals._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.complaints.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.signals.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.complaints.list_complaints", _list_complaints)
+    monkeypatch.setattr("app.web.routers.signals.list_fraud_signals", _list_signals)
+    monkeypatch.setattr("app.web.routers.complaints._load_dense_list_config", _dense)
+    monkeypatch.setattr("app.web.routers.signals._load_dense_list_config", _dense)
+    monkeypatch.setattr("app.web.routers.complaints._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.signals._load_user_risk_snapshot_map", _risk_map)
 
     complaints_body = bytes((await complaints(_make_request("/complaints"))).body).decode("utf-8")
     signals_body = bytes((await signals(_make_request("/signals"))).body).decode("utf-8")
@@ -247,13 +248,17 @@ async def test_triage_markup_renders_for_trade_feedback_and_appeals(monkeypatch)
         table = "trade-feedback-table" if queue_key == "trade_feedback" else "appeals-table"
         return _dense_config(queue_key, table)
 
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth()))
-    monkeypatch.setattr("app.web.main._load_dense_list_config", _dense)
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._load_dense_list_config", _dense)
+    monkeypatch.setattr("app.web.routers.appeals._load_dense_list_config", _dense)
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", _stub_session_factory)
     async def _risk_map(*_args, **_kwargs):
         return {}
 
-    monkeypatch.setattr("app.web.main._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.trade_feedback._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.appeals._load_user_risk_snapshot_map", _risk_map)
 
     feedback_body = bytes((await trade_feedback(_make_request("/trade-feedback"))).body).decode("utf-8")
     appeals_body = bytes((await appeals(_make_request("/appeals"))).body).decode("utf-8")
@@ -287,11 +292,11 @@ async def test_triage_markup_includes_keyboard_focus_and_scroll_hooks(monkeypatc
     async def _risk_map(*_args, **_kwargs):
         return {}
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main.list_complaints", _list_complaints)
-    monkeypatch.setattr("app.web.main._load_dense_list_config", _dense)
-    monkeypatch.setattr("app.web.main._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.complaints._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.complaints.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.complaints.list_complaints", _list_complaints)
+    monkeypatch.setattr("app.web.routers.complaints._load_dense_list_config", _dense)
+    monkeypatch.setattr("app.web.routers.complaints._load_user_risk_snapshot_map", _risk_map)
 
     body = bytes((await complaints(_make_request("/complaints"))).body).decode("utf-8")
 
@@ -304,7 +309,7 @@ async def test_triage_markup_includes_keyboard_focus_and_scroll_hooks(monkeypatc
 
 @pytest.mark.asyncio
 async def test_triage_detail_section_contract(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.triage._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
 
     payload = await action_triage_detail_section(
         _make_request("/actions/triage/detail-section"),
@@ -328,7 +333,7 @@ async def test_triage_detail_section_contract(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_triage_detail_section_honors_operator_override(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.triage._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
 
     payload = await action_triage_detail_section(
         _make_request("/actions/triage/detail-section"),
@@ -348,7 +353,7 @@ async def test_triage_detail_section_honors_operator_override(monkeypatch) -> No
 
 @pytest.mark.asyncio
 async def test_triage_detail_section_collapses_optional_sections_for_summary_depth(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.triage._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
 
     payload = await action_triage_detail_section(
         _make_request("/actions/triage/detail-section"),
@@ -367,7 +372,7 @@ async def test_triage_detail_section_collapses_optional_sections_for_summary_dep
 
 @pytest.mark.asyncio
 async def test_triage_detail_section_reports_fallback_for_invalid_tokens(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
+    monkeypatch.setattr("app.web.routers.triage._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth()))
 
     payload = await action_triage_detail_section(
         _make_request("/actions/triage/detail-section"),
@@ -390,7 +395,7 @@ async def test_triage_detail_section_reports_fallback_for_invalid_tokens(monkeyp
 @pytest.mark.asyncio
 async def test_triage_detail_section_requires_authenticated_context(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._auth_context_or_unauthorized",
+        "app.web.routers.triage._auth_context_or_unauthorized",
         lambda _req: (SimpleNamespace(status_code=401), _unauthorized_auth()),
     )
 
@@ -408,7 +413,7 @@ async def test_triage_detail_section_requires_authenticated_context(monkeypatch)
 @pytest.mark.asyncio
 async def test_triage_detail_section_enforces_scope_for_appeals(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._auth_context_or_unauthorized",
+        "app.web.routers.triage._auth_context_or_unauthorized",
         lambda _req: (None, _telegram_auth_forbidden()),
     )
 
@@ -425,8 +430,8 @@ async def test_triage_detail_section_enforces_scope_for_appeals(monkeypatch) -> 
 
 @pytest.mark.asyncio
 async def test_bulk_endpoint_requires_confirmation_for_destructive(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth())
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.triage.get_admin_auth_context", lambda _req: _telegram_auth())
+    monkeypatch.setattr("app.web.routers.triage._validate_csrf_token", lambda _req, _auth, _token: True)
 
     with pytest.raises(HTTPException) as exc:
         await action_triage_bulk(
@@ -459,20 +464,20 @@ async def test_bulk_endpoint_returns_mixed_results(monkeypatch) -> None:
         async def __aexit__(self, *_args):
             return False
 
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth())
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.triage.get_admin_auth_context", lambda _req: _telegram_auth())
+    monkeypatch.setattr("app.web.routers.triage._validate_csrf_token", lambda _req, _auth, _token: True)
     async def _actor_id(_auth):
         return 1
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _actor_id)
-    monkeypatch.setattr("app.web.main.SessionFactory", lambda: _BulkSessionFactoryCtx())
+    monkeypatch.setattr("app.web.routers.triage._resolve_actor_user_id", _actor_id)
+    monkeypatch.setattr("app.web.routers.triage.SessionFactory", lambda: _BulkSessionFactoryCtx())
 
     async def _set_feedback_visibility(_session, *, feedback_id, **_kwargs):
         if feedback_id == 1:
             return _Result(ok=True, message="ok")
         return _Result(ok=False, message="already hidden")
 
-    monkeypatch.setattr("app.web.main.set_trade_feedback_visibility", _set_feedback_visibility)
+    monkeypatch.setattr("app.web.routers.triage.set_trade_feedback_visibility", _set_feedback_visibility)
 
     payload = await action_triage_bulk(
         _make_json_request(
@@ -501,13 +506,13 @@ async def test_bulk_endpoint_returns_mixed_results(monkeypatch) -> None:
 async def test_bulk_endpoint_rejects_unauthorized_actor_without_mutation(monkeypatch) -> None:
     called = {"actor": False}
 
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _unauthorized_auth())
+    monkeypatch.setattr("app.web.routers.triage.get_admin_auth_context", lambda _req: _unauthorized_auth())
 
     async def _actor_id(_auth):
         called["actor"] = True
         return 1
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _actor_id)
+    monkeypatch.setattr("app.web.routers.triage._resolve_actor_user_id", _actor_id)
 
     with pytest.raises(HTTPException) as exc:
         await action_triage_bulk(
@@ -531,14 +536,14 @@ async def test_bulk_endpoint_rejects_unauthorized_actor_without_mutation(monkeyp
 async def test_bulk_endpoint_rejects_forbidden_scope_without_mutation(monkeypatch) -> None:
     called = {"actor": False}
 
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth_forbidden())
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.triage.get_admin_auth_context", lambda _req: _telegram_auth_forbidden())
+    monkeypatch.setattr("app.web.routers.triage._validate_csrf_token", lambda _req, _auth, _token: True)
 
     async def _actor_id(_auth):
         called["actor"] = True
         return 1
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _actor_id)
+    monkeypatch.setattr("app.web.routers.triage._resolve_actor_user_id", _actor_id)
 
     with pytest.raises(HTTPException) as exc:
         await action_triage_bulk(
@@ -562,14 +567,14 @@ async def test_bulk_endpoint_rejects_forbidden_scope_without_mutation(monkeypatc
 async def test_bulk_endpoint_rejects_csrf_without_mutation(monkeypatch) -> None:
     called = {"actor": False}
 
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth())
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: False)
+    monkeypatch.setattr("app.web.routers.triage.get_admin_auth_context", lambda _req: _telegram_auth())
+    monkeypatch.setattr("app.web.routers.triage._validate_csrf_token", lambda _req, _auth, _token: False)
 
     async def _actor_id(_auth):
         called["actor"] = True
         return 1
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _actor_id)
+    monkeypatch.setattr("app.web.routers.triage._resolve_actor_user_id", _actor_id)
 
     with pytest.raises(HTTPException) as exc:
         await action_triage_bulk(

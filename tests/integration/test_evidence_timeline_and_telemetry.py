@@ -16,7 +16,8 @@ from app.db.models import (
 from app.services.admin_queue_preset_telemetry_service import (
     load_workflow_preset_telemetry_segments,
 )
-from app.web.main import _render_complaint_detail_section, _render_signal_detail_section
+from app.web.routers.complaints import _render_complaint_detail_section
+from app.web.routers.signals import _render_signal_detail_section
 
 
 pytestmark = pytest.mark.asyncio

@@ -13,7 +13,7 @@ from app.db.enums import AuctionStatus, ModerationAction
 from app.db.models import Auction, ModerationLog, TradeFeedback, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import action_hide_trade_feedback, action_unhide_trade_feedback, trade_feedback
+from app.web.routers.trade_feedback import action_hide_trade_feedback, action_unhide_trade_feedback, trade_feedback
 
 
 def _make_request(path: str, *, method: str = "GET") -> Request:
@@ -97,8 +97,8 @@ async def test_trade_feedback_page_filters_by_status(monkeypatch, integration_en
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/trade-feedback")
     response = await trade_feedback(request, status="visible", page=0, q="")
@@ -149,14 +149,14 @@ async def test_trade_feedback_hide_action_updates_status(monkeypatch, integratio
             await session.flush()
             feedback_id = feedback.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return moderator_user_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.trade_feedback._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/trade-feedback/hide", method="POST")
     response = await action_hide_trade_feedback(
@@ -231,14 +231,14 @@ async def test_trade_feedback_unhide_action_updates_status(monkeypatch, integrat
             await session.flush()
             feedback_id = feedback.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return moderator_user_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.trade_feedback._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/trade-feedback/unhide", method="POST")
     response = await action_unhide_trade_feedback(
@@ -310,14 +310,14 @@ async def test_trade_feedback_hide_action_requires_reason(monkeypatch, integrati
             await session.flush()
             feedback_id = feedback.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return 1
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.trade_feedback._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/trade-feedback/hide", method="POST")
     response = await action_hide_trade_feedback(
@@ -377,14 +377,14 @@ async def test_trade_feedback_unhide_action_requires_reason(monkeypatch, integra
             await session.flush()
             feedback_id = feedback.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return 1
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.trade_feedback._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/trade-feedback/unhide", method="POST")
     response = await action_unhide_trade_feedback(
@@ -408,7 +408,7 @@ async def test_trade_feedback_unhide_action_requires_reason(monkeypatch, integra
 
 @pytest.mark.asyncio
 async def test_trade_feedback_page_rejects_invalid_status(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/trade-feedback")
     with pytest.raises(HTTPException) as exc:
@@ -465,8 +465,8 @@ async def test_trade_feedback_page_filters_by_rating_and_actor(monkeypatch, inte
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/trade-feedback")
     response = await trade_feedback(
@@ -538,8 +538,8 @@ async def test_trade_feedback_page_filters_by_moderator_and_moderated_state(monk
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/trade-feedback")
     response = await trade_feedback(
@@ -561,7 +561,7 @@ async def test_trade_feedback_page_filters_by_moderator_and_moderated_state(monk
 
 @pytest.mark.asyncio
 async def test_trade_feedback_page_rejects_invalid_min_rating(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/trade-feedback")
     with pytest.raises(HTTPException) as exc:
@@ -572,7 +572,7 @@ async def test_trade_feedback_page_rejects_invalid_min_rating(monkeypatch) -> No
 
 @pytest.mark.asyncio
 async def test_trade_feedback_page_rejects_invalid_moderated_filter(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/trade-feedback")
     with pytest.raises(HTTPException) as exc:

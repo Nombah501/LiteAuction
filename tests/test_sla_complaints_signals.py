@@ -4,7 +4,7 @@ from app.services.queue_sla_health_service import (
     SLA_THRESHOLDS_BY_CONTEXT,
     decide_queue_sla_health,
 )
-from app.web.main import (
+from app.web.filters import (
     _parse_complaint_aging_bucket_filter,
     _parse_complaint_sla_health_filter,
     _parse_signal_aging_bucket_filter,

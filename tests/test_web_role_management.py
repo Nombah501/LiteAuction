@@ -8,7 +8,7 @@ from starlette.requests import Request
 from app.services.moderation_service import RoleUpdateResult
 from app.services.rbac_service import SCOPE_ROLE_MANAGE
 from app.web.auth import AdminAuthContext, get_admin_auth_context
-from app.web.main import action_grant_moderator, action_revoke_moderator
+from app.web.routers.roles import action_grant_moderator, action_revoke_moderator
 
 
 class _DummyBegin:
@@ -78,15 +78,15 @@ async def test_web_grant_moderator_success(monkeypatch) -> None:
     request = _make_request("/actions/user/moderator/grant", query="token=test-token")
     called: list[int] = []
 
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda *_: (None, _auth_with_scope(SCOPE_ROLE_MANAGE)))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.roles._require_scope_permission", lambda *_: (None, _auth_with_scope(SCOPE_ROLE_MANAGE)))
+    monkeypatch.setattr("app.web.routers.roles._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.roles.SessionFactory", _DummySessionFactory())
 
     async def fake_grant(_session, *, target_tg_user_id: int):
         called.append(target_tg_user_id)
         return RoleUpdateResult(ok=True, message="ok", target_tg_user_id=target_tg_user_id)
 
-    monkeypatch.setattr("app.web.main.grant_moderator_role", fake_grant)
+    monkeypatch.setattr("app.web.routers.roles.grant_moderator_role", fake_grant)
 
     response = await action_grant_moderator(
         request,
@@ -105,15 +105,15 @@ async def test_web_revoke_moderator_failure(monkeypatch) -> None:
     request = _make_request("/actions/user/moderator/revoke", query="token=test-token")
     called: list[int] = []
 
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda *_: (None, _auth_with_scope(SCOPE_ROLE_MANAGE)))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.roles._require_scope_permission", lambda *_: (None, _auth_with_scope(SCOPE_ROLE_MANAGE)))
+    monkeypatch.setattr("app.web.routers.roles._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.roles.SessionFactory", _DummySessionFactory())
 
     async def fake_revoke(_session, *, target_tg_user_id: int):
         called.append(target_tg_user_id)
         return RoleUpdateResult(ok=False, message="not allowed", target_tg_user_id=target_tg_user_id)
 
-    monkeypatch.setattr("app.web.main.revoke_moderator_role", fake_revoke)
+    monkeypatch.setattr("app.web.routers.roles.revoke_moderator_role", fake_revoke)
 
     response = await action_revoke_moderator(
         request,

@@ -7,7 +7,7 @@ from starlette.requests import Request
 
 from app.services.moderation_service import ModerationResult
 from app.web.auth import AdminAuthContext
-from app.web.main import action_freeze_auction, action_remove_bid
+from app.web.routers.auctions import action_freeze_auction, action_remove_bid
 from app.services.rbac_service import SCOPE_AUCTION_MANAGE, SCOPE_BID_MANAGE
 
 
@@ -76,11 +76,11 @@ async def test_freeze_action_triggers_refresh_on_success(monkeypatch) -> None:
     refreshed: list[uuid.UUID | None] = []
 
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.auctions._require_scope_permission",
         lambda _request, _scope: (None, _stub_auth(SCOPE_AUCTION_MANAGE)),
     )
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_actor(_auth):
         return 1
@@ -91,9 +91,9 @@ async def test_freeze_action_triggers_refresh_on_success(monkeypatch) -> None:
     async def fake_refresh(auction_uuid):
         refreshed.append(auction_uuid)
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", fake_actor)
-    monkeypatch.setattr("app.web.main.freeze_auction", fake_freeze)
-    monkeypatch.setattr("app.web.main._refresh_auction_posts_from_web", fake_refresh)
+    monkeypatch.setattr("app.web.routers.auctions._resolve_actor_user_id", fake_actor)
+    monkeypatch.setattr("app.web.routers.auctions.freeze_auction", fake_freeze)
+    monkeypatch.setattr("app.web.routers.auctions._refresh_auction_posts_from_web", fake_refresh)
 
     response = await action_freeze_auction(
         request,
@@ -114,11 +114,11 @@ async def test_freeze_action_skips_refresh_on_failure(monkeypatch) -> None:
     refreshed: list[uuid.UUID | None] = []
 
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.auctions._require_scope_permission",
         lambda _request, _scope: (None, _stub_auth(SCOPE_AUCTION_MANAGE)),
     )
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_actor(_auth):
         return 1
@@ -129,9 +129,9 @@ async def test_freeze_action_skips_refresh_on_failure(monkeypatch) -> None:
     async def fake_refresh(auction_uuid):
         refreshed.append(auction_uuid)
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", fake_actor)
-    monkeypatch.setattr("app.web.main.freeze_auction", fake_freeze)
-    monkeypatch.setattr("app.web.main._refresh_auction_posts_from_web", fake_refresh)
+    monkeypatch.setattr("app.web.routers.auctions._resolve_actor_user_id", fake_actor)
+    monkeypatch.setattr("app.web.routers.auctions.freeze_auction", fake_freeze)
+    monkeypatch.setattr("app.web.routers.auctions._refresh_auction_posts_from_web", fake_refresh)
 
     response = await action_freeze_auction(
         request,
@@ -153,11 +153,11 @@ async def test_remove_bid_refresh_uses_result_auction_id(monkeypatch) -> None:
     refreshed: list[uuid.UUID | None] = []
 
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.auctions._require_scope_permission",
         lambda _request, _scope: (None, _stub_auth(SCOPE_BID_MANAGE)),
     )
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_actor(_auth):
         return 1
@@ -168,9 +168,9 @@ async def test_remove_bid_refresh_uses_result_auction_id(monkeypatch) -> None:
     async def fake_refresh(auction_uuid):
         refreshed.append(auction_uuid)
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", fake_actor)
-    monkeypatch.setattr("app.web.main.remove_bid", fake_remove_bid)
-    monkeypatch.setattr("app.web.main._refresh_auction_posts_from_web", fake_refresh)
+    monkeypatch.setattr("app.web.routers.auctions._resolve_actor_user_id", fake_actor)
+    monkeypatch.setattr("app.web.routers.auctions.remove_bid", fake_remove_bid)
+    monkeypatch.setattr("app.web.routers.auctions._refresh_auction_posts_from_web", fake_refresh)
 
     response = await action_remove_bid(
         request,

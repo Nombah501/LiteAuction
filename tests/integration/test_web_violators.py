@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.models import BlacklistEntry, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import action_unban_user, violators
+from app.web.routers.users import action_unban_user
+from app.web.routers.violators import violators
 
 
 def _make_request(path: str) -> Request:
@@ -77,8 +78,8 @@ async def test_violators_page_filters_active_entries(monkeypatch, integration_en
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.violators.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/violators")
     response = await violators(request, status="active", page=0, q="")
@@ -111,8 +112,8 @@ async def test_violators_page_search_by_reason(monkeypatch, integration_engine) 
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.violators.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/violators")
     response = await violators(request, status="all", page=0, q="chargeback")
@@ -157,8 +158,8 @@ async def test_violators_page_filters_by_moderator_and_date(monkeypatch, integra
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.violators.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/violators")
     response = await violators(
@@ -210,8 +211,8 @@ async def test_violators_pagination_keeps_new_filters_in_links(monkeypatch, inte
                     )
                 )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.violators.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/violators")
     response_page_0 = await violators(
@@ -268,8 +269,8 @@ async def test_violators_page_shows_unban_action_for_active_entries(monkeypatch,
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.violators.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
 
     request = _make_request("/violators")
     response = await violators(request, status="active", page=0, q="")
@@ -283,7 +284,7 @@ async def test_violators_page_shows_unban_action_for_active_entries(monkeypatch,
 
 @pytest.mark.asyncio
 async def test_violators_page_rejects_invalid_status(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
     request = _make_request("/violators")
 
     with pytest.raises(HTTPException) as exc:
@@ -294,7 +295,7 @@ async def test_violators_page_rejects_invalid_status(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_violators_page_rejects_invalid_date_filter(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
     request = _make_request("/violators")
 
     with pytest.raises(HTTPException) as exc:
@@ -306,7 +307,7 @@ async def test_violators_page_rejects_invalid_date_filter(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_violators_page_requires_user_ban_scope(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.violators._require_scope_permission",
         lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
     )
     request = _make_request("/violators")
@@ -319,7 +320,7 @@ async def test_violators_page_requires_user_ban_scope(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_action_unban_user_requires_user_ban_scope(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.users._require_scope_permission",
         lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
     )
     request = _make_request("/actions/user/unban")

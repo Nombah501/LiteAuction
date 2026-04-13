@@ -5,7 +5,7 @@ from starlette.requests import Request
 
 from app.services.moderation_dashboard_service import ModerationDashboardSnapshot
 from app.web.auth import AdminAuthContext
-from app.web.main import dashboard
+from app.web.routers.dashboard import dashboard
 
 
 def _make_request(path: str = "/", query: str = "") -> Request:
@@ -90,9 +90,9 @@ async def test_dashboard_default_uses_incident_preset(monkeypatch) -> None:
     async def _snapshot_fetcher(_session: object) -> ModerationDashboardSnapshot:
         return _snapshot()
 
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main.get_moderation_dashboard_snapshot", _snapshot_fetcher)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.dashboard.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.dashboard.get_moderation_dashboard_snapshot", _snapshot_fetcher)
+    monkeypatch.setattr("app.web.routers.dashboard._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     response = await dashboard(_make_request("/"))
     body = bytes(response.body).decode("utf-8")
@@ -110,9 +110,9 @@ async def test_dashboard_routine_preset_opens_routine_sections(monkeypatch) -> N
     async def _snapshot_fetcher(_session: object) -> ModerationDashboardSnapshot:
         return _snapshot()
 
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main.get_moderation_dashboard_snapshot", _snapshot_fetcher)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.dashboard.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.dashboard.get_moderation_dashboard_snapshot", _snapshot_fetcher)
+    monkeypatch.setattr("app.web.routers.dashboard._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     response = await dashboard(_make_request("/", query="preset=routine"))
     body = bytes(response.body).decode("utf-8")
@@ -129,9 +129,9 @@ async def test_dashboard_rewards_preset_opens_rewards_sections(monkeypatch) -> N
     async def _snapshot_fetcher(_session: object) -> ModerationDashboardSnapshot:
         return _snapshot()
 
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main.get_moderation_dashboard_snapshot", _snapshot_fetcher)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.dashboard.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.dashboard.get_moderation_dashboard_snapshot", _snapshot_fetcher)
+    monkeypatch.setattr("app.web.routers.dashboard._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     response = await dashboard(_make_request("/", query="preset=rewards"))
     body = bytes(response.body).decode("utf-8")
@@ -148,9 +148,9 @@ async def test_dashboard_invalid_preset_falls_back_to_incident(monkeypatch) -> N
     async def _snapshot_fetcher(_session: object) -> ModerationDashboardSnapshot:
         return _snapshot()
 
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main.get_moderation_dashboard_snapshot", _snapshot_fetcher)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.dashboard.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.dashboard.get_moderation_dashboard_snapshot", _snapshot_fetcher)
+    monkeypatch.setattr("app.web.routers.dashboard._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     response = await dashboard(_make_request("/", query="preset=unknown"))
     body = bytes(response.body).decode("utf-8")

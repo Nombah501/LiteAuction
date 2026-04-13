@@ -11,14 +11,12 @@ from starlette.requests import Request
 
 from app.db.models import AdminQueuePresetTelemetryEvent
 from app.web.auth import AdminAuthContext
-from app.web.main import (
-    action_workflow_presets,
-    action_workflow_presets_telemetry,
-    appeals,
-    complaints,
-    signals,
-    trade_feedback,
-)
+from app.web.routers.appeals import appeals
+from app.web.routers.complaints import complaints
+from app.web.routers.presets import action_workflow_presets
+from app.web.routers.signals import signals
+from app.web.routers.telemetry import action_workflow_presets_telemetry
+from app.web.routers.trade_feedback import trade_feedback
 
 
 def _telegram_auth(*, tg_user_id: int, role: str = "owner") -> AdminAuthContext:
@@ -152,16 +150,24 @@ async def test_queue_routes_render_preset_controls_for_required_contexts(monkeyp
     async def _list_signals(_session, **_kwargs):
         return [SimpleNamespace(id=1, auction_id=2, user_id=3, score=9, status="OPEN", created_at=None)]
 
-    monkeypatch.setattr("app.web.main.resolve_queue_preset_state", _resolve)
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth(tg_user_id=1)))
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=1)))
-    monkeypatch.setattr("app.web.main.list_complaints", _list_complaints)
-    monkeypatch.setattr("app.web.main.list_fraud_signals", _list_signals)
+    monkeypatch.setattr("app.services.admin_queue_presets_service.resolve_queue_preset_state", _resolve)
+    monkeypatch.setattr("app.web.routers.complaints.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.signals.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.complaints._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth(tg_user_id=1)))
+    monkeypatch.setattr("app.web.routers.signals._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth(tg_user_id=1)))
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=1)))
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=1)))
+    monkeypatch.setattr("app.web.routers.complaints.list_complaints", _list_complaints)
+    monkeypatch.setattr("app.web.routers.signals.list_fraud_signals", _list_signals)
     async def _risk_map(*_args, **_kwargs):
         return {}
 
-    monkeypatch.setattr("app.web.main._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.complaints._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.signals._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.trade_feedback._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.appeals._load_user_risk_snapshot_map", _risk_map)
 
     complaints_body = bytes((await complaints(_make_request("/complaints"))).body).decode("utf-8")
     signals_body = bytes((await signals(_make_request("/signals"))).body).decode("utf-8")
@@ -213,10 +219,10 @@ async def test_trade_feedback_telemetry_filter_preserves_queue_context(monkeypat
             }
         ]
 
-    monkeypatch.setattr("app.web.main.resolve_queue_preset_state", _resolve)
-    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=2)))
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.services.admin_queue_presets_service.resolve_queue_preset_state", _resolve)
+    monkeypatch.setattr("app.web.routers.trade_feedback.load_workflow_preset_telemetry_segments", _segments)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=2)))
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", _stub_session_factory)
 
     body = bytes(
         (
@@ -279,10 +285,10 @@ async def test_trade_feedback_telemetry_guardrail_for_low_sample_segments(monkey
             }
         ]
 
-    monkeypatch.setattr("app.web.main.resolve_queue_preset_state", _resolve)
-    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=2)))
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.services.admin_queue_presets_service.resolve_queue_preset_state", _resolve)
+    monkeypatch.setattr("app.web.routers.trade_feedback.load_workflow_preset_telemetry_segments", _segments)
+    monkeypatch.setattr("app.web.routers.trade_feedback._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=2)))
+    monkeypatch.setattr("app.web.routers.trade_feedback.SessionFactory", _stub_session_factory)
 
     body = bytes(
         (
@@ -302,9 +308,9 @@ async def test_trade_feedback_telemetry_guardrail_for_low_sample_segments(monkey
 
 @pytest.mark.asyncio
 async def test_workflow_presets_action_returns_conflict_metadata(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=7))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=7))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.SessionFactory", _stub_session_factory)
 
     called = {"telemetry": False}
 
@@ -314,8 +320,8 @@ async def test_workflow_presets_action_returns_conflict_metadata(monkeypatch) ->
     async def _capture(**_kwargs):
         called["telemetry"] = True
 
-    monkeypatch.setattr("app.web.main.save_preset", _save)
-    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+    monkeypatch.setattr("app.web.routers.presets.save_preset", _save)
+    monkeypatch.setattr("app.web.routers.presets._record_workflow_preset_telemetry_safe", _capture)
 
     response = await action_workflow_presets(
         _make_json_request(
@@ -349,14 +355,14 @@ async def test_workflow_presets_action_returns_conflict_metadata(monkeypatch) ->
 
 @pytest.mark.asyncio
 async def test_workflow_presets_action_rejects_non_admin_default_update(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=8, role="moderator"))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=8, role="moderator"))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.SessionFactory", _stub_session_factory)
 
     async def _set_default(_session, **_kwargs):
         raise PermissionError("Forbidden")
 
-    monkeypatch.setattr("app.web.main.set_admin_default", _set_default)
+    monkeypatch.setattr("app.web.routers.presets.set_admin_default", _set_default)
 
     with pytest.raises(HTTPException) as exc:
         await action_workflow_presets(
@@ -376,9 +382,9 @@ async def test_workflow_presets_action_rejects_non_admin_default_update(monkeypa
 
 @pytest.mark.asyncio
 async def test_workflow_presets_action_records_telemetry_for_successful_mutation(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=9))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=9))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.SessionFactory", _stub_session_factory)
 
     async def _save(_session, **_kwargs):
         return {"ok": True, "preset": {"id": 14, "name": "Escalations"}}
@@ -388,8 +394,8 @@ async def test_workflow_presets_action_records_telemetry_for_successful_mutation
     async def _capture(**kwargs):
         captured.update(kwargs)
 
-    monkeypatch.setattr("app.web.main.save_preset", _save)
-    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+    monkeypatch.setattr("app.web.routers.presets.save_preset", _save)
+    monkeypatch.setattr("app.web.routers.presets._record_workflow_preset_telemetry_safe", _capture)
 
     response = await action_workflow_presets(
         _make_json_request(
@@ -429,15 +435,15 @@ async def test_workflow_presets_action_records_telemetry_for_successful_mutation
 
 @pytest.mark.asyncio
 async def test_workflow_presets_action_does_not_record_telemetry_on_invalid_action(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=10))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=10))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
 
     called = {"telemetry": False}
 
     async def _capture(**_kwargs):
         called["telemetry"] = True
 
-    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+    monkeypatch.setattr("app.web.routers.presets._record_workflow_preset_telemetry_safe", _capture)
 
     with pytest.raises(HTTPException) as exc:
         await action_workflow_presets(
@@ -457,14 +463,14 @@ async def test_workflow_presets_action_does_not_record_telemetry_on_invalid_acti
 
 @pytest.mark.asyncio
 async def test_workflow_presets_action_rejects_unauthorized_before_telemetry(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _unauthorized_auth())
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _unauthorized_auth())
 
     called = {"telemetry": False}
 
     async def _capture(**_kwargs):
         called["telemetry"] = True
 
-    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+    monkeypatch.setattr("app.web.routers.presets._record_workflow_preset_telemetry_safe", _capture)
 
     with pytest.raises(HTTPException) as exc:
         await action_workflow_presets(
@@ -484,15 +490,15 @@ async def test_workflow_presets_action_rejects_unauthorized_before_telemetry(mon
 
 @pytest.mark.asyncio
 async def test_workflow_presets_action_rejects_csrf_before_telemetry(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=12))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: False)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=12))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: False)
 
     called = {"telemetry": False}
 
     async def _capture(**_kwargs):
         called["telemetry"] = True
 
-    monkeypatch.setattr("app.web.main._record_workflow_preset_telemetry_safe", _capture)
+    monkeypatch.setattr("app.web.routers.presets._record_workflow_preset_telemetry_safe", _capture)
 
     with pytest.raises(HTTPException) as exc:
         await action_workflow_presets(
@@ -512,7 +518,7 @@ async def test_workflow_presets_action_rejects_csrf_before_telemetry(monkeypatch
 
 @pytest.mark.asyncio
 async def test_workflow_presets_telemetry_endpoint_returns_segments(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=11)))
+    monkeypatch.setattr("app.web.routers.telemetry._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=11)))
 
     async def _segments(_session, **_kwargs):
         return [
@@ -528,8 +534,8 @@ async def test_workflow_presets_telemetry_endpoint_returns_segments(monkeypatch)
             }
         ]
 
-    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.telemetry.load_workflow_preset_telemetry_segments", _segments)
+    monkeypatch.setattr("app.web.routers.telemetry.SessionFactory", _stub_session_factory)
 
     payload = await action_workflow_presets_telemetry(
         _make_request("/actions/workflow-presets/telemetry"),
@@ -550,13 +556,13 @@ async def test_workflow_presets_telemetry_endpoint_returns_segments(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_workflow_presets_telemetry_endpoint_rejects_invalid_context(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=13)))
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.telemetry._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=13)))
+    monkeypatch.setattr("app.web.routers.telemetry.SessionFactory", _stub_session_factory)
 
     async def _segments(_session, **_kwargs):
         raise ValueError("Unknown queue context")
 
-    monkeypatch.setattr("app.web.main.load_workflow_preset_telemetry_segments", _segments)
+    monkeypatch.setattr("app.web.routers.telemetry.load_workflow_preset_telemetry_segments", _segments)
 
     with pytest.raises(HTTPException) as exc:
         await action_workflow_presets_telemetry(
@@ -572,9 +578,9 @@ async def test_workflow_presets_telemetry_endpoint_rejects_invalid_context(monke
 async def test_workflow_presets_action_persists_telemetry_event_to_db(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=701))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=701))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.SessionFactory", session_factory)
 
     response = await action_workflow_presets(
         _make_json_request(
@@ -620,9 +626,9 @@ async def test_workflow_presets_action_persists_telemetry_event_to_db(monkeypatc
 async def test_workflow_presets_telemetry_endpoint_aggregates_persisted_db_events(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=702))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(tg_user_id=702))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.SessionFactory", session_factory)
 
     save_a = await action_workflow_presets(
         _make_json_request(
@@ -699,7 +705,7 @@ async def test_workflow_presets_telemetry_endpoint_aggregates_persisted_db_event
         )
     )
 
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=702)))
+    monkeypatch.setattr("app.web.routers.telemetry._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(tg_user_id=702)))
 
     payload = await action_workflow_presets_telemetry(
         _make_request("/actions/workflow-presets/telemetry"),
@@ -738,7 +744,7 @@ async def test_workflow_presets_telemetry_endpoint_aggregates_persisted_db_event
 @pytest.mark.asyncio
 async def test_workflow_presets_telemetry_endpoint_requires_scope(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.telemetry._require_scope_permission",
         lambda _req, _scope: (
             SimpleNamespace(status_code=403),
             _telegram_auth(tg_user_id=14, role="moderator"),
@@ -758,7 +764,7 @@ async def test_workflow_presets_telemetry_endpoint_requires_scope(monkeypatch) -
 @pytest.mark.asyncio
 async def test_workflow_presets_telemetry_endpoint_requires_authentication(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.telemetry._require_scope_permission",
         lambda _req, _scope: (SimpleNamespace(status_code=401), _unauthorized_auth()),
     )
 
