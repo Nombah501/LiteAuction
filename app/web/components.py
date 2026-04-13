@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from html import escape
 from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -14,7 +14,6 @@ from app.config import settings
 from app.db.models import User
 from app.services.admin_list_preferences_service import DEFAULT_DENSITY
 from app.services.admin_queue_presets_service import QUEUE_KEY_TO_QUEUE_CONTEXT
-from app.services.queue_sla_health_service import SLA_THRESHOLDS_BY_CONTEXT, decide_queue_sla_health
 from app.services.rbac_service import (
     SCOPE_AUCTION_MANAGE,
     SCOPE_BID_MANAGE,
@@ -22,9 +21,9 @@ from app.services.rbac_service import (
     SCOPE_TRUST_MANAGE,
     SCOPE_USER_BAN,
 )
-from app.services.risk_eval_service import UserRiskSnapshot, format_risk_reason_label
-from app.web.auth import AdminAuthContext, get_admin_auth_context
-from app.web.dense_list import DenseListConfig, render_dense_list_script, render_dense_list_toolbar
+from app.services.risk_eval_service import format_risk_reason_label
+from app.web.auth import AdminAuthContext
+from app.web.dense_list import DenseListConfig
 from app.web.deps import _path_with_auth
 
 logger = logging.getLogger(__name__)

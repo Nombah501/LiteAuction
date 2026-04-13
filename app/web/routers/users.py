@@ -23,7 +23,6 @@ from app.db.models import (
     FeedbackItem,
     FraudSignal,
     GuarantorRequest,
-    TradeFeedback,
     User,
     UserRoleAssignment,
 )

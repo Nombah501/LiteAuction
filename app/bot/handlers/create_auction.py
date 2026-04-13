@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiogram import Bot, F, Router
@@ -50,6 +51,8 @@ from app.services.user_service import upsert_user
 router = Router(name="create_auction")
 MAX_AUCTION_PHOTOS = 10
 logger = logging.getLogger(__name__)
+
+_photo_append_lock = asyncio.Lock()
 
 
 async def _record_create_auction_funnel(
@@ -111,22 +114,23 @@ async def _update_wizard(
 
 
 async def _append_photo_file_id(state: FSMContext, file_id: str) -> tuple[int, bool, bool]:
-    data = await state.get_data()
-    photo_ids_raw = data.get("photo_file_ids")
-    if isinstance(photo_ids_raw, list):
-        photo_file_ids = [str(item) for item in photo_ids_raw if str(item)]
-    else:
-        fallback = data.get("photo_file_id")
-        photo_file_ids = [str(fallback)] if isinstance(fallback, str) and fallback else []
+    async with _photo_append_lock:
+        data = await state.get_data()
+        photo_ids_raw = data.get("photo_file_ids")
+        if isinstance(photo_ids_raw, list):
+            photo_file_ids = [str(item) for item in photo_ids_raw if str(item)]
+        else:
+            fallback = data.get("photo_file_id")
+            photo_file_ids = [str(fallback)] if isinstance(fallback, str) and fallback else []
 
-    if file_id in photo_file_ids:
-        return len(photo_file_ids), False, False
-    if len(photo_file_ids) >= MAX_AUCTION_PHOTOS:
-        return len(photo_file_ids), False, True
+        if file_id in photo_file_ids:
+            return len(photo_file_ids), False, False
+        if len(photo_file_ids) >= MAX_AUCTION_PHOTOS:
+            return len(photo_file_ids), False, True
 
-    photo_file_ids.append(file_id)
-    await state.update_data(photo_file_id=photo_file_ids[0], photo_file_ids=photo_file_ids)
-    return len(photo_file_ids), True, False
+        photo_file_ids.append(file_id)
+        await state.update_data(photo_file_id=photo_file_ids[0], photo_file_ids=photo_file_ids)
+        return len(photo_file_ids), True, False
 
 
 async def _mark_media_group_seen(state: FSMContext, media_group_id: str | None) -> bool:

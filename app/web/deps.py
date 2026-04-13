@@ -20,7 +20,6 @@ from app.services.rbac_service import (
     SCOPE_ROLE_MANAGE,
     SCOPE_TRUST_MANAGE,
     SCOPE_USER_BAN,
-    VIEWER_SCOPES,
 )
 from app.web.auth import AdminAuthContext, get_admin_auth_context
 

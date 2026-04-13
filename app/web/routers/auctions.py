@@ -58,7 +58,6 @@ from app.web.deps import (
     _csrf_failed_response,
     _csrf_hidden_input,
     _is_confirmed,
-    _is_safe_local_path,
     _require_scope_permission,
     _validate_csrf_token,
 )

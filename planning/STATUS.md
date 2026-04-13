@@ -1,7 +1,22 @@
 # Planning Status
 
-Last sync: 2026-02-23 00:05 UTC
-Active sprint: Sprint 56 (completed)
+Last sync: 2026-04-11 (manual)
+Active milestone: v1.2 Queue Trust Signals (completed)
+
+## v1.2 Implementation (2026-04-11)
+
+| Item | Title | Commits | Status |
+|---|---|---|---|
+| SLA-01/02 | SLA health columns + aging filter chips for complaints and signals | `62bae59`, `2fb3b1a` | ✅ |
+| EVID-01/02 | Evidence timeline detail sections for complaints and signals | `0c3e8d7`, `9778570` | ✅ |
+| TRND-01/02 | Telemetry panel coverage (already existed) | — | ✅ |
+| SAFE-11/12 | RBAC/CSRF reuse + immutable rationale artifacts | — | ✅ |
+| TEST-21 | SLA derivation unit tests (11 tests) | `7e7d0fc` | ✅ |
+| TEST-22 | Integration tests for timeline + telemetry (5 tests) | `57ea67a` | ✅ |
+
+Validation: 331 passed, 2 skipped, 0 failed. Ruff clean.
+
+## Sprint 56 (completed, 2026-02-23)
 
 | Item | Title | Issue | PR |
 |---|---|---|---|

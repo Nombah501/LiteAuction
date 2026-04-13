@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from html import escape
 
 from fastapi import APIRouter, Request, Response
@@ -14,7 +13,7 @@ from app.web.auth import (
     validate_telegram_login,
 )
 from app.web.components import _render_page
-from app.web.deps import _csrf_hidden_input, _path_with_auth, _require_or_redirect
+from app.web.deps import _path_with_auth
 
 logger = logging.getLogger(__name__)
 

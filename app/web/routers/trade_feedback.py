@@ -41,7 +41,6 @@ from app.web.deps import (
 )
 from app.web.dense_list import render_dense_list_script, render_dense_list_toolbar
 from app.web.filters import (
-    _parse_non_negative_int,
     _parse_optional_tg_user_id,
     _parse_trade_feedback_min_rating,
     _parse_trade_feedback_moderated_filter,
@@ -350,7 +349,7 @@ async def trade_feedback(
         f"<input type='hidden' name='density' value='{escape(dense_config.density)}'>"
         f"<input type='hidden' name='min_rating' value='{escape(min_rating_text if min_rating_text != 'all' else '')}'>"
         f"<input type='hidden' name='author_tg' value='{escape(author_filter_text if author_filter_text != 'all' else '')}'>"
-        f"<input type='hidden' name='target_tg' value='{escape(target_filter_text if target_tg_text != 'all' else '')}'>"
+        f"<input type='hidden' name='target_tg' value='{escape(target_filter_text if target_filter_text != 'all' else '')}'>"
         f"<input type='hidden' name='moderator_tg' value='{escape(moderator_filter_text if moderator_filter_text != 'all' else '')}'>"
         f"<input type='hidden' name='telemetry_preset_id' value='{escape(str(telemetry_preset_id) if telemetry_preset_id else '')}'>"
         f"<input name='q' value='{escape(query_value)}' placeholder='id / auction_id / username / tg id' style='width:320px'>"

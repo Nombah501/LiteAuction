@@ -15,6 +15,7 @@ from app.services.auction_service import (
     render_auction_caption,
 )
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
+from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.publish_gate_service import evaluate_seller_publish_gate
 from app.services.user_service import upsert_user
 
@@ -116,5 +117,17 @@ async def handle_chosen_inline_result(chosen: ChosenInlineResult, bot: Bot) -> N
 
     if auction is None:
         return
+
+    publisher_label = (
+        f"@{chosen.from_user.username}" if chosen.from_user.username else str(chosen.from_user.id)
+    )
+    await send_section_message(
+        bot,
+        section=ModerationTopicSection.AUCTIONS_ACTIVE,
+        text=(
+            f"Новый активный лот #{str(auction_uuid)[:8]}.\n"
+            f"Публикатор: {publisher_label}."
+        ),
+    )
 
     await refresh_auction_posts(bot, auction_uuid)

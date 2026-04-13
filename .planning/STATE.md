@@ -5,23 +5,21 @@
 See: `.planning/PROJECT.md` (updated 2026-02-20)
 
 **Core value:** Run trustworthy Telegram auctions end-to-end with fast operator intervention and clear auditability.
-**Current focus:** Kick off milestone v1.2 planning and sprint issue scaffolds
+**Current focus:** v1.2 completed, ready to scope next milestone
 
 ## Current Position
 
-Phase: Milestone planning (v1.2)
-Plan: Sprint 54 manifest kickoff
-Status: v1.2 scoped and ready for issue execution
-Last activity: 2026-02-20 - created fresh v1.2 requirements and sprint planning manifest
+Phase: Between milestones
+Status: v1.2 Queue Trust Signals shipped (2026-04-11)
+Last activity: 2026-04-11 - implemented all 10 v1.2 requirements (SLA, evidence, telemetry, tests)
 
-Progress: [███░░░░░░░] 30%
+Progress: [██████████] 100% (v1.2)
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 10
-- Average duration: n/a (historical data partially reconstructed)
-- Total execution time: n/a (recovered from shipped artifacts)
+- v1.2 implementation: 9 commits, +1101/-167 lines, 331 tests passing
 
 **By Phase:**
 
@@ -46,12 +44,12 @@ Recent decisions affecting current work:
 - [Phase 2] Enforce preset ownership mutations server-side (owner/admin only).
 - [Phase 3] Keep triage interactions to two levels (list + inline details).
 - [Phase 3] Require explicit confirmation text for destructive bulk actions.
+- [v1.2] Gap-fill approach: extend existing SLA/timeline/telemetry infrastructure to complaints and signals dense lists.
 
 ### Pending Todos
 
-- Execute Sprint 54 items and keep issue/PR traceability current.
-- Run sprint sync after manifest changes to refresh `planning/STATUS.md`.
-- Re-verify v1.2 requirements before milestone closeout.
+- Scope v1.3 milestone.
+- Update `.planning/REQUIREMENTS.md` when v1.3 is defined.
 
 ### Blockers/Concerns
 
@@ -59,6 +57,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-20 13:18 UTC
-Stopped at: Initialized v1.2 scope and prepared Sprint 54 sync
-Resume file: `planning/sprints/sprint-54.toml`
+Last session: 2026-04-11
+Stopped at: v1.2 implementation complete, planning docs updated
+Resume: Scope v1.3
