@@ -39,9 +39,12 @@ def _token_from_request(request: Request) -> str | None:
 
 def _session_secret() -> str:
     value = settings.admin_web_session_secret.strip()
-    if value:
-        return value
-    return settings.bot_token
+    if not value:
+        raise RuntimeError(
+            "ADMIN_WEB_SESSION_SECRET must be set. "
+            "Generate: python -c 'import secrets; print(secrets.token_hex(32))'"
+        )
+    return value
 
 
 def _build_session_cookie_value(tg_user_id: int, expires_at: int) -> str:
