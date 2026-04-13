@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
 from html import escape
+from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from jinja2 import Environment, FileSystemLoader
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -27,6 +30,12 @@ from app.web.dense_list import DenseListConfig
 from app.web.deps import _path_with_auth
 
 logger = logging.getLogger(__name__)
+
+_templates_dir = Path(__file__).parent / "templates"
+_jinja_env = Environment(
+    loader=FileSystemLoader(_templates_dir),
+    autoescape=True,
+)
 
 _DENSE_ALLOWED_DENSITIES = frozenset({"compact", "standard", "comfortable"})
 _QUEUE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -105,6 +114,14 @@ def _pct(numerator: int, denominator: int) -> str:
     if denominator <= 0:
         return "0.0%"
     return f"{(numerator / denominator) * 100:.1f}%"
+
+
+_jinja_env.filters["fmt_ts"] = _fmt_ts
+_jinja_env.filters["pct"] = _pct
+
+
+def render_template(name: str, **context: object) -> str:
+    return _jinja_env.get_template(name).render(**context)
 
 
 def _build_rationale_artifact(
