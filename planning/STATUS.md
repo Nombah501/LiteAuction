@@ -1,7 +1,27 @@
 # Planning Status
 
-Last sync: 2026-04-11 (manual)
-Active milestone: v1.2 Queue Trust Signals (completed)
+Last sync: 2026-04-14 (manual)
+Active milestone: Web Panel Refactor (Wave 1 completed)
+
+## Wave 1: Web Panel Refactor (2026-04-14)
+
+| Item | Title | Status |
+|---|---|---|
+| T1 | Add jinja2 dependency + tune db connection pool | ✅ `aa4646a` |
+| T2 | Require explicit ADMIN_WEB_SESSION_SECRET | ✅ `1e1f712` |
+| T3 | Extract deps.py (auth, CSRF, DB) | ✅ `e53b693` |
+| T4 | Extract filters.py (query param parsers) | ✅ `1c9ecb0` |
+| T5 | Extract components.py (UI helpers) | ✅ `7385b7a` |
+| T6 | Router registry + thin app factory | ✅ `74f5e02` |
+| T7-T19 | 13 domain-scoped router modules | ✅ `52b39a1` |
+| T20 | End-to-end route verification | ✅ |
+| T21 | Jinja2 base template + CSS | ✅ `319aea5` |
+| T22 | Migrate 13 page templates to Jinja2 | ✅ `cb397da` |
+| T23 | Final cleanup + validation | ✅ `0874497` |
+
+Validation: 375 passed, 2 skipped, 0 failed. Ruff clean. 43 routes.
+
+Branch: `refactor/web-wave1`
 
 ## v1.2 Implementation (2026-04-11)
 
