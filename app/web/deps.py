@@ -25,9 +25,9 @@ from app.web.auth import AdminAuthContext, get_admin_auth_context
 
 
 def _render_page(title: str, body: str) -> str:
-    from app.web.components import _render_page as _rp
+    from app.web.components import render_template
 
-    return _rp(title, body)
+    return render_template("_error_page.html", title=title, body=body)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

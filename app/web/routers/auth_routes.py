@@ -12,7 +12,7 @@ from app.web.auth import (
     get_admin_auth_context,
     validate_telegram_login,
 )
-from app.web.components import _render_page, render_template
+from app.web.components import render_template
 from app.web.deps import _path_with_auth
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ async def telegram_auth_callback(request: Request) -> Response:
             f"<p>{escape(reason)}</p>"
             f"<p><a href='{escape(_path_with_auth(request, '/login'))}'>Вернуться к логину</a></p>"
         )
-        return HTMLResponse(_render_page("Login Error", body), status_code=403)
+        return HTMLResponse(render_template("login.html", title="Login Error", body=body), status_code=403)
 
     user_id = int(payload["id"])
     response = RedirectResponse(url=_path_with_auth(request, "/"), status_code=303)

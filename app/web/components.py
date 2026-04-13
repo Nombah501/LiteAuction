@@ -340,7 +340,7 @@ def _render_confirmation_page(
         f"<div class='card'><p>{escape(message)}</p>{form}</div>"
         f"<p><a href='{escape(_path_with_auth(request, back_to))}'>Отмена</a></p>"
     )
-    return HTMLResponse(_render_page("Confirm Action", body))
+    return HTMLResponse(render_template("_error_page.html", title="Confirm Action", body=body))
 
 
 def _role_badge(auth: AdminAuthContext) -> str:
@@ -804,4 +804,4 @@ def _action_error_page(request: Request, message: str, *, back_to: str) -> HTMLR
         f"<div class='notice notice-error'><p>{escape(message)}</p></div>"
         f"<p><a href='{escape(_path_with_auth(request, back_to))}'>Назад</a></p>"
     )
-    return HTMLResponse(_render_page("Action Error", body), status_code=400)
+    return HTMLResponse(render_template("_error_page.html", title="Action Error", body=body), status_code=400)
