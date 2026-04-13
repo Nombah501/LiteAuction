@@ -24,13 +24,13 @@ from app.web.components import (
     _load_dense_list_config,
     _pager_html,
     _render_app_header,
-    _render_page,
     _render_workflow_preset_telemetry_panel,
     _safe_return_to,
     _triage_controls_cell,
     _triage_detail_row,
     _triage_row_context_attrs,
     _triage_shortcut_hint,
+    render_template,
 )
 from app.web.deps import (
     _csrf_failed_response,
@@ -377,7 +377,7 @@ async def trade_feedback(
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
-    return HTMLResponse(_render_page("Trade Feedback", body))
+    return HTMLResponse(render_template("trade_feedback.html", title="Trade Feedback", body=body))
 
 
 @router.post("/actions/trade-feedback/hide")

@@ -47,10 +47,10 @@ from app.web.components import (
     _path_with_auth,
     _render_app_header,
     _render_confirmation_page,
-    _render_page,
     _risk_snapshot_inline_html,
     _role_badge,
     _safe_return_to,
+    render_template,
 )
 from app.web.dense_list import render_dense_list_script, render_dense_list_toolbar
 from app.web.deps import (
@@ -309,7 +309,7 @@ async def auctions(
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
-    return HTMLResponse(_render_page("Auctions", body))
+    return HTMLResponse(render_template("auctions/list.html", title="Auctions", body=body))
 
 
 @router.get("/timeline/auction/{auction_id}", response_class=HTMLResponse)
@@ -420,7 +420,7 @@ async def auction_timeline(
         f"<tbody>{rows}</tbody></table>"
         f"<p>{prev_link} {' | ' if prev_link and next_link else ''} {next_link}</p>"
     )
-    return HTMLResponse(_render_page("Auction Timeline", body))
+    return HTMLResponse(render_template("auctions/timeline.html", title="Auction Timeline", body=body))
 
 
 @router.get("/manage/auction/{auction_id}", response_class=HTMLResponse)
@@ -525,7 +525,7 @@ async def manage_auction(request: Request, auction_id: str) -> Response:
         "<h2>Последние ставки</h2>"
         f"{bids_table}"
     )
-    return HTMLResponse(_render_page("Manage Auction", body))
+    return HTMLResponse(render_template("auctions/detail.html", title="Manage Auction", body=body))
 
 
 @router.post("/actions/auction/freeze")

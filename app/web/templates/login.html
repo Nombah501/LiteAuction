@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body %}
+<h1>LiteAuction Admin Login</h1>
+<div class='card'>
+<p>Войдите через Telegram-аккаунт модератора.</p>
+{{ widget_html | safe }}
+{{ fallback | safe }}
+</div>
+{% endblock %}

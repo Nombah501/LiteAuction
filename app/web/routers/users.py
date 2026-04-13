@@ -74,9 +74,9 @@ from app.web.components import (
     _pager_html,
     _render_app_header,
     _render_confirmation_page,
-    _render_page,
     _risk_snapshot_inline_html,
     _safe_return_to,
+    render_template,
 )
 from app.web.dense_list import render_dense_list_script, render_dense_list_toolbar
 from app.web.deps import (
@@ -804,7 +804,7 @@ async def manage_user(
         f"<tbody>{signal_rows}</tbody></table></div>"
         "</div>"
     )
-    return HTMLResponse(_render_page("Manage User", body))
+    return HTMLResponse(render_template("users/detail.html", title="Manage User", body=body))
 
 
 @router.get("/manage/users", response_class=HTMLResponse)
@@ -991,7 +991,7 @@ async def manage_users(
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
-    return HTMLResponse(_render_page("Manage Users", body))
+    return HTMLResponse(render_template("users/list.html", title="Manage Users", body=body))
 
 
 @router.post("/actions/user/ban")

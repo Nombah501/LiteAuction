@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import datetime
 from html import escape
 from pathlib import Path
 from typing import Callable
@@ -116,8 +116,15 @@ def _pct(numerator: int, denominator: int) -> str:
     return f"{(numerator / denominator) * 100:.1f}%"
 
 
+def _render_setting_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 _jinja_env.filters["fmt_ts"] = _fmt_ts
 _jinja_env.filters["pct"] = _pct
+_jinja_env.filters["render_setting_value"] = _render_setting_value
 
 
 def render_template(name: str, **context: object) -> str:

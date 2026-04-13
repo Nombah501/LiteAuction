@@ -21,15 +21,14 @@ from app.web.components import (
     _dashboard_preset_script,
     _dashboard_preset_toolbar,
     _details_block,
-    _fmt_ts,
     _kpi_card,
     _kpi_grid,
     _normalize_dashboard_preset,
     _panel,
     _pct,
     _render_app_header,
-    _render_page,
     _safe_return_to,
+    render_template,
 )
 from app.web.deps import (
     _auth_context_or_unauthorized,
@@ -282,13 +281,29 @@ async def dashboard(request: Request) -> Response:
         f"{_panel('Points utility', points_cards, eyebrow='rewards')}"
         f"{_dashboard_preset_script()}"
     )
-    return HTMLResponse(_render_page("LiteAuction Admin", body))
+    return HTMLResponse(render_template("dashboard.html", title="LiteAuction Admin", body=body))
 
 
-def _render_runtime_setting_value(value: object) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
+@router.get("/settings", response_class=HTMLResponse)
+async def runtime_settings_page(request: Request) -> Response:
+    response, auth = _require_owner_permission(request)
+    if response is not None:
+        return response
+
+    async with SessionFactory() as session:
+        snapshot_items = await build_runtime_settings_snapshot(session)
+
+    csrf_input = _csrf_hidden_input(request, auth)
+    html = render_template(
+        "settings.html",
+        app_header=_render_app_header("Runtime settings", auth, "Owner-only operational overrides"),
+        snapshot_items=snapshot_items,
+        csrf_input=csrf_input,
+        path_set=_path_with_auth(request, "/actions/settings/runtime/set"),
+        path_delete=_path_with_auth(request, "/actions/settings/runtime/delete"),
+        home_path=_path_with_auth(request, "/"),
+    )
+    return HTMLResponse(html)
 
 
 async def _resolve_actor_user_id(auth: AdminAuthContext) -> int:
@@ -313,67 +328,6 @@ async def _resolve_actor_user_id(auth: AdminAuthContext) -> int:
         await session.commit()
         await session.refresh(user)
         return user.id
-
-
-@router.get("/settings", response_class=HTMLResponse)
-async def runtime_settings_page(request: Request) -> Response:
-    response, auth = _require_owner_permission(request)
-    if response is not None:
-        return response
-
-    async with SessionFactory() as session:
-        snapshot_items = await build_runtime_settings_snapshot(session)
-
-    csrf_input = _csrf_hidden_input(request, auth)
-    rows: list[str] = []
-    for item in snapshot_items:
-        override_raw_value = item.override_raw_value
-        override_text = "<span class='empty-state'>none</span>"
-        if override_raw_value is not None:
-            override_text = escape(override_raw_value)
-
-        updated_by = str(item.updated_by_user_id) if item.updated_by_user_id is not None else "-"
-        updated_at = _fmt_ts(item.updated_at)
-        rows.append(
-            "<tr>"
-            f"<td><code>{escape(item.key)}</code></td>"
-            f"<td>{escape(item.description)}</td>"
-            f"<td>{escape(_render_runtime_setting_value(item.default_value))}</td>"
-            f"<td><b>{escape(_render_runtime_setting_value(item.effective_value))}</b></td>"
-            f"<td>{override_text}</td>"
-            f"<td>{escape(updated_by)}</td>"
-            f"<td>{escape(updated_at)}</td>"
-            "<td>"
-            f"<form method='post' action='{escape(_path_with_auth(request, '/actions/settings/runtime/set'))}'>"
-            f"<input type='hidden' name='key' value='{escape(item.key)}'>"
-            "<input type='hidden' name='return_to' value='/settings'>"
-            f"{csrf_input}"
-            f"<input name='value' value='{escape(override_raw_value or '')}' style='width:170px' placeholder='override value' required>"
-            "<button type='submit'>Save</button>"
-            "</form>"
-            f"<form method='post' action='{escape(_path_with_auth(request, '/actions/settings/runtime/delete'))}'>"
-            f"<input type='hidden' name='key' value='{escape(item.key)}'>"
-            "<input type='hidden' name='return_to' value='/settings'>"
-            f"{csrf_input}"
-            "<button type='submit'>Remove override</button>"
-            "</form>"
-            "</td>"
-            "</tr>"
-        )
-
-    body = (
-        f"{_render_app_header('Runtime settings', auth, 'Owner-only operational overrides')}"
-        "<div class='section-card'>"
-        "<div class='notice'><p>Owner-only operational overrides. Keys are allowlisted and validated.</p></div>"
-        "<div class='table-wrap'><table><thead><tr>"
-        "<th>Key</th><th>Description</th><th>Default</th><th>Effective</th><th>Override</th><th>Updated by</th><th>Updated at</th><th>Actions</th>"
-        "</tr></thead>"
-        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=8><span class="empty-state">Нет настроек</span></td></tr>'}</tbody>"
-        "</table></div>"
-        f"<p class='page-links'><a href='{escape(_path_with_auth(request, '/'))}'>На главную</a></p>"
-        "</div>"
-    )
-    return HTMLResponse(_render_page("Runtime Settings", body))
 
 
 @router.post("/actions/settings/runtime/set")

@@ -18,7 +18,7 @@ from app.web.components import (
     _pager_html,
     _path_with_auth,
     _render_app_header,
-    _render_page,
+    render_template,
 )
 from app.web.dense_list import render_dense_list_script, render_dense_list_toolbar
 from app.web.deps import _csrf_hidden_input, _require_scope_permission
@@ -235,4 +235,4 @@ async def violators(
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
-    return HTMLResponse(_render_page("Нарушители", body))
+    return HTMLResponse(render_template("violators.html", title="Нарушители", body=body))

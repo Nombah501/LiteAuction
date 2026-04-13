@@ -12,7 +12,7 @@ from app.web.auth import (
     get_admin_auth_context,
     validate_telegram_login,
 )
-from app.web.components import _render_page
+from app.web.components import _render_page, render_template
 from app.web.deps import _path_with_auth
 
 logger = logging.getLogger(__name__)
@@ -56,15 +56,12 @@ async def login_page(request: Request) -> Response:
     if settings.admin_panel_token.strip():
         fallback = "<p>Также можно открыть панель по ссылке с токеном: <code>/?token=...</code></p>"
 
-    body = (
-        "<h1>LiteAuction Admin Login</h1>"
-        "<div class='card'>"
-        "<p>Войдите через Telegram-аккаунт модератора.</p>"
-        f"{widget_html}"
-        f"{fallback}"
-        "</div>"
-    )
-    return HTMLResponse(_render_page("Admin Login", body))
+    return HTMLResponse(render_template(
+        "login.html",
+        title="Admin Login",
+        widget_html=widget_html,
+        fallback=fallback,
+    ))
 
 
 @router.get("/auth/telegram")

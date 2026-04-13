@@ -56,8 +56,8 @@ from app.web.components import (
     _render_app_header,
     _render_confirmation_page,
     _render_inline_timeline_html,
-    _render_page,
     _render_workflow_preset_telemetry_panel,
+    render_template,
     _risk_snapshot_inline_html,
     _safe_return_to,
     _triage_controls_cell,
@@ -835,7 +835,7 @@ async def appeals(
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
-    return HTMLResponse(_render_page("Апелляции", body))
+    return HTMLResponse(render_template("appeals.html", title="Апелляции", body=body))
 
 
 @router.post("/actions/appeal/resolve")

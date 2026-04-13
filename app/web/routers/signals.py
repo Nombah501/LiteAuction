@@ -37,7 +37,6 @@ from app.web.components import (
     _pager_html,
     _render_app_header,
     _render_inline_timeline_html,
-    _render_page,
     _render_workflow_preset_telemetry_panel,
     _risk_snapshot_inline_html,
     _triage_controls_cell,
@@ -45,6 +44,7 @@ from app.web.components import (
     _triage_row_context_attrs,
     _triage_shortcut_hint,
     _user_label,
+    render_template,
 )
 from app.web.deps import _auth_context_or_unauthorized, _path_with_auth
 from app.web.dense_list import render_dense_list_script, render_dense_list_toolbar
@@ -440,4 +440,4 @@ async def signals(
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
-    return HTMLResponse(_render_page("Fraud Signals", body))
+    return HTMLResponse(render_template("signals.html", title="Fraud Signals", body=body))

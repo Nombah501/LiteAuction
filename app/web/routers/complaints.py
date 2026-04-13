@@ -24,7 +24,6 @@ from app.web.components import (
     _append_timeline_event,
     _render_app_header,
     _render_inline_timeline_html,
-    _render_page,
     _load_dense_list_config,
     _pager_html,
     _path_with_auth,
@@ -34,6 +33,7 @@ from app.web.components import (
     _triage_row_context_attrs,
     _triage_shortcut_hint,
     _user_label,
+    render_template,
 )
 from app.web.dense_list import render_dense_list_script, render_dense_list_toolbar
 from app.web.deps import _auth_context_or_unauthorized
@@ -341,4 +341,4 @@ async def complaints(
         f"{render_dense_list_script(dense_config)}"
         "</div>"
     )
-    return HTMLResponse(_render_page("Complaints", body))
+    return HTMLResponse(render_template("complaints.html", title="Complaints", body=body))
