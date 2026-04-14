@@ -16,7 +16,10 @@ from app.services.admin_list_preferences_service import (
     save_admin_list_preference,
 )
 from app.web.auth import AdminAuthContext
-from app.web.main import action_save_dense_list_preferences, appeals, complaints, violators
+from app.web.routers.appeals import appeals
+from app.web.routers.complaints import complaints
+from app.web.routers.presets import action_save_dense_list_preferences
+from app.web.routers.violators import violators
 
 
 def _telegram_auth(tg_user_id: int) -> AdminAuthContext:
@@ -260,9 +263,9 @@ async def test_complaints_restores_saved_density_and_layout(preference_session_f
             )
         ]
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main.list_complaints", _list_complaints)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth(777777)))
+    monkeypatch.setattr("app.web.routers.complaints.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.complaints.list_complaints", _list_complaints)
+    monkeypatch.setattr("app.web.routers.complaints._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth(777777)))
 
     response = await complaints(_make_request("/complaints"), status="OPEN", page=0, density=None)
     body = bytes(response.body).decode("utf-8")
@@ -331,9 +334,9 @@ async def test_complaints_density_and_quick_filter_markup(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main.list_complaints", _list_complaints)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth(555001)))
+    monkeypatch.setattr("app.web.routers.complaints.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.complaints.list_complaints", _list_complaints)
+    monkeypatch.setattr("app.web.routers.complaints._auth_context_or_unauthorized", lambda _req: (None, _telegram_auth(555001)))
 
     response = await complaints(_make_request("/complaints"), status="OPEN", page=0, density="compact")
     body = bytes(response.body).decode("utf-8")
@@ -350,9 +353,9 @@ async def test_appeals_filter_links_keep_qualifiers_with_density(monkeypatch) ->
     async def _risk_map(_session, *, user_ids, now=None):
         return {}
 
-    monkeypatch.setattr("app.web.main.SessionFactory", _stub_session_factory)
-    monkeypatch.setattr("app.web.main._load_user_risk_snapshot_map", _risk_map)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(555002)))
+    monkeypatch.setattr("app.web.routers.appeals.SessionFactory", _stub_session_factory)
+    monkeypatch.setattr("app.web.routers.appeals._load_user_risk_snapshot_map", _risk_map)
+    monkeypatch.setattr("app.web.routers.appeals._require_scope_permission", lambda _req, _scope: (None, _telegram_auth(555002)))
 
     response = await appeals(
         _make_request("/appeals"),
@@ -376,7 +379,7 @@ async def test_appeals_filter_links_keep_qualifiers_with_density(monkeypatch) ->
 
 @pytest.mark.asyncio
 async def test_violators_invalid_filter_stays_server_validated(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _token_auth()))
+    monkeypatch.setattr("app.web.routers.violators._require_scope_permission", lambda _req, _scope: (None, _token_auth()))
 
     with pytest.raises(HTTPException) as exc:
         await violators(
@@ -395,8 +398,8 @@ async def test_violators_invalid_filter_stays_server_validated(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_dense_list_preferences_endpoint_rejects_invalid_density(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(100500))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(100500))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
 
     request = _make_json_request(
         "/actions/dense-list/preferences",
@@ -421,8 +424,8 @@ async def test_dense_list_preferences_endpoint_rejects_invalid_density(monkeypat
 
 @pytest.mark.asyncio
 async def test_dense_list_preferences_endpoint_rejects_unknown_column(monkeypatch) -> None:
-    monkeypatch.setattr("app.web.main.get_admin_auth_context", lambda _req: _telegram_auth(100501))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda _req, _auth, _token: True)
+    monkeypatch.setattr("app.web.routers.presets.get_admin_auth_context", lambda _req: _telegram_auth(100501))
+    monkeypatch.setattr("app.web.routers.presets._validate_csrf_token", lambda _req, _auth, _token: True)
 
     request = _make_json_request(
         "/actions/dense-list/preferences",

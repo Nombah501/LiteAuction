@@ -8,7 +8,7 @@ from app.db.enums import AuctionStatus
 from app.db.models import Auction, Complaint, FraudSignal, User
 from app.services.rbac_service import SCOPE_USER_BAN
 from app.web.auth import AdminAuthContext
-from app.web.main import signals
+from app.web.routers.signals import signals
 
 
 def _make_request(path: str) -> Request:
@@ -103,8 +103,8 @@ async def test_signals_page_shows_user_risk_column(monkeypatch, integration_engi
                 ]
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.signals.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.signals._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     request = _make_request("/signals")
     response = await signals(request, status="OPEN", page=0)

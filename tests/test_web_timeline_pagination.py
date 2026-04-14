@@ -11,7 +11,7 @@ from starlette.requests import Request
 from app.db.enums import AuctionStatus
 from app.services.timeline_service import AuctionTimelineItem
 from app.web.auth import AdminAuthContext
-from app.web.main import auction_timeline
+from app.web.routers.auctions import auction_timeline
 
 
 class _DummySessionFactoryCtx:
@@ -77,8 +77,8 @@ async def test_timeline_first_page_uses_limit_and_next_link(monkeypatch) -> None
     request = _make_request("/timeline/auction/test")
     auction_id = uuid.uuid4()
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_build(_session, _auction_id, *, page, limit, sources):
         assert page == 0
@@ -88,7 +88,7 @@ async def test_timeline_first_page_uses_limit_and_next_link(monkeypatch) -> None
         items = _timeline_items()
         return auction, items[:2], len(items)
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+    monkeypatch.setattr("app.web.routers.auctions.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(request, str(auction_id), page=0, limit=2)
 
@@ -107,8 +107,8 @@ async def test_timeline_middle_page_keeps_order_and_both_links(monkeypatch) -> N
     request = _make_request("/timeline/auction/test")
     auction_id = uuid.uuid4()
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_build(_session, _auction_id, *, page, limit, sources):
         assert page == 1
@@ -118,7 +118,7 @@ async def test_timeline_middle_page_keeps_order_and_both_links(monkeypatch) -> N
         items = _timeline_items()
         return auction, items[2:4], len(items)
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+    monkeypatch.setattr("app.web.routers.auctions.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(request, str(auction_id), page=1, limit=2)
 
@@ -139,8 +139,8 @@ async def test_timeline_last_page_has_no_next_link(monkeypatch) -> None:
     request = _make_request("/timeline/auction/test")
     auction_id = uuid.uuid4()
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_build(_session, _auction_id, *, page, limit, sources):
         assert page == 2
@@ -150,7 +150,7 @@ async def test_timeline_last_page_has_no_next_link(monkeypatch) -> None:
         items = _timeline_items()
         return auction, items[4:5], len(items)
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+    monkeypatch.setattr("app.web.routers.auctions.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(request, str(auction_id), page=2, limit=2)
 
@@ -167,8 +167,8 @@ async def test_timeline_last_page_has_no_next_link(monkeypatch) -> None:
 async def test_timeline_rejects_invalid_pagination_values(monkeypatch) -> None:
     request = _make_request("/timeline/auction/test")
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     with pytest.raises(HTTPException):
         await auction_timeline(request, str(uuid.uuid4()), page=-1, limit=100)
@@ -186,8 +186,8 @@ async def test_timeline_source_filter_forwarded_and_preserved(monkeypatch) -> No
     auction_id = uuid.uuid4()
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_build(_session, _auction_id, *, page, limit, sources):
         captured["sources"] = sources
@@ -195,7 +195,7 @@ async def test_timeline_source_filter_forwarded_and_preserved(monkeypatch) -> No
         items = _timeline_items()
         return auction, items[:1], 120
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+    monkeypatch.setattr("app.web.routers.auctions.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(
         request,
@@ -219,8 +219,8 @@ async def test_timeline_blank_source_treated_as_all(monkeypatch) -> None:
     auction_id = uuid.uuid4()
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_build(_session, _auction_id, *, page, limit, sources):
         captured["sources"] = sources
@@ -228,7 +228,7 @@ async def test_timeline_blank_source_treated_as_all(monkeypatch) -> None:
         items = _timeline_items()
         return auction, items[:1], 1
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+    monkeypatch.setattr("app.web.routers.auctions.build_auction_timeline_page", fake_build)
 
     response = await auction_timeline(
         request,
@@ -249,13 +249,13 @@ async def test_timeline_blank_source_treated_as_all(monkeypatch) -> None:
 async def test_timeline_invalid_source_filter_returns_400(monkeypatch) -> None:
     request = _make_request("/timeline/auction/test")
 
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main.SessionFactory", _DummySessionFactory())
+    monkeypatch.setattr("app.web.routers.auctions._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.auctions.SessionFactory", _DummySessionFactory())
 
     async def fake_build(_session, _auction_id, *, page, limit, sources):
         raise ValueError("Unknown timeline source filter: bad")
 
-    monkeypatch.setattr("app.web.main.build_auction_timeline_page", fake_build)
+    monkeypatch.setattr("app.web.routers.auctions.build_auction_timeline_page", fake_build)
 
     with pytest.raises(HTTPException) as exc:
         await auction_timeline(request, str(uuid.uuid4()), page=0, limit=50, source="bad")

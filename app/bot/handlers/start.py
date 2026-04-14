@@ -7,6 +7,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.auction import (
@@ -18,7 +19,10 @@ from app.bot.keyboards.auction import (
     start_private_keyboard,
 )
 from app.config import settings
+from sqlalchemy import func, select
+
 from app.db.enums import AuctionStatus, PointsEventType
+from app.db.models import Auction, Bid
 from app.db.session import SessionFactory
 from app.services.appeal_service import (
     AppealPriorityBoostPolicy,
@@ -70,6 +74,7 @@ from app.services.seller_dashboard_service import (
 )
 from app.services.points_service import UserPointsSummary, get_user_points_summary, list_user_points_entries
 from app.services.user_service import upsert_user
+from app.bot.states.guarantor_intake import GuarantorIntakeStates
 from app.bot.handlers.start_auction_views import (
     MY_AUCTIONS_PAGE_SIZE,
     _auction_list_button_label,
@@ -119,6 +124,18 @@ def _extract_report_auction_id(payload: str | None) -> uuid.UUID | None:
     if payload is None or not payload.startswith("report_"):
         return None
     auction_raw = payload[len("report_") :].strip()
+    if not auction_raw:
+        return None
+    try:
+        return uuid.UUID(auction_raw)
+    except ValueError:
+        return None
+
+
+def _extract_gallery_auction_id(payload: str | None) -> uuid.UUID | None:
+    if payload is None or not payload.startswith("gallery_"):
+        return None
+    auction_raw = payload[len("gallery_"):].strip()
     if not auction_raw:
         return None
     try:
@@ -433,6 +450,8 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
     auctions_thread_id: int | None = None
     show_moderation_button = False
     notification_snapshot: NotificationSettingsSnapshot | None = None
+    bid_count: int = 0
+    auction_count: int = 0
 
     async with SessionFactory() as session:
         async with session.begin():
@@ -466,6 +485,13 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
                 appeal_id = appeal.id
             if report_auction_id is not None:
                 report_auction_found = (await load_auction_view(session, report_auction_id)) is not None
+
+            bid_count = await session.scalar(
+                select(func.count()).select_from(Bid).where(Bid.user_id == user.id)
+            )
+            auction_count = await session.scalar(
+                select(func.count()).select_from(Auction).where(Auction.seller_user_id == user.id)
+            )
 
     dashboard_keyboard = start_private_keyboard(show_moderation_button=show_moderation_button)
 
@@ -511,6 +537,43 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
         )
         return
 
+    gallery_auction_id = _extract_gallery_auction_id(payload)
+    if gallery_auction_id is not None:
+        from aiogram.types import InputMediaPhoto
+        from app.services.auction_service import load_auction_photo_ids
+        async with SessionFactory() as g_session:
+            g_view = await load_auction_view(g_session, gallery_auction_id)
+            if g_view is not None:
+                g_photos = await load_auction_photo_ids(g_session, gallery_auction_id)
+                if not g_photos:
+                    g_photos = [g_view.auction.photo_file_id]
+                caption = f"📸 Фото лота #{str(gallery_auction_id)[:8]}"
+                if len(g_photos) == 1:
+                    await bot.send_photo(
+                        chat_id=message.from_user.id,
+                        photo=g_photos[0],
+                        caption=caption,
+                    )
+                else:
+                    for chunk_start in range(0, len(g_photos), 10):
+                        chunk = g_photos[chunk_start:chunk_start + 10]
+                        media = [
+                            InputMediaPhoto(
+                                media=file_id,
+                                caption=caption if chunk_start == 0 and idx == 0 else None,
+                            )
+                            for idx, file_id in enumerate(chunk)
+                        ]
+                        await bot.send_media_group(
+                            chat_id=message.from_user.id,
+                            media=media,
+                        )
+        await message.answer(
+            "📸 Фото отправлены выше.",
+            reply_markup=dashboard_keyboard,
+        )
+        return
+
     start_text = _dashboard_start_text()
     sent_to_auctions = False
     if settings.private_topics_enabled:
@@ -552,6 +615,17 @@ async def handle_start_private(message: Message, bot: Bot) -> None:
             )
         if not sent_onboarding:
             await message.answer(onboarding_text, reply_markup=onboarding_keyboard)
+
+    if bid_count == 0 and auction_count == 0:
+        await message.answer(
+            "👋 <b>Добро пожаловать!</b>\n\n"
+            "Вы можете:\n"
+            "• Искать лоты в подключённых чатах и каналах\n"
+            "• Делать ставки кнопками под лотом\n"
+            "• Следить за своими ставками — /mybids\n\n"
+            "Начните с просмотра активных аукционов в чате!",
+            parse_mode="HTML",
+        )
 
 
 @router.message(Command("topics"), F.chat.type == ChatType.PRIVATE)
@@ -986,6 +1060,65 @@ async def callback_dashboard_settings(callback: CallbackQuery) -> None:
 async def callback_dashboard_home(callback: CallbackQuery) -> None:
     await callback.answer()
     await _show_dashboard_home(callback, edit_message=True)
+
+
+@router.callback_query(F.data == "dash:guarant")
+async def callback_dashboard_guarant(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    if callback.from_user is None:
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть раздел «Гарант»", show_alert=True)
+        return
+
+    await callback.answer()
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            if not await enforce_callback_topic(
+                callback,
+                bot=bot,
+                session=session,
+                user=user,
+                purpose=PrivateTopicPurpose.SUPPORT,
+                command_hint="/guarant",
+            ):
+                return
+
+    await state.set_state(GuarantorIntakeStates.waiting_request_text)
+    if isinstance(callback.message.message_thread_id, int):
+        await state.update_data(expected_thread_id=callback.message.message_thread_id)
+    await callback.message.answer("Опишите запрос на гаранта одним сообщением. Для отмены используйте /cancel")
+
+
+@router.callback_query(F.data == "dash:notifications")
+async def callback_dashboard_notifications(callback: CallbackQuery) -> None:
+    if callback.from_user is None:
+        return
+    if callback.message is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось открыть уведомления", show_alert=True)
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            user = await upsert_user(session, callback.from_user, mark_private_started=True)
+            snapshot = await load_notification_settings(session, user_id=user.id)
+            snoozes = await list_active_auction_notification_snoozes(session, user_id=user.id)
+
+    if snapshot is None:
+        await callback.answer("Настройки уведомлений недоступны", show_alert=True)
+        return
+
+    text = _render_settings_text(snapshot, snoozes=snoozes)
+    keyboard = _settings_keyboard(snapshot, snoozes=snoozes)
+    await callback.answer()
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    except TelegramBadRequest:
+        pass
+
+    await callback.message.answer(text, reply_markup=keyboard, disable_web_page_preview=True)
 
 
 @router.callback_query(F.data.startswith("dash:settings:"))

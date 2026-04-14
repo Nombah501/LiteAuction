@@ -26,6 +26,7 @@ from app.db.enums import (
     AppealStatus,
     AppealSourceType,
     AuctionStatus,
+    DealTopicStatus,
     FeedbackStatus,
     FeedbackType,
     GuarantorRequestStatus,
@@ -815,12 +816,41 @@ class GuarantorRequest(Base, TimestampMixin):
         nullable=True,
     )
     details: Mapped[str] = mapped_column(Text, nullable=False)
+    auction_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("auctions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     queue_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     queue_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     priority_boost_points_spent: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     priority_boosted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DealTopic(Base, TimestampMixin):
+    __tablename__ = "deal_topics"
+    __table_args__ = (
+        Index("ix_deal_topics_auction_id", "auction_id"),
+        Index("ix_deal_topics_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    auction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("auctions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seller_topic_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    winner_topic_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[DealTopicStatus] = mapped_column(
+        Enum(DealTopicStatus, name="deal_topic_status"),
+        nullable=False,
+        default=DealTopicStatus.ACTIVE,
+        server_default=text("'ACTIVE'"),
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class IntegrationOutbox(Base, TimestampMixin):
@@ -905,4 +935,43 @@ class FraudSignal(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False, index=True
+    )
+
+
+class UserReputationEvent(Base):
+    __tablename__ = "user_reputation_events"
+    __table_args__ = (
+        Index("ix_reputation_events_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
+    )
+
+
+class UserReputation(Base):
+    __tablename__ = "user_reputations"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_reputations_user_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    score: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    tier: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'NEW'")
+    )
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("TIMEZONE('utc', NOW())"), nullable=False
     )

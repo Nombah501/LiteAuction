@@ -17,7 +17,8 @@ from app.services.rbac_service import (
     SCOPE_USER_BAN,
 )
 from app.web.auth import AdminAuthContext
-from app.web.main import action_adjust_user_points, dashboard, manage_user
+from app.web.routers.dashboard import dashboard
+from app.web.routers.users import action_adjust_user_points, manage_user
 
 
 def _make_request(path: str, query: str = "", *, method: str = "GET") -> Request:
@@ -88,9 +89,9 @@ async def test_manage_user_shows_points_widget(monkeypatch, integration_engine) 
             )
             user_id = user.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._csrf_hidden_input", lambda *_args, **_kwargs: "")
     monkeypatch.setattr(settings, "feedback_priority_boost_enabled", False)
     monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 21)
     monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 3)
@@ -168,9 +169,9 @@ async def test_manage_user_shows_feedback_boost_totals(monkeypatch, integration_
             )
             user_id = user.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._csrf_hidden_input", lambda *_args, **_kwargs: "")
 
     request = _make_request(f"/manage/user/{user_id}")
     response = await manage_user(request, user_id=user_id)
@@ -230,8 +231,8 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.dashboard.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.dashboard._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
     monkeypatch.setattr(settings, "feedback_priority_boost_enabled", True)
     monkeypatch.setattr(settings, "feedback_priority_boost_cost_points", 25)
     monkeypatch.setattr(settings, "feedback_priority_boost_daily_limit", 2)
@@ -297,8 +298,8 @@ async def test_dashboard_shows_points_utility_metrics(monkeypatch, integration_e
 async def test_dashboard_rewards_preset_expands_rewards_details(monkeypatch, integration_engine) -> None:
     session_factory = async_sessionmaker(bind=integration_engine, class_=AsyncSession, expire_on_commit=False)
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.dashboard.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.dashboard._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
 
     request = _make_request("/", query="preset=rewards")
     response = await dashboard(request)
@@ -333,9 +334,9 @@ async def test_manage_user_points_filter_supports_guarantor_boost(monkeypatch, i
             )
             user_id = user.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._csrf_hidden_input", lambda *_args, **_kwargs: "")
 
     request = _make_request(f"/manage/user/{user_id}", query="points_page=1&points_filter=gboost")
     response = await manage_user(request, user_id=user_id, points_page=1, points_filter="gboost")
@@ -369,9 +370,9 @@ async def test_manage_user_points_filter_supports_appeal_boost(monkeypatch, inte
             )
             user_id = user.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._csrf_hidden_input", lambda *_args, **_kwargs: "")
 
     request = _make_request(f"/manage/user/{user_id}", query="points_page=1&points_filter=aboost")
     response = await manage_user(request, user_id=user_id, points_page=1, points_filter="aboost")
@@ -416,9 +417,9 @@ async def test_manage_user_points_filter_and_paging(monkeypatch, integration_eng
             )
             user_id = user.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._csrf_hidden_input", lambda *_args, **_kwargs: "")
 
     request = _make_request(f"/manage/user/{user_id}", query="points_page=2&points_filter=manual")
     response = await manage_user(request, user_id=user_id, points_page=2, points_filter="manual")
@@ -492,9 +493,9 @@ async def test_manage_user_shows_trade_feedback_reputation(monkeypatch, integrat
             )
             target_user_id = target.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._csrf_hidden_input", lambda *_args, **_kwargs: "")
 
     request = _make_request(f"/manage/user/{target_user_id}")
     response = await manage_user(request, user_id=target_user_id)
@@ -538,16 +539,16 @@ async def test_web_adjust_points_updates_totals_and_audit(monkeypatch, integrati
                 )
             )
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("app.web.main._csrf_hidden_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._auth_context_or_unauthorized", lambda _req: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.users._csrf_hidden_input", lambda *_args, **_kwargs: "")
 
     async def _resolve_actor(_auth):
         return actor_user_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.users._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/user/points/adjust", method="POST")
     response = await action_adjust_user_points(
@@ -613,9 +614,9 @@ async def test_web_adjust_points_requires_role_manage_scope(monkeypatch, integra
             await session.flush()
             target_user_id = target.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
     monkeypatch.setattr(
-        "app.web.main._require_scope_permission",
+        "app.web.routers.users._require_scope_permission",
         lambda _req, _scope: (HTMLResponse("forbidden", status_code=403), _stub_auth()),
     )
 
@@ -660,9 +661,9 @@ async def test_web_adjust_points_enforces_csrf(monkeypatch, integration_engine) 
             await session.flush()
             target_user_id = target.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._validate_csrf_token", lambda *_args, **_kwargs: False)
 
     request = _make_request("/actions/user/points/adjust", method="POST")
     response = await action_adjust_user_points(
@@ -708,14 +709,14 @@ async def test_web_adjust_points_is_idempotent_by_action_id(monkeypatch, integra
             actor_user_id = actor.id
             target_user_id = target.id
 
-    monkeypatch.setattr("app.web.main.SessionFactory", session_factory)
-    monkeypatch.setattr("app.web.main._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
-    monkeypatch.setattr("app.web.main._validate_csrf_token", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.web.routers.users.SessionFactory", session_factory)
+    monkeypatch.setattr("app.web.routers.users._require_scope_permission", lambda _req, _scope: (None, _stub_auth()))
+    monkeypatch.setattr("app.web.routers.users._validate_csrf_token", lambda *_args, **_kwargs: True)
 
     async def _resolve_actor(_auth):
         return actor_user_id
 
-    monkeypatch.setattr("app.web.main._resolve_actor_user_id", _resolve_actor)
+    monkeypatch.setattr("app.web.routers.users._resolve_actor_user_id", _resolve_actor)
 
     request = _make_request("/actions/user/points/adjust", method="POST")
     response_first = await action_adjust_user_points(

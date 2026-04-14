@@ -1,0 +1,75 @@
+<h2>Сценарий 4: Топик сделки</h2>
+<p class="subtitle">Как выглядит приватный топик сделки между продавцом и победителем</p>
+
+<div class="mockup">
+  <div class="mockup-header">Топик сделки (вид продавца в боте)</div>
+  <div class="mockup-body">
+    <div style="background: #0e1621; color: #eee; padding: 0; border-radius: 12px; font-family: -apple-system, sans-serif; font-size: 14px; line-height: 1.6; max-width: 460px; overflow: hidden;">
+      
+      <div style="background: #1a2233; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        <div style="font-weight: bold; font-size: 15px;">🤝 Сделка #a1b2c3d4</div>
+        <div style="color: #888; font-size: 12px;">iPhone 15 Pro Max 256GB • 15 000 ₽</div>
+      </div>
+
+      <div style="padding: 16px;">
+        <div style="background: rgba(52,152,219,0.15); padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; border-left: 3px solid #3498db;">
+          <div style="font-size: 12px; color: #888; margin-bottom: 4px;">🤖 Бот</div>
+          <b>Топик сделки создан</b><br>
+          Лот: #a1b2c3d4 — iPhone 15 Pro Max 256GB<br>
+          Цена: 15 000 ₽<br>
+          Участники: @seller_username (продавец) и @winner_username (победитель)<br><br>
+          Все сообщения здесь будут пересылаться вашему контрагенту. Будьте вежливы и обсуждайте только сделку.
+        </div>
+
+        <div style="background: rgba(46,204,113,0.1); padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; border-left: 3px solid #2ecc71;">
+          <div style="font-size: 12px; color: #888; margin-bottom: 4px;">🤖 Бот</div>
+          <b>🛡 Совет по безопасности</b><br>
+          Для защиты обеих сторон вы можете запросить гаранта — нажав кнопку ниже.
+        </div>
+
+        <div style="text-align: right; margin-bottom: 12px;">
+          <div style="background: #2b5278; padding: 10px 14px; border-radius: 10px; display: inline-block; text-align: left; max-width: 80%;">
+            <div style="font-size: 12px; color: #888; margin-bottom: 4px;">Вы (продавец)</div>
+            Здравствуйте! Поздравляю с выигрышем. Когда вам удобно встретиться для передачи?
+          </div>
+        </div>
+
+        <div style="text-align: left; margin-bottom: 12px;">
+          <div style="background: #1a2233; padding: 10px 14px; border-radius: 10px; display: inline-block; max-width: 80%;">
+            <div style="font-size: 12px; color: #888; margin-bottom: 4px;">@winner_username (победитель)</div>
+            Спасибо! Могу завтра после 18:00, м. Тверская. Подойдёт?
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: 8px 16px; background: #1a2233; border-top: 1px solid rgba(255,255,255,0.1); display: flex; gap: 6px; flex-wrap: wrap;">
+        <span style="background: #2ecc71; color: white; padding: 6px 12px; border-radius: 6px; font-size: 12px;">🛡 Запросить гаранта</span>
+        <span style="background: #e67e22; color: white; padding: 6px 12px; border-radius: 6px; font-size: 12px;">⭐ Оставить отзыв</span>
+        <span style="background: #e74c3c; color: white; padding: 6px 12px; border-radius: 6px; font-size: 12px;">⚠ Жалоба</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 20px; padding: 16px; background: rgba(155,89,182,0.1); border-radius: 8px;">
+  <h3>Механика топика сделки</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+    <tr style="border-bottom: 1px solid rgba(0,0,0,0.1);">
+      <td style="padding: 6px; font-weight: bold; width: 35%;">Создание</td>
+      <td style="padding: 6px;">Автоматически при нажатии «Написать победителю/продавцу». Создаётся форумный топик в приватном чате пользователя.</td>
+    </tr>
+    <tr style="border-bottom: 1px solid rgba(0,0,0,0.1);">
+      <td style="padding: 6px; font-weight: bold;">Пересылка</td>
+      <td style="padding: 6px;">Сообщение продавца → пересылается победителю в его топик сделки (и наоборот). Бот добавляет имя отправителя.</td>
+    </tr>
+    <tr style="border-bottom: 1px solid rgba(0,0,0,0.1);">
+      <td style="padding: 6px; font-weight: bold;">Кнопки в топике</td>
+      <td style="padding: 6px;">Запросить гаранта, Оставить отзыв, Жалоба — прикреплены к приветственному сообщению бота</td>
+    </tr>
+    <tr>
+      <td style="padding: 6px; font-weight: bold;">Привязка к аукциону</td>
+      <td style="padding: 6px;">Новый model DealTopic с полями auction_id, seller_topic_id, winner_topic_id, status</td>
+    </tr>
+  </table>
+</div>

@@ -1,0 +1,130 @@
+<h2>Подход A vs Подход B: Структура уведомления</h2>
+<p class="subtitle">Как организовать информацию после завершения аукциона</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Подход A: Всё в одном сообщении</div>
+    <div class="mockup-body">
+      <div style="background: #1a1a2e; color: #eee; padding: 16px; border-radius: 12px; font-family: -apple-system, sans-serif; font-size: 14px; line-height: 1.6;">
+        <div style="text-align: center; font-size: 20px; margin-bottom: 8px;">🏆</div>
+        <b>Лот #a1b2c3d4 завершён!</b>
+        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 8px; margin: 10px 0;">
+          <b>Финальная цена:</b> 15 000 ₽<br>
+          <b>Победитель:</b> @username<br>
+          <b>Описание:</b> iPhone 15 Pro Max 256GB...
+        </div>
+        
+        <div style="background: rgba(52,152,219,0.15); padding: 10px; border-radius: 8px; margin: 10px 0; border-left: 3px solid #3498db;">
+          <b>📋 Следующие шаги:</b><br>
+          1. Свяжитесь с контрагентом через топик сделки<br>
+          2. Договоритесь об условиях передачи<br>
+          3. При необходимости запросите гаранта
+        </div>
+
+        <div style="background: rgba(46,204,113,0.15); padding: 10px; border-radius: 8px; margin: 10px 0; border-left: 3px solid #2ecc71;">
+          <b>🛡 Гарант — ваша безопасность</b><br>
+          Гарант выступает посредником при сделке, обеспечивая защиту обеих сторон. Запросите гаранта, если сумма значительная или контрагент новый.
+        </div>
+
+        <div style="margin-top: 12px;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <span style="background: #3498db; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">💬 Написать победителю</span>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;">
+            <span style="background: #2ecc71; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">🛡 Запросить гаранта</span>
+            <span style="background: #e67e22; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">⭐ Оставить отзыв</span>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;">
+            <span style="background: #95a5a6; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">📄 Открыть пост лота</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Подход B: Основное + детали отдельно</div>
+    <div class="mockup-body">
+      <div style="background: #1a1a2e; color: #eee; padding: 16px; border-radius: 12px; font-family: -apple-system, sans-serif; font-size: 14px; line-height: 1.6;">
+        <div style="text-align: center; font-size: 20px; margin-bottom: 8px;">🏆</div>
+        <b>Лот #a1b2c3d4 завершён!</b>
+        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 8px; margin: 10px 0;">
+          <b>Финальная цена:</b> 15 000 ₽<br>
+          <b>Победитель:</b> @username
+        </div>
+
+        <div style="margin-top: 12px;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <span style="background: #3498db; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">💬 Написать победителю</span>
+            <span style="background: #95a5a6; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">📄 Открыть пост лота</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="background: #1a1a2e; color: #eee; padding: 16px; border-radius: 12px; font-family: -apple-system, sans-serif; font-size: 14px; line-height: 1.6; margin-top: 12px;">
+        <div style="text-align: center; font-size: 14px; margin-bottom: 8px; color: #888;">↓ Открывается при нажатии «Подробнее» ↓</div>
+        
+        <b>📋 Детали сделки #a1b2c3d4</b>
+        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 8px; margin: 10px 0;">
+          <b>Описание:</b> iPhone 15 Pro Max 256GB...<br>
+          <b>Шаги:</b><br>
+          1. Свяжитесь через топик сделки<br>
+          2. Договоритесь об условиях<br>
+          3. Запросите гаранта при необходимости
+        </div>
+
+        <div style="background: rgba(46,204,113,0.15); padding: 10px; border-radius: 8px; margin: 10px 0; border-left: 3px solid #2ecc71;">
+          <b>🛡 О гаранте</b><br>
+          Гарант защищает обе стороны. Рекомендуем при крупных сделках.
+        </div>
+        
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+          <span style="background: #2ecc71; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">🛡 Запросить гаранта</span>
+          <span style="background: #e67e22; color: white; padding: 8px 16px; border-radius: 6px; display: inline-block;">⭐ Оставить отзыв</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons" style="margin-top: 20px;">
+  <div class="pros">
+    <h4>Подход A: Всё в одном</h4>
+    <ul>
+      <li>Всё видно сразу — не нужно ничего нажимать</li>
+      <li>Пользователь сразу видит памятку о гаранте</li>
+      <li>Проще реализовать</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>Недостатки</h4>
+    <ul>
+      <li>Длинное сообщение для маленьких экранов</li>
+      <li>Информационный перегруз для опытных пользователей</li>
+    </ul>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>Подход B: Основное + детали</h4>
+    <ul>
+      <li>Компактное первое сообщение</li>
+      <li>Опытные пользователи не перегружены</li>
+      <li>Кнопка «Подробнее» для тех, кому нужно</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>Недостатки</h4>
+    <ul>
+      <li>Пользователь может не нажать «Подробнее» и пропустить гаранта</li>
+      <li>Два сообщения вместо одного</li>
+      <li>Сложнее реализовать</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 20px; padding: 16px; background: rgba(52,152,219,0.1); border-radius: 8px;">
+  <h3>💡 Моя рекомендация: Подход A</h3>
+  <p>Для аукционного бота контекст сделки критически важен. Пользователь не каждый день завершает сделки — лучше показать всю информацию сразу, чем рисковать, что он не нажмёт «Подробнее». Длинное сообщение — это нормально для такого важного события.</p>
+</div>

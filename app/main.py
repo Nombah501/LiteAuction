@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisEventIsolation, RedisStorage
-from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
+from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats
 
 from app.bot.handlers import router as start_router
 from app.config import settings
@@ -28,27 +28,27 @@ async def startup_checks() -> None:
 
 
 async def configure_bot_commands(bot: Bot) -> None:
-    commands = [
-        BotCommand(command="start", description="Открыть главное меню"),
-        BotCommand(command="newauction", description="Создать новый аукцион"),
-        BotCommand(command="cancel", description="Отменить создание аукциона"),
+    private_commands = [
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="help", description="Справка"),
+        BotCommand(command="newauction", description="Создать лот"),
+        BotCommand(command="mybids", description="Мои ставки"),
+        BotCommand(command="myrep", description="Моя репутация"),
+        BotCommand(command="guarant", description="Запрос гаранта"),
         BotCommand(command="settings", description="Настройки уведомлений"),
-        BotCommand(command="tradefeedback", description="Оценить завершенную сделку"),
-        BotCommand(command="boostfeedback", description="Поднять приоритет фидбека"),
-        BotCommand(command="topics", description="Показать разделы в личке"),
-        BotCommand(command="bug", description="Сообщить о проблеме"),
+        BotCommand(command="points", description="Баланс и бонусы"),
+        BotCommand(command="tradefeedback", description="Оставить отзыв о сделке"),
+        BotCommand(command="boostfeedback", description="Повысить приоритет отзыва"),
+        BotCommand(command="bug", description="Сообщить о баге"),
         BotCommand(command="suggest", description="Предложить улучшение"),
-        BotCommand(command="guarant", description="Запросить гаранта для сделки"),
-        BotCommand(command="boostguarant", description="Поднять приоритет запроса гаранта"),
-        BotCommand(command="boostappeal", description="Поднять приоритет апелляции"),
-        BotCommand(command="points", description="Показать баланс наград"),
-        BotCommand(command="modpanel", description="Открыть панель модератора"),
-        BotCommand(command="modstats", description="Показать статистику модерации"),
-        BotCommand(command="notifstats", description="Показать snapshot метрик уведомлений"),
-        BotCommand(command="emojiid", description="Получить ID premium emoji (для UI)"),
-        BotCommand(command="effectid", description="Получить ID визуального эффекта"),
+        BotCommand(command="cancel", description="Отменить действие"),
     ]
-    await bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())
+    await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
+
+    group_commands = [
+        BotCommand(command="publish", description="Опубликовать лот"),
+    ]
+    await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
 
 
 def build_dispatcher() -> Dispatcher:

@@ -211,4 +211,4 @@ async def test_notify_auction_finish_reports_closed_lot_to_moderation_topic(monk
     assert len(private_notifications) == 2
     assert len(moderation_notifications) == 1
     assert moderation_notifications[0]["section"] == bid_actions.ModerationTopicSection.AUCTIONS_CLOSED
-    assert "завершен выкупом" in str(moderation_notifications[0]["text"])
+    assert "завершён выкупом" in str(moderation_notifications[0]["text"]).lower() or "завершен выкупом" in str(moderation_notifications[0]["text"]).lower()

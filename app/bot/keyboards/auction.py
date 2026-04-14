@@ -49,7 +49,7 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
     rows: list[list[InlineKeyboardButton]] = [
         [
             styled_button(
-                text="Создать аукцион",
+                text="Создать лот",
                 callback_data="create:new",
                 style="primary",
                 icon_custom_emoji_id=_icon(settings.ui_emoji_create_auction_id),
@@ -57,22 +57,36 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
         ],
         [
             styled_button(
-                text="Мои аукционы",
+                text="Мои лоты",
                 callback_data="dash:my_auctions",
                 style="primary",
             )
         ],
         [
             styled_button(
-                text="Настройки",
-                callback_data="dash:settings",
-            )
+                text="Мои ставки",
+                callback_data="dash:my_bids",
+            ),
         ],
         [
             styled_button(
-                text="Баланс",
-                callback_data="dash:balance",
-            )
+                text="Гарант",
+                callback_data="dash:guarant",
+            ),
+            styled_button(
+                text="Уведомления",
+                callback_data="dash:notifications",
+            ),
+        ],
+        [
+            styled_button(
+                text="⭐ Репутация",
+                callback_data="dash:reputation",
+            ),
+            styled_button(
+                text="Настройки",
+                callback_data="dash:settings",
+            ),
         ],
     ]
 
@@ -80,7 +94,7 @@ def start_private_keyboard(*, show_moderation_button: bool) -> InlineKeyboardMar
         rows.append(
             [
                 styled_button(
-                    text="Мод-панель",
+                    text="Модерация",
                     callback_data="mod:panel",
                     style="success",
                     icon_custom_emoji_id=_icon(settings.ui_emoji_mod_panel_id),
@@ -604,3 +618,67 @@ def open_auction_post_keyboard(post_url: str) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def deal_completion_keyboard(
+    *,
+    auction_id: str,
+    post_url: str | None,
+    is_seller: bool,
+) -> InlineKeyboardMarkup:
+    write_label = "💬 Написать победителю" if is_seller else "💬 Написать продавцу"
+    rows: list[list[InlineKeyboardButton]] = [
+        [styled_button(text=write_label, callback_data=f"deal:write:{auction_id}", style="primary")],
+        [
+            styled_button(text="🛡 Запросить гаранта", callback_data=f"deal:guarant:{auction_id}", style="success"),
+            styled_button(text="⭐ Оставить отзыв", callback_data=f"deal:feedback:{auction_id}"),
+        ],
+    ]
+    if post_url:
+        rows.append([styled_button(text="📄 Открыть пост лота", url=post_url)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def no_bids_keyboard(
+    *,
+    auction_id: str,
+    post_url: str | None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [styled_button(text="🔄 Опубликовать заново", callback_data=f"deal:republish:{auction_id}", style="primary")],
+    ]
+    if post_url:
+        rows.append([styled_button(text="📄 Открыть пост лота", url=post_url)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def deal_topic_keyboard(
+    *,
+    auction_id: str,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                styled_button(text="🛡 Запросить гаранта", callback_data=f"deal:guarant:{auction_id}", style="success"),
+                styled_button(text="⭐ Оставить отзыв", callback_data=f"deal:feedback:{auction_id}"),
+            ],
+            [
+                styled_button(text="⚠ Жалоба", callback_data=f"deal:complaint:{auction_id}"),
+            ],
+            [
+                styled_button(text="🔒 Закрыть сделку", callback_data=f"deal:closerequest:{auction_id}"),
+            ],
+        ]
+    )
+
+
+def moderation_completion_keyboard(
+    *,
+    auction_id: str,
+    post_url: str | None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if post_url:
+        rows.append([styled_button(text="📄 Открыть пост лота", url=post_url)])
+    rows.append([styled_button(text="⚠ Заморозить", callback_data=f"mod:freeze:{auction_id}", style="danger")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

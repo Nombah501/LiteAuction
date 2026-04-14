@@ -24,6 +24,7 @@ class ModerationResult:
     seller_tg_user_id: int | None = None
     winner_tg_user_id: int | None = None
     target_tg_user_id: int | None = None
+    finalize_result: object | None = None
 
 
 @dataclass(slots=True)
@@ -329,27 +330,19 @@ async def end_auction(
     auction_id: uuid.UUID,
     reason: str,
 ) -> ModerationResult:
-    auction = await _get_auction_for_update(session, auction_id)
+    from app.services.auction_service import FinalizeResult, _finalize_auction_locked, get_auction_by_id
+
+    auction = await get_auction_by_id(session, auction_id, for_update=True)
     if auction is None:
         return ModerationResult(False, "Аукцион не найден")
 
     if auction.status not in {AuctionStatus.ACTIVE, AuctionStatus.FROZEN}:
         return ModerationResult(False, "Завершить можно только активный/замороженный аукцион")
 
-    top_bid = await _top_bid(session, auction.id)
-    winner_user: User | None = None
-    if top_bid is not None:
-        auction.winner_user_id = top_bid.user_id
-        winner_user = await session.scalar(select(User).where(User.id == top_bid.user_id))
-    else:
-        auction.winner_user_id = None
+    finalized: FinalizeResult | None = await _finalize_auction_locked(
+        session, auction, status=AuctionStatus.ENDED
+    )
 
-    now = datetime.now(UTC)
-    auction.status = AuctionStatus.ENDED
-    auction.ends_at = now
-    auction.updated_at = now
-
-    seller = await session.scalar(select(User).where(User.id == auction.seller_user_id))
     await _log_action(
         session,
         actor_user_id=actor_user_id,
@@ -358,12 +351,16 @@ async def end_auction(
         auction_id=auction.id,
     )
 
+    if finalized is None:
+        return ModerationResult(True, "Аукцион завершен модератором", auction_id=auction.id)
+
     return ModerationResult(
         True,
         "Аукцион завершен модератором",
-        auction_id=auction.id,
-        seller_tg_user_id=seller.tg_user_id if seller else None,
-        winner_tg_user_id=winner_user.tg_user_id if winner_user else None,
+        auction_id=finalized.auction_id,
+        seller_tg_user_id=finalized.seller_tg_user_id,
+        winner_tg_user_id=finalized.winner_tg_user_id,
+        finalize_result=finalized,
     )
 
 
@@ -411,6 +408,10 @@ async def remove_bid(
         target_user_id=bid.user_id,
         payload={"amount": bid.amount},
     )
+
+    from app.services.reputation_service import adjust_reputation
+
+    await adjust_reputation(session, bid.user_id, -5, "bid_removed", source_id=bid.id)
 
     target_user = await session.scalar(select(User).where(User.id == bid.user_id))
     return ModerationResult(
@@ -466,6 +467,11 @@ async def ban_user(
         target_user_id=target_user.id,
         auction_id=auction_id,
     )
+
+    from app.services.reputation_service import adjust_reputation
+
+    await adjust_reputation(session, target_user.id, 0, "perm_ban")
+
     return ModerationResult(True, "Пользователь заблокирован", target_tg_user_id=target_tg_user_id)
 
 

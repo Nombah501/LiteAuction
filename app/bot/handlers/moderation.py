@@ -25,9 +25,14 @@ from app.bot.keyboards.moderation import (
     moderation_panel_keyboard,
     moderation_signals_list_keyboard,
 )
-from app.bot.keyboards.auction import open_auction_post_keyboard
+from app.bot.keyboards.auction import (
+    deal_completion_keyboard,
+    moderation_completion_keyboard,
+    no_bids_keyboard,
+    open_auction_post_keyboard,
+)
 from app.config import settings
-from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType
+from app.db.enums import AppealSourceType, AppealStatus, AuctionStatus, ModerationAction, PointsEventType, ReputationEventReason
 from app.db.models import Appeal, Auction, User
 from app.db.session import SessionFactory
 from app.services.bot_profile_photo_service import (
@@ -102,11 +107,15 @@ from app.services.private_topics_service import (
 from app.services.notification_policy_service import NotificationEventType
 from app.services.notification_copy_service import (
     moderation_bid_removed_text,
+    moderation_completion_text,
     moderation_ended_text,
     moderation_frozen_text,
     moderation_unfrozen_text,
     moderation_winner_text,
+    seller_completion_text,
+    seller_no_bids_text,
     short_auction_ref,
+    winner_completion_text,
 )
 from app.services.notification_metrics_service import load_notification_metrics_snapshot
 from app.services.bot_funnel_metrics_service import (
@@ -123,6 +132,7 @@ from app.services.rbac_service import (
     SCOPE_USER_BAN,
 )
 from app.services.user_service import upsert_user
+from app.services.reputation_service import adjust_reputation, get_or_create_reputation, get_reputation_history
 from app.services.verification_service import (
     get_user_verification_status,
     load_verified_tg_user_ids,
@@ -214,6 +224,15 @@ def _format_user_label(user: User | None) -> str:
     if user.username:
         return f"@{user.username}"
     return str(user.tg_user_id)
+
+
+def _build_result_mention(username: str | None, first_name: str | None, tg_id: int | None) -> str:
+    if tg_id is None:
+        return "нет"
+    if username:
+        return f"@{username}"
+    display = first_name or "Пользователь"
+    return f'<a href="tg://user?id={tg_id}">{display}</a>'
 
 
 def _format_actor_label(*, tg_user_id: int | None, username: str | None) -> str:
@@ -2056,38 +2075,111 @@ async def mod_end(message: Message, bot: Bot) -> None:
     await refresh_auction_posts(bot, auction_id)
     await message.answer(result.message)
 
-    reply_markup = await _auction_post_keyboard(bot, auction_id)
-    if result.seller_tg_user_id:
-        await send_user_topic_message(
-            bot,
-            tg_user_id=result.seller_tg_user_id,
-            purpose=PrivateTopicPurpose.AUCTIONS,
-            text=moderation_ended_text(auction_id),
-            reply_markup=reply_markup,
-            notification_event=NotificationEventType.AUCTION_MOD_ACTION,
-            auction_id=auction_id,
+    from app.services.auction_service import FinalizeResult
+
+    fin: FinalizeResult | None = result.finalize_result
+    post_url = await resolve_auction_post_url(bot, auction_id=auction_id)
+    short_id = str(auction_id)[:8]
+
+    if fin is not None:
+        winner_mention = _build_result_mention(
+            fin.winner_username, fin.winner_first_name, fin.winner_tg_user_id,
         )
-    if result.winner_tg_user_id:
-        await send_user_topic_message(
-            bot,
-            tg_user_id=result.winner_tg_user_id,
-            purpose=PrivateTopicPurpose.AUCTIONS,
-            text=moderation_winner_text(auction_id),
-            reply_markup=reply_markup,
-            notification_event=NotificationEventType.AUCTION_MOD_ACTION,
-            auction_id=auction_id,
+        seller_mention = _build_result_mention(
+            fin.seller_username, fin.seller_first_name, fin.seller_tg_user_id,
         )
 
-    await _notify_auction_lifecycle_to_moderation(
-        bot,
-        section=ModerationTopicSection.AUCTIONS_CLOSED,
-        event_text=f"Лот {short_auction_ref(auction_id)} завершен модератором.",
-        actor_tg_user_id=message.from_user.id,
-        actor_username=message.from_user.username,
-        reason=reason,
-        winner_tg_user_id=result.winner_tg_user_id,
-        reply_markup=reply_markup,
-    )
+        if fin.had_bids and fin.final_price is not None:
+            seller_text = seller_completion_text(
+                auction_id=auction_id,
+                description=fin.description or "",
+                final_price=fin.final_price,
+                counterparty_mention=winner_mention,
+                counterparty_role="победитель",
+                is_mod_action=True,
+            )
+            seller_kb = deal_completion_keyboard(auction_id=short_id, post_url=post_url, is_seller=True)
+        else:
+            seller_text = seller_no_bids_text(
+                auction_id=auction_id,
+                description=fin.description or "",
+                start_price=fin.final_price or 0,
+            )
+            seller_kb = no_bids_keyboard(auction_id=short_id, post_url=post_url)
+
+        if result.seller_tg_user_id:
+            await send_user_topic_message(
+                bot,
+                tg_user_id=result.seller_tg_user_id,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                text=seller_text,
+                reply_markup=seller_kb,
+                notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+                auction_id=auction_id,
+            )
+
+        if fin.winner_tg_user_id is not None and fin.had_bids and fin.final_price is not None:
+            winner_text = winner_completion_text(
+                auction_id=auction_id,
+                description=fin.description or "",
+                final_price=fin.final_price,
+                counterparty_mention=seller_mention,
+                counterparty_role="продавец",
+                is_mod_action=True,
+            )
+            winner_kb = deal_completion_keyboard(auction_id=short_id, post_url=post_url, is_seller=False)
+            await send_user_topic_message(
+                bot,
+                tg_user_id=fin.winner_tg_user_id,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                text=winner_text,
+                reply_markup=winner_kb,
+                notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+                auction_id=auction_id,
+            )
+
+        mod_text = moderation_completion_text(
+            auction_id=auction_id,
+            description=fin.description or "",
+            final_price=fin.final_price or 0,
+            bid_count=0,
+            seller_mention=seller_mention,
+            winner_mention=winner_mention,
+            seller_reputation=0,
+            winner_reputation=0,
+            has_deal_topic=False,
+            has_guarantor=False,
+            reason="модератором",
+        )
+        mod_kb = moderation_completion_keyboard(auction_id=short_id, post_url=post_url)
+        await send_section_message(
+            bot,
+            section=ModerationTopicSection.AUCTIONS_CLOSED,
+            text=mod_text,
+            reply_markup=mod_kb,
+        )
+    else:
+        reply_markup = await _auction_post_keyboard(bot, auction_id)
+        if result.seller_tg_user_id:
+            await send_user_topic_message(
+                bot,
+                tg_user_id=result.seller_tg_user_id,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                text=moderation_ended_text(auction_id),
+                reply_markup=reply_markup,
+                notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+                auction_id=auction_id,
+            )
+        if result.winner_tg_user_id:
+            await send_user_topic_message(
+                bot,
+                tg_user_id=result.winner_tg_user_id,
+                purpose=PrivateTopicPurpose.AUCTIONS,
+                text=moderation_winner_text(auction_id),
+                reply_markup=reply_markup,
+                notification_event=NotificationEventType.AUCTION_MOD_ACTION,
+                auction_id=auction_id,
+            )
 
 
 @router.message(Command("bids"), F.chat.type == ChatType.PRIVATE)
@@ -3480,3 +3572,84 @@ async def mod_risk_action(callback: CallbackQuery, bot: Bot) -> None:
             pass
 
     await callback.answer(callback_message)
+
+
+@router.message(Command("reputation"), F.chat.type == ChatType.PRIVATE)
+async def command_reputation(message: Message, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+    if not await _ensure_moderation_topic(message, bot, "/reputation"):
+        return
+
+    target_text = (message.text or "").strip().split(maxsplit=1)
+    if len(target_text) < 2:
+        await message.answer("Формат: /reputation <user_id>")
+        return
+
+    try:
+        target_user_id = int(target_text[1].strip())
+    except ValueError:
+        await message.answer("user_id должен быть числом")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            reputation = await get_or_create_reputation(session, target_user_id)
+            history = await get_reputation_history(session, target_user_id, limit=10)
+            user = await session.scalar(select(User).where(User.id == target_user_id))
+
+    tier_labels = {
+        "NEW": "🆕 NEW",
+        "BRONZE": "🥉 BRONZE",
+        "SILVER": "🥈 SILVER",
+        "GOLD": "🥇 GOLD",
+        "PLATINUM": "💎 PLATINUM",
+    }
+    user_label = f"@{user.username}" if user and user.username else str(target_user_id)
+    tier_display = tier_labels.get(reputation.tier, reputation.tier)
+
+    lines = [
+        f"Пользователь: {user_label}",
+        f"Уровень: {tier_display} (score: {reputation.score})",
+        "",
+        "Последние события:",
+    ]
+    for event in history:
+        sign = "+" if event.delta > 0 else ""
+        lines.append(f"  {sign}{event.delta} — {event.reason}")
+
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("modrepadjust"), F.chat.type == ChatType.PRIVATE)
+async def command_mod_reputation_adjust(message: Message, bot: Bot) -> None:
+    if message.from_user is None:
+        return
+    if not await _ensure_moderation_topic(message, bot, "/modrepadjust"):
+        return
+
+    parts = (message.text or "").strip().split(maxsplit=3)
+    if len(parts) < 3:
+        await message.answer("Формат: /modrepadjust <user_id> <delta> [reason]")
+        return
+
+    try:
+        target_user_id = int(parts[1])
+        delta = int(parts[2])
+    except ValueError:
+        await message.answer("user_id и delta должны быть числами")
+        return
+
+    async with SessionFactory() as session:
+        async with session.begin():
+            reputation = await adjust_reputation(
+                session, target_user_id, delta, ReputationEventReason.MOD_ADJUST
+            )
+
+    if reputation is None:
+        await message.answer("Пользователь не найден или нет записи репутации")
+        return
+
+    await message.answer(
+        f"Репутация обновлена: score={reputation.score}, tier={reputation.tier}"
+    )

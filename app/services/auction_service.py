@@ -21,9 +21,14 @@ from aiogram.types import InlineKeyboardMarkup, InputMediaPhoto
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.auction import auction_active_keyboard, open_auction_post_keyboard
+from app.bot.keyboards.auction import (
+    auction_active_keyboard,
+    deal_completion_keyboard,
+    moderation_completion_keyboard,
+    no_bids_keyboard,
+)
 from app.config import settings
-from app.db.enums import AuctionStatus
+from app.db.enums import AuctionStatus, ReputationEventReason
 from app.db.models import Auction, AuctionPhoto, AuctionPost, Bid, BlacklistEntry, Complaint, User
 from app.db.session import SessionFactory
 from app.services.fraud_service import evaluate_and_store_bid_fraud_signal
@@ -34,7 +39,13 @@ from app.services.message_effects_service import (
 from app.services.moderation_topic_router import ModerationTopicSection, send_section_message
 from app.services.private_topics_service import PrivateTopicPurpose, send_user_topic_message
 from app.services.notification_policy_service import NotificationEventType
-from app.services.notification_copy_service import auction_finished_text, auction_winner_text, short_auction_ref
+from app.services.notification_copy_service import (
+    moderation_completion_text,
+    seller_completion_text,
+    seller_no_bids_text,
+    winner_completion_text,
+)
+from app.services.reputation_service import adjust_reputation
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +84,13 @@ class BidActionResult:
     placed_bid_amount: int | None = None
     created_bid_id: uuid.UUID | None = None
     fraud_signal_id: int | None = None
+    final_price: int | None = None
+    description: str | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
+    seller_username: str | None = None
+    seller_first_name: str | None = None
+    had_bids: bool = True
 
 
 @dataclass(slots=True)
@@ -80,6 +98,22 @@ class FinalizeResult:
     auction_id: uuid.UUID
     winner_tg_user_id: int | None
     seller_tg_user_id: int
+    final_price: int | None = None
+    description: str | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
+    seller_username: str | None = None
+    seller_first_name: str | None = None
+    had_bids: bool = True
+
+
+def _build_result_mention(username: str | None, first_name: str | None, tg_id: int | None) -> str:
+    if tg_id is None:
+        return "нет"
+    if username:
+        return f"@{username}"
+    display = first_name or "Пользователь"
+    return f'<a href="tg://user?id={tg_id}">{display}</a>'
 
 
 def parse_auction_uuid(value: str) -> uuid.UUID | None:
@@ -506,17 +540,37 @@ async def _finalize_auction_locked(
 
     seller = await session.scalar(select(User).where(User.id == auction.seller_user_id))
     winner_tg_user_id: int | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
     if winner_user_id is not None:
         winner = await session.scalar(select(User).where(User.id == winner_user_id))
         winner_tg_user_id = winner.tg_user_id if winner is not None else None
+        if winner is not None:
+            winner_username = winner.username
+            winner_first_name = winner.first_name
 
     if seller is None:
         return None
+
+    await adjust_reputation(session, auction.seller_user_id, 3, ReputationEventReason.AUCTION_COMPLETED)
+    if winner_user_id is not None:
+        await adjust_reputation(session, winner_user_id, 2, ReputationEventReason.BID_WON)
+
+    top_bids = await _top_bids_for_auction(session, auction.id, limit=1)
+    final_price = top_bids[0].amount if top_bids else None
+    had_bids = len(top_bids) > 0
 
     return FinalizeResult(
         auction_id=auction.id,
         winner_tg_user_id=winner_tg_user_id,
         seller_tg_user_id=seller.tg_user_id,
+        final_price=final_price,
+        description=auction.description,
+        winner_username=winner_username,
+        winner_first_name=winner_first_name,
+        seller_username=seller.username,
+        seller_first_name=seller.first_name,
+        had_bids=had_bids,
     )
 
 
@@ -605,6 +659,13 @@ async def process_bid_action(
 
     winner_tg_user_id: int | None = None
     seller_tg_user_id: int | None = None
+    final_price: int | None = None
+    description: str | None = None
+    winner_username: str | None = None
+    winner_first_name: str | None = None
+    seller_username: str | None = None
+    seller_first_name: str | None = None
+    had_bids: bool = True
 
     if buyout_triggered:
         finalized = await _finalize_auction_locked(
@@ -616,6 +677,13 @@ async def process_bid_action(
         if finalized is not None:
             winner_tg_user_id = finalized.winner_tg_user_id
             seller_tg_user_id = finalized.seller_tg_user_id
+            final_price = finalized.final_price
+            description = finalized.description
+            winner_username = finalized.winner_username
+            winner_first_name = finalized.winner_first_name
+            seller_username = finalized.seller_username
+            seller_first_name = finalized.seller_first_name
+            had_bids = finalized.had_bids
         return BidActionResult(
             success=True,
             should_refresh=True,
@@ -627,6 +695,13 @@ async def process_bid_action(
             outbid_tg_user_id=outbid_tg_user_id,
             created_bid_id=created_bid.id,
             fraud_signal_id=fraud_signal_id,
+            final_price=final_price,
+            description=description,
+            winner_username=winner_username,
+            winner_first_name=winner_first_name,
+            seller_username=seller_username,
+            seller_first_name=seller_first_name,
+            had_bids=had_bids,
         )
 
     if (
@@ -824,44 +899,86 @@ async def finalize_expired_auctions(bot: Bot) -> int:
 
     for result in finalized_results:
         post_url = await resolve_auction_post_url(bot, auction_id=result.auction_id)
-        reply_markup = open_auction_post_keyboard(post_url) if post_url else None
+        short_id = str(result.auction_id)[:8]
+
+        winner_mention = _build_result_mention(
+            result.winner_username, result.winner_first_name, result.winner_tg_user_id
+        )
+        seller_mention = _build_result_mention(
+            result.seller_username, result.seller_first_name, result.seller_tg_user_id
+        )
+
+        if result.had_bids and result.final_price is not None:
+            seller_text = seller_completion_text(
+                auction_id=result.auction_id,
+                description=result.description or "",
+                final_price=result.final_price,
+                counterparty_mention=winner_mention,
+                counterparty_role="победитель",
+                is_buyout=False,
+            )
+            seller_kb = deal_completion_keyboard(auction_id=short_id, post_url=post_url, is_seller=True)
+        else:
+            seller_text = seller_no_bids_text(
+                auction_id=result.auction_id,
+                description=result.description or "",
+                start_price=result.final_price or 0,
+            )
+            seller_kb = no_bids_keyboard(auction_id=short_id, post_url=post_url)
+
         await send_user_topic_message(
             bot,
             tg_user_id=result.seller_tg_user_id,
             purpose=PrivateTopicPurpose.AUCTIONS,
-            text=auction_finished_text(result.auction_id),
-            reply_markup=reply_markup,
-            message_effect_id=resolve_auction_message_effect_id(
-                AuctionMessageEffectEvent.ENDED_SELLER
-            ),
+            text=seller_text,
+            reply_markup=seller_kb,
+            message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.ENDED_SELLER),
             notification_event=NotificationEventType.AUCTION_FINISH,
             auction_id=result.auction_id,
         )
 
-        if result.winner_tg_user_id is not None:
+        if result.winner_tg_user_id is not None and result.had_bids and result.final_price is not None:
+            winner_text = winner_completion_text(
+                auction_id=result.auction_id,
+                description=result.description or "",
+                final_price=result.final_price,
+                counterparty_mention=seller_mention,
+                counterparty_role="продавец",
+                is_buyout=False,
+            )
+            winner_kb = deal_completion_keyboard(auction_id=short_id, post_url=post_url, is_seller=False)
+
             await send_user_topic_message(
                 bot,
                 tg_user_id=result.winner_tg_user_id,
                 purpose=PrivateTopicPurpose.AUCTIONS,
-                text=auction_winner_text(result.auction_id),
-                reply_markup=reply_markup,
-                message_effect_id=resolve_auction_message_effect_id(
-                    AuctionMessageEffectEvent.ENDED_WINNER
-                ),
+                text=winner_text,
+                reply_markup=winner_kb,
+                message_effect_id=resolve_auction_message_effect_id(AuctionMessageEffectEvent.ENDED_WINNER),
                 notification_event=NotificationEventType.AUCTION_WIN,
                 auction_id=result.auction_id,
             )
 
-        winner_label = str(result.winner_tg_user_id) if result.winner_tg_user_id is not None else "нет"
+        mod_text = moderation_completion_text(
+            auction_id=result.auction_id,
+            description=result.description or "",
+            final_price=result.final_price or 0,
+            bid_count=0,
+            seller_mention=seller_mention,
+            winner_mention=winner_mention,
+            seller_reputation=0,
+            winner_reputation=0,
+            has_deal_topic=False,
+            has_guarantor=False,
+            reason="по таймеру",
+        )
+        mod_kb = moderation_completion_keyboard(auction_id=short_id, post_url=post_url)
+
         await send_section_message(
             bot,
             section=ModerationTopicSection.AUCTIONS_CLOSED,
-            text=(
-                f"Автозавершение: лот {short_auction_ref(result.auction_id)} закрыт по таймеру.\n"
-                f"Продавец: {result.seller_tg_user_id}\n"
-                f"Победитель: {winner_label}"
-            ),
-            reply_markup=reply_markup,
+            text=mod_text,
+            reply_markup=mod_kb,
         )
 
     return len(finalized_results)
