@@ -223,7 +223,6 @@ async def test_triage_markup_renders_for_primary_queues(monkeypatch) -> None:
     monkeypatch.setattr("app.web.routers.signals.list_fraud_signals", _list_signals)
     monkeypatch.setattr("app.web.routers.complaints._load_dense_list_config", _dense)
     monkeypatch.setattr("app.web.routers.signals._load_dense_list_config", _dense)
-    monkeypatch.setattr("app.web.routers.complaints._load_user_risk_snapshot_map", _risk_map)
     monkeypatch.setattr("app.web.routers.signals._load_user_risk_snapshot_map", _risk_map)
 
     complaints_body = bytes((await complaints(_make_request("/complaints"))).body).decode("utf-8")
@@ -257,7 +256,6 @@ async def test_triage_markup_renders_for_trade_feedback_and_appeals(monkeypatch)
     async def _risk_map(*_args, **_kwargs):
         return {}
 
-    monkeypatch.setattr("app.web.routers.trade_feedback._load_user_risk_snapshot_map", _risk_map)
     monkeypatch.setattr("app.web.routers.appeals._load_user_risk_snapshot_map", _risk_map)
 
     feedback_body = bytes((await trade_feedback(_make_request("/trade-feedback"))).body).decode("utf-8")
@@ -296,7 +294,6 @@ async def test_triage_markup_includes_keyboard_focus_and_scroll_hooks(monkeypatc
     monkeypatch.setattr("app.web.routers.complaints.SessionFactory", _stub_session_factory)
     monkeypatch.setattr("app.web.routers.complaints.list_complaints", _list_complaints)
     monkeypatch.setattr("app.web.routers.complaints._load_dense_list_config", _dense)
-    monkeypatch.setattr("app.web.routers.complaints._load_user_risk_snapshot_map", _risk_map)
 
     body = bytes((await complaints(_make_request("/complaints"))).body).decode("utf-8")
 

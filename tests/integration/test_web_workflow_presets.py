@@ -164,9 +164,7 @@ async def test_queue_routes_render_preset_controls_for_required_contexts(monkeyp
     async def _risk_map(*_args, **_kwargs):
         return {}
 
-    monkeypatch.setattr("app.web.routers.complaints._load_user_risk_snapshot_map", _risk_map)
     monkeypatch.setattr("app.web.routers.signals._load_user_risk_snapshot_map", _risk_map)
-    monkeypatch.setattr("app.web.routers.trade_feedback._load_user_risk_snapshot_map", _risk_map)
     monkeypatch.setattr("app.web.routers.appeals._load_user_risk_snapshot_map", _risk_map)
 
     complaints_body = bytes((await complaints(_make_request("/complaints"))).body).decode("utf-8")
